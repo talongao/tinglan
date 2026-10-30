@@ -1,6 +1,8 @@
 # 实现状态
 
-分支/CI 调整（2026-10-30）：按用户最新要求启用 develop 开发、main PR-only（管理员同样受限，禁止强推/删除，要求 Build gate）。main 合并自动构建 macOS arm64/x64 与 Windows x64 并发布唯一构建标签 Latest；develop 只手动选择目标并保存 artifacts。Windows 首轮 CI/安装与播放实机验证尚待完成；Linux 不打包。此前仅 macOS、版本标签触发的记录为历史配置。
+Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均通过，Windows x64 的全模块单元测试、vet、34 项 headless UI 检查、NSIS 打包均成功。安装包 tinglan-0.0.2-x64-setup-unsigned.exe 已下载核验 SHA256。修复 MSYS2 安装路径、字体枚举回调指针类型，以及窗口/字体弹窗同名“关闭”导致自动化误点的问题。未跳过失败检查；PR 构建没有发布 Release。Windows 真实安装、登录、音频输出和托盘操作仍未实机验收。
+
+分支/CI 调整（2026-10-30）：按用户最新要求启用 develop 开发、main PR-only（管理员同样受限，禁止强推/删除，要求 Build gate）。main 合并自动构建 macOS arm64/x64 与 Windows x64 并发布唯一构建标签 Latest；develop 只手动选择目标并保存 artifacts。Windows CI 已通过（见下方证据）；安装与播放实机验证仍待完成，Linux 不打包。此前仅 macOS、版本标签触发的记录为历史配置。
 
 更新时间：2026-10-30。最新凭据决策：用户选择应用数据目录存储，覆盖本文较早的钥匙串/固定签名记录。用户要求用 Viva 迁移，覆盖历史“不换 Go”规则。默认启动已切换 Viva；2026-10-30 已移除旧 Electron 源码与工具，原用户数据保留。没有访问私人会话、扫码、真实写操作、提交、推送或发布。
 
