@@ -1,29 +1,54 @@
-name: Tinglan macOS DMG
+name: Tinglan native builds
 on:
-  workflow_dispatch:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      mac_arm64:
+        description: macOS Apple Silicon DMG
+        type: boolean
+        default: true
+      mac_x64:
+        description: macOS Intel DMG
+        type: boolean
+        default: false
+      windows_x64:
+        description: Windows x64 installer
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: macos-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: native-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
-  macos:
-    name: macOS ${{ matrix.arch }}
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.targets.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: targets
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          MAC_ARM64: ${{ inputs.mac_arm64 }}
+          MAC_X64: ${{ inputs.mac_x64 }}
+          WINDOWS_X64: ${{ inputs.windows_x64 }}
+        run: node native/scripts/ci-targets.mjs
+  build:
+    needs: plan
+    name: Build ${{ matrix.id }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: macos-15
-            arch: arm64
-          - os: macos-15-intel
-            arch: x64
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -33,65 +58,98 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: Verify runner architecture
+      - name: Windows C compiler
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+          path-type: inherit
+      - name: Configure Windows tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+          "CC=C:/msys64/ucrt64/bin/gcc.exe" >> $env:GITHUB_ENV
+          "CGO_ENABLED=1" >> $env:GITHUB_ENV
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "HWMUSIC_MAKENSIS=C:/Program Files (x86)/NSIS/makensis.exe" >> $env:GITHUB_ENV
+      - name: Verify architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: node -e 'if (process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
-      - name: Fetch dependencies and license sources
+      - name: Dependencies and license sources
         working-directory: native
         run: go mod download
       - name: Tests
         working-directory: native
-        run: go test ./... -count=1 -timeout 120s
+        run: go test ./... -count=1 -timeout 180s
       - name: Static checks
         working-directory: native
         run: go vet ./...
       - name: UI checks
         run: npm run test:native:ui
-      - name: Build unsigned DMG
-        run: node native/scripts/package.mjs mac ${{ matrix.arch }}
-      - name: Upload DMG and checksum
+      - name: Package
+        run: node native/scripts/package.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+      - name: Upload installer and checksum
         uses: actions/upload-artifact@v4
         with:
-          name: tinglan-macos-${{ matrix.arch }}-unsigned
-          path: |
-            release/native/darwin-${{ matrix.arch }}/*.dmg
-            release/native/darwin-${{ matrix.arch }}/SHA256SUMS
+          name: tinglan-${{ matrix.id }}-unsigned
+          path: release/native/${{ matrix.directory }}/*
           if-no-files-found: error
           retention-days: 14
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.id }}
+          path: out/native/qa/
+          if-no-files-found: ignore
+  gate:
+    name: Build gate
+    if: always()
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          PLAN: ${{ needs.plan.result }}
+          BUILD: ${{ needs.build.result }}
+        run: test "$PLAN" = success && test "$BUILD" = success
   release:
-    name: Publish macOS release
-    needs: macos
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish latest
+    needs: gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Check tag version
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: node -e 'if (process.env.RELEASE_TAG !== "v" + require("./package.json").version) process.exit(1)'
       - uses: actions/download-artifact@v4
         with:
-          pattern: tinglan-macos-*-unsigned
+          pattern: tinglan-*-unsigned
           path: artifacts
-      - name: Verify and collect both architectures
-        shell: bash
+      - name: Verify all three installers
         run: |
           set -euo pipefail
           mkdir release-assets
-          for arch in arm64 x64; do
-            dir="artifacts/tinglan-macos-${arch}-unsigned"
+          for target in macos-arm64 macos-x64 windows-x64; do
+            dir="artifacts/tinglan-${target}-unsigned"
             (cd "$dir" && sha256sum --check SHA256SUMS)
-            cp "$dir"/*.dmg release-assets/
+            find "$dir" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.exe' \) -exec cp {} release-assets/ \;
             cat "$dir/SHA256SUMS" >> release-assets/SHA256SUMS
           done
-      - name: Publish latest release
+          test "$(find release-assets -type f | wc -l)" -eq 4
+      - name: Publish immutable build as latest
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          gh release create "$RELEASE_TAG" release-assets/* \
-            --verify-tag --latest --title "听澜 Tinglan $RELEASE_TAG（macOS 测试版）" \
+          set -euo pipefail
+          version=$(node -p 'require("./package.json").version')
+          tag="v${version}-build.${RUN_NUMBER}"
+          gh release create "$tag" release-assets/* --target "$COMMIT" \
+            --latest --title "听澜 Tinglan ${version} · Build ${RUN_NUMBER}" \
             --notes-file docs/RELEASE_NOTES.md

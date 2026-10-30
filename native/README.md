@@ -15,7 +15,7 @@ npm run dist
 
 脚本支持 `HWMUSIC_GO`。默认 Go 不在 PATH 时，启动器可使用已构建的本平台独立程序；源码修改后仍需重建。macOS 需要 Xcode Command Line Tools；Linux 需要 X11/XCB、Vulkan、Pango/Cairo 和音频设备；Windows 需要 cgo 编译器。原生依赖由 Go 获取，不需要 Electron。图标与共享名称已生成，图标矢量源与 ISC 许可保存在 `native/assets/lucide/`；只有栅格化图标才需要根目录 Playwright 开发依赖（`native/scripts/make-icon.mjs`）；`generate-assets.mjs` 仅使用 Node.js 与 Go。
 
-`build` / `dist` 默认均为原生。CI 仅构建 macOS arm64 / Intel x64 的 DMG 和校验和；版本标签触发Release 并标为 Latest；Windows/Linux 暂不打包。原生 Windows 为当前用户 NSIS 安装包，卸载保留应用数据；macOS 为 DMG；Linux 为 tar.gz（需系统运行库），不冒充 AppImage。Windows/Linux 打包脚本尚未实机执行。
+`build` / `dist` 默认均为原生。开发统一在 `develop`，Actions 手动勾选 macOS arm64 / Intel x64 / Windows x64，只上传 artifacts。PR 到 `main` 执行三平台检查，必须通过 `Build gate`；合并后重新构建三平台并自动发布 Latest。标签为 `v<package.version>-build.<run_number>`，不覆盖旧版本。Windows 使用当前用户 NSIS 安装包，尚未实机验收；Linux 暂不打包。手动工作流必须选择 develop 且至少勾选一个平台。
 
 本地 `.app` 位于 `out/native/Tinglan.app`，独立程序位于 `out/native/tinglan/<platform>-<arch>/`，带许可证与 SHA256。默认未签名；仅显式设置签名环境变量时使用证书。未公证、不发布，不注册全局 hms。
 

@@ -1,5 +1,7 @@
 # 实现状态
 
+分支/CI 调整（2026-10-30）：按用户最新要求启用 develop 开发、main PR-only（管理员同样受限，禁止强推/删除，要求 Build gate）。main 合并自动构建 macOS arm64/x64 与 Windows x64 并发布唯一构建标签 Latest；develop 只手动选择目标并保存 artifacts。Windows 首轮 CI/安装与播放实机验证尚待完成；Linux 不打包。此前仅 macOS、版本标签触发的记录为历史配置。
+
 更新时间：2026-10-30。最新凭据决策：用户选择应用数据目录存储，覆盖本文较早的钥匙串/固定签名记录。用户要求用 Viva 迁移，覆盖历史“不换 Go”规则。默认启动已切换 Viva；2026-10-30 已移除旧 Electron 源码与工具，原用户数据保留。没有访问私人会话、扫码、真实写操作、提交、推送或发布。
 
 发布流程更新（2026-10-30）：两架构 Actions 构建均已成功。仓库改名为 talongao/tinglan，About 已更新。新增 v* 标签发布 macOS 预发布 Release，合并并校验两架构 SHA256；普通分支仍只上传 artifacts。版本升级为 0.0.2，应用 Info.plist 从 package.json 读取版本。

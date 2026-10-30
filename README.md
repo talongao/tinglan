@@ -89,7 +89,7 @@ macOS 应用构建：
 npm run build:native:mac
 ```
 
-GitHub Actions 在 macOS arm64 与 Intel x64 原生 runner 上分别构建 DMG 和 SHA256 校验和，普通分支仅保存构建产物，推送与 package.json 版本一致的 v* 标签时自动发布Release 并标为 Latest；Windows/Linux 暂不打包。
+日常开发在 `develop`：到 Actions 手动选择 macOS Apple Silicon、macOS Intel 或 Windows x64 构建，试用包保留在 Artifacts，不发布 Release。`main` 仅接受通过检查的 PR；合并后自动构建三个版本，全部成功才发布到 [Latest Release](https://github.com/talongao/tinglan/releases/latest)。发布标签带独立构建编号，旧版本不会被覆盖。Windows 安装包仍为未完成实机验收的测试构建；Linux 暂不打包。
 
 平台依赖、打包与测试方式见[原生开发说明](native/README.md)。项目已移除旧 Electron 客户端，默认入口为原生版。
 
