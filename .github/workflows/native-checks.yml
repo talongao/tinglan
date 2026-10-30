@@ -59,6 +59,7 @@ jobs:
         with:
           node-version: '24'
       - name: Windows C compiler
+        id: msys
         if: runner.os == 'Windows'
         uses: msys2/setup-msys2@v2
         with:
@@ -69,9 +70,14 @@ jobs:
       - name: Configure Windows tools
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          MSYS_ROOT: ${{ steps.msys.outputs.msys2-location }}
         run: |
-          "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
-          "CC=C:/msys64/ucrt64/bin/gcc.exe" >> $env:GITHUB_ENV
+          $bin = Join-Path $env:MSYS_ROOT "ucrt64/bin"
+          $cc = Join-Path $bin "gcc.exe"
+          if (!(Test-Path $cc)) { throw "Missing C compiler: $cc" }
+          $bin >> $env:GITHUB_PATH
+          "CC=$cc" >> $env:GITHUB_ENV
           "CGO_ENABLED=1" >> $env:GITHUB_ENV
           choco install nsis --yes --no-progress
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
