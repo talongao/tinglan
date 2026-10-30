@@ -66,7 +66,7 @@
 
 听澜仍在持续打磨。目前以 **macOS Apple Silicon** 为主要开发与实际使用环境，本页截图也来自这一版本。Windows / Linux 已有适配代码与构建脚本，尚未完成实机验收。
 
-当前提供源码与本地构建方式，测试包未签名、未公证，尚不是正式发行版。原生界面与播放不依赖 Electron 或 Node.js；Node.js 仅用于仓库中的启动与构建脚本。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，Windows 需要已安装 Edge 或 Chrome，无需手动复制回调链接。
+当前提供源码与本地构建方式，测试包未签名、未公证，尚不是正式发行版。原生界面与播放不依赖 Electron 或 Node.js；Node.js 仅用于仓库中的启动与构建脚本。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，develop 中的 Windows 版本改用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
 
 <details>
 <summary><strong>从源码启动</strong></summary>

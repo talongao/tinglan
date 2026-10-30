@@ -28,6 +28,6 @@ if (process.platform === 'win32') {
   assert.ok(resources, 'Missing embedded Windows icon resources');
 }
 const licenses=await readFile(join(dir,'THIRD_PARTY_NOTICES.txt'),'utf8');
-for(const name of ['vivaui/viva','godbus/dbus','gorilla/websocket','media-winrt-go','go-ole'])assert.ok(licenses.includes(name),`Missing license ${name}`);
+for(const name of ['vivaui/viva','godbus/dbus','gorilla/websocket','media-winrt-go','go-ole','wailsapp/go-webview2/webviewloader','zzl/go-webview2','zzl/go-com','zzl/go-win32api'])assert.ok(licenses.includes(name),`Missing license ${name}`);
 assert.ok((await readFile(join(dir,'NOTICE.txt'),'utf8')).includes('OAuth'));
 console.log('Native payload allowlist, licenses and SHA256 verified');

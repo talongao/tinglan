@@ -4,6 +4,12 @@ package webauth
 func LoginErrorMessage(err error) string {
 	if err != nil {
 		switch err.Error() {
+		case "webview2 runtime unavailable":
+			return "登录需要 Microsoft Edge WebView2 Runtime，请安装后重试。"
+		case "authorization window initialization failed":
+			return "登录窗口初始化失败，请检查 WebView2 Runtime 后重试。"
+		case "authorization profile cleanup failed":
+			return "临时登录数据清理失败，本次登录未保存，请关闭登录窗口后重试。"
 		case "compatible authorization browser not installed":
 			return "登录需要已安装的 Edge 或 Chrome，请安装后重试。"
 		case "authorization page failed to load":

@@ -102,6 +102,12 @@ jobs:
           HWMUSIC_TEST_BROWSER: '1'
           HWMUSIC_TEST_BROWSER_VISIBLE: '1'
         run: go test ./internal/webauth -run TestSyntheticBrowser -count=1 -v -timeout 120s
+      - name: Windows WebView2 authorization regression
+        if: runner.os == 'Windows'
+        working-directory: native
+        env:
+          HWMUSIC_TEST_WEBVIEW2: '1'
+        run: go test ./internal/webauth -run 'TestWebView|TestSyntheticWebView' -count=1 -v -timeout 240s
       - name: Static checks
         working-directory: native
         run: go vet ./...

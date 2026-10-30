@@ -53,6 +53,8 @@ code_challenge_method=S256
 
 `http://127.0.0.1:8765/callback` 本次被拒绝为未注册地址。不要擅自改回调并假定能用。不得注册系统全局 hms:// 处理器覆盖其他应用；使用受限登录窗口内的导航拦截。
 
+2026-10-30 无登录复测：保持当前 client_id 与其他授权参数，只替换回调地址。`tinglan://oauth/callback`、`tinglan:/oauth2redirect` 均返回 1101/20022（invalid redirect_uri）；`http://127.0.0.1:8765/callback`、`http://127.0.0.1:49152/callback` 均返回 1101/20023（redirect_uri not registered）。对照 `hms://redirect_uri` 可进入扫码页。授权入口首个响应均可能为 HTTP 200，必须执行页面脚本后判断。此验证未登录或兑换令牌，不能据此声称完成账号授权。
+
 ### 2.2 授权码兑换
 
 `POST https://oauth-login.cloud.huawei.com/oauth2/v3/token`

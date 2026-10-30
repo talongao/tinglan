@@ -1,5 +1,9 @@
 # 实现状态
 
+Windows WebView2 登录试验（develop，2026-10-30）：Windows 的 Authorize 入口改为专用 WebView2 窗口，保留原 hms 回调、state/PKCE/单次消费，不枚举浏览器或注册全局协议。窗口使用独立临时 profile，关闭/取消/完成后释放 controller 并重试清理；拦截导航与新窗口、拒绝设备权限和下载，缺 Runtime 时明确提示。macOS 系统授权会话不变。使用 WebView2 Go loader 与 COM 绑定（不是引入 Wails UI），已补许可证收集。macOS 全模块测试/vet、Windows amd64 登录模块与测试交叉编译/vet 通过；新增 Windows 专属真实 WebView2 合成回归（302、JS、弹窗、取消、关闭、网络失败、重复登录）已接入手动构建步骤，尚未运行，真实扫码仍待用户验收。当前仅本地改动，未推送、未触发 CI、未合并或发布。
+
+回调地址实测（2026-10-30，develop）：使用当前 client_id、随机 state/PKCE、全新无登录 Chromium context，仅替换 redirect_uri 请求公开授权页。`hms://redirect_uri` 进入华为扫码登录页；`tinglan://oauth/callback` 与 `tinglan:/oauth2redirect` 均返回 error=1101/sub_error=20022（invalid redirect_uri）；`http://127.0.0.1:8765/callback` 与 `http://127.0.0.1:49152/callback` 均返回 error=1101/sub_error=20023（redirect_uri not registered）。实际执行了页面 JavaScript，不以首个 HTTP 200 判成功。复测脚本为 `native/scripts/probe-oauth-redirects.mjs`，需本地 playwright-core 与 Chromium（可通过 HWMUSIC_AUTH_BROWSER 指定），不进 CI、不读私人会话、不扫码、不兑换令牌。此结果仅覆盖当前 OAuth 身份与上述地址；保留现有自动回调流程，未注册系统协议、未合并或发布。
+
 登录流程纠正（develop）：撤回不可用的“默认浏览器 + 手动粘贴”方案，移除手动回调 UI。两端统一为授权窗口自动回调；macOS 保持系统 AuthenticationServices，Windows 使用隔离的 Edge/Chrome 窗口。修正 Edge 私密模式参数、等待 CDP 初始化完成再导航，导航失败及时结束并提示；Windows-only Actions 41022042185 已通过真实浏览器窗口的本地合成重定向、JS、取消及加载失败测试，并完成测试/vet/34 项 UI/打包/安装校验。本机 macOS 全模块测试、vet、34 项 UI 和 Chromium 合成测试通过。实际 Windows 华为扫码仍待验；未合并 main、未发布 Release。
 
 Windows 安装修复验证：手动 Windows-only Actions 41015868533 成功。测试/vet/UI、GUI subsystem 与 exe 内嵌资源检查、NSIS 打包、静默安装、中文“听澜.lnk”及目标文件哈希检查全部通过。先前安装检查失败源于 WScript 快捷方式读取返回空目标；改用 IShellLinkW/IPersistFile 后，目标与实际安装路径一致。产物 tinglan-windows-x64-unsigned 仅保留在 Actions；默认浏览器真实扫码、系统栏图标视觉与正常启动体验仍待用户验证，未合并/发布。
