@@ -1,5 +1,7 @@
 # 实现状态
 
+macOS 包签名修复（2026-10-30）：用户下载后提示损坏。实际安装包与 v0.0.2 Release arm64 DMG（均校验 SHA256）中的应用都只有 linker-signed/a.out、Info.plist not bound、Sealed Resources none，codesign strict 均报缺少资源签名；历史 Mac 打包脚本一致，不能归因于近期 Windows 改动。用户此前 Release 可打开的具体原因未确定，不以隔离标记推测代替证据。提交 d4f46f4 为无证书测试构建补完整 ad-hoc bundle seal，并在打包复制后验证。macOS arm64 Actions 41037078143 成功，新产物已下载、校验 SHA256、只读挂载，codesign --verify --deep --strict 通过，Info.plist 与资源已绑定；仍未获 Developer ID 签名/Apple 公证，不代表 Gatekeeper 自动放行。未修改用户已安装应用或移除其 quarantine，未合并 main/发布 Release。
+
 关闭行为默认值（2026-10-30）：新配置默认关闭窗口后隐藏到托盘，设置仍可选择退出；已有配置中明确保存的选择保持不变。用户反馈 Windows 其他功能暂无大问题，下一步提供 macOS Apple Silicon 测试包替换验证；仍留 develop，不合并 main 或发布 Release。
 
 Windows 用户反馈修复（2026-10-30，develop）：此前 NSIS 脚本 UTF-8 修复未覆盖独立读取的许可证文本，现许可证页使用 UTF-16LE BOM；完成页增加“打开听澜”。升级时将两种已知错误编码的听澜快捷方式移到安装目录 upgrade-backup（不删除其他快捷方式），新增残留升级检查与实际安装页 UI Automation 检查。WebView2 临时目录被 Runtime/杀毒软件占用时，旧逻辑会覆盖授权结果；现启用 InPrivate controller，目录清理失败改后台重试两分钟，不丢弃授权或取消结果。若退出或持续占用，临时运行时文件仍可能残留；未读取用户设备目录，不宣称已确认具体占用进程。新增持锁清理回归通过。Windows-only Actions 41034649213 全部通过：实际安装器协议框的中文、完成页启动选项、旧乱码快捷方式迁移、WebView2 私密会话的合成回调/取消/关闭/加载失败/重复登录及持锁清理均已核验。新安装包已下载并通过 SHA256 校验；真实华为扫码仍待用户验收，未合并 main 或发布 Release。
