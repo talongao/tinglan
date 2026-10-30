@@ -3,10 +3,17 @@ $root = (Resolve-Path "$PSScriptRoot/../..").Path
 $package = Get-ChildItem "$root/release/native/win32-x64/*-setup-unsigned.exe" | Select-Object -First 1
 if (!$package) { throw 'Installer missing' }
 $target = Join-Path $env:RUNNER_TEMP ('tinglan-install-' + [guid]::NewGuid().ToString('N'))
-$process = Start-Process $package.FullName -ArgumentList @('/S', "/D=$target") -Wait -PassThru
-if ($process.ExitCode -ne 0) { throw "Install failed: $($process.ExitCode)" }
 $name = ([char]0x542c).ToString() + [char]0x6f9c
 $programs = Join-Path ([Environment]::GetFolderPath('Programs')) 'Tinglan'
+New-Item -ItemType Directory -Force -Path $programs | Out-Null
+$oldName = [System.Text.Encoding]::GetEncoding(1252).GetString([System.Text.Encoding]::UTF8.GetBytes($name))
+$oldLink = Join-Path $programs ($oldName + '.lnk')
+[System.IO.File]::WriteAllText($oldLink, 'synthetic legacy shortcut')
+$process = Start-Process $package.FullName -ArgumentList @('/S', "/D=$target") -Wait -PassThru
+if ($process.ExitCode -ne 0) { throw "Install failed: $($process.ExitCode)" }
+if (Test-Path -LiteralPath $oldLink) { throw 'Legacy mojibake shortcut still visible' }
+$backup = Get-ChildItem (Join-Path $target 'upgrade-backup') -Filter '*.bak'
+if (!$backup) { throw 'Legacy shortcut was not preserved in upgrade backup' }
 $link = [System.IO.Path]::GetFullPath((Join-Path $programs "$name.lnk"))
 if (!(Test-Path -LiteralPath $link)) { throw 'Unicode Start Menu shortcut missing' }
 # Read through IShellLinkW/IPersistFile: WScript's shortcut automation can

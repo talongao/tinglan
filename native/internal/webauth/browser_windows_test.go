@@ -9,12 +9,44 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/zzl/go-win32api/v2/win32"
+	"golang.org/x/sys/windows"
 	"huawei-music-desktop/native/internal/huawei"
 )
+
+func TestWebViewProfileCleanupRetriesLockedFile(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "runtime-lock")
+	if err := os.WriteFile(file, []byte("synthetic"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path, _ := windows.UTF16PtrFromString(file)
+	handle, err := windows.CreateFile(path, windows.GENERIC_READ, windows.FILE_SHARE_READ, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	cleanupAuthProfile(dir)
+	if time.Since(start) > time.Second {
+		t.Error("file lock blocked authorization completion")
+	}
+	if _, err := os.Stat(file); err != nil {
+		t.Error("fixture did not hold the file lock")
+	}
+	windows.CloseHandle(handle)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("profile cleanup did not retry after runtime lock released")
+}
 
 func TestWebViewCancelledBeforeLaunch(t *testing.T) {
 	if NeedsManualCallback() {

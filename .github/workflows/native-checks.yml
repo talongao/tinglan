@@ -119,6 +119,10 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./native/scripts/check-windows-install.ps1
+      - name: Check Windows installer pages
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./native/scripts/check-windows-installer-ui.ps1
       - name: Upload installer and checksum
         uses: actions/upload-artifact@v4
         with:

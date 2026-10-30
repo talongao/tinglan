@@ -37,6 +37,13 @@ if(platform==='darwin'){
   artifact=join(output,`tinglan-${version}-${process.arch}-setup-unsigned.exe`);
   const esc=value=>value.replaceAll('$','$$').replaceAll('"','$\\"');
   const files=['tinglan.exe','LICENSE','THIRD_PARTY_NOTICES.txt','icon.LICENSE.txt','NOTICE.txt','SHA256SUMS'];
+  // LicenseData reads its own file encoding, independently of /INPUTCHARSET.
+  const licenseFile=join(staging,'license-utf16.txt');
+  await writeFile(licenseFile,Buffer.from('\ufeff'+APP_DISPLAY_NAME+' · 安装说明\r\n\r\n'+await readFile(join(payload,'NOTICE.txt'),'utf8'),'utf16le'));
+  const legacyNames=[...new Set([
+    Buffer.from(APP_DISPLAY_NAME,'utf8').toString('latin1'),
+    new TextDecoder('windows-1252').decode(Buffer.from(APP_DISPLAY_NAME,'utf8')),
+  ])].filter(name=>name!==APP_DISPLAY_NAME);
   const script=`Unicode true
 !include "MUI2.nsh"
 !define MUI_ICON "${esc(join(root,'out/native/windows-resources/app.ico'))}"
@@ -47,9 +54,11 @@ RequestExecutionLevel user
 InstallDir "$LOCALAPPDATA\\Programs\\Tinglan"
 InstallDirRegKey HKCU "Software\\HuaweiMusicViva" "InstallDir"
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "${esc(join(payload,'NOTICE.txt'))}"
+!insertmacro MUI_PAGE_LICENSE "${esc(licenseFile)}"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_RUN "$INSTDIR\\tinglan.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "打开${esc(APP_DISPLAY_NAME)}"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -60,6 +69,9 @@ Section
 ${files.map(file=>` File "${esc(join(payload,file))}"`).join('\n')}
  WriteUninstaller "$INSTDIR\\Uninstall.exe"
  CreateDirectory "$SMPROGRAMS\\Tinglan"
+ CreateDirectory "$INSTDIR\\upgrade-backup"
+${legacyNames.map((name,i)=>` IfFileExists "$SMPROGRAMS\\Tinglan\\${esc(name)}.lnk" 0 +2
+ Rename "$SMPROGRAMS\\Tinglan\\${esc(name)}.lnk" "$INSTDIR\\upgrade-backup\\legacy-shortcut-${i}.lnk.bak"`).join('\n')}
  CreateShortcut "$SMPROGRAMS\\Tinglan\\${esc(APP_DISPLAY_NAME)}.lnk" "$INSTDIR\\tinglan.exe"
  CreateShortcut "$SMPROGRAMS\\Tinglan\\Uninstall.lnk" "$INSTDIR\\Uninstall.exe"
  WriteRegStr HKCU "Software\\HuaweiMusicViva" "InstallDir" "$INSTDIR"

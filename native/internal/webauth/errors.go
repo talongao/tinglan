@@ -6,6 +6,8 @@ func LoginErrorMessage(err error) string {
 		switch err.Error() {
 		case "webview2 runtime unavailable":
 			return "登录需要 Microsoft Edge WebView2 Runtime，请安装后重试。"
+		case "webview2 runtime update required":
+			return "请更新 Microsoft Edge WebView2 Runtime 后重试登录。"
 		case "authorization window initialization failed":
 			return "登录窗口初始化失败，请检查 WebView2 Runtime 后重试。"
 		case "authorization profile cleanup failed":

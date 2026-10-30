@@ -108,14 +108,10 @@ func webViewAuthorize(ctx context.Context, address string, allowed func(string) 
 		return "", errors.New("temporary browser profile unavailable")
 	}
 	defer func() {
-		// WebView2 can hold profile files briefly after controller.Close.
-		for i := 0; i < 30; i++ {
-			if os.RemoveAll(dir) == nil {
-				return
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		result, resultErr = "", errors.New("authorization profile cleanup failed")
+		// Runtime/antivirus file locks must not discard a valid authorization.
+		// InPrivate keeps account cookies out of the on-disk profile. Only our
+		// freshly created directory is retried, never another browser's profile.
+		cleanupAuthProfile(dir)
 	}()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
@@ -191,7 +187,21 @@ func webViewAuthorize(ctx context.Context, address string, allowed func(string) 
 			}
 			return 0
 		}, true)
-		if e.CreateCoreWebView2Controller(hwnd, handler).FAILED() {
+		var privateEnv *wv2.ICoreWebView2Environment10
+		if e.QueryInterface(&wv2.IID_ICoreWebView2Environment10, unsafe.Pointer(&privateEnv)) < 0 || privateEnv == nil {
+			w.pending = false
+			w.finish("", errors.New("webview2 runtime update required"))
+			return
+		}
+		defer privateEnv.Release()
+		var options *wv2.ICoreWebView2ControllerOptions
+		if privateEnv.CreateCoreWebView2ControllerOptions(&options).FAILED() || options == nil {
+			w.pending = false
+			w.finish("", errors.New("authorization window initialization failed"))
+			return
+		}
+		defer options.Release()
+		if options.SetIsInPrivateModeEnabled(1).FAILED() || privateEnv.CreateCoreWebView2ControllerWithOptions(hwnd, options, handler).FAILED() {
 			w.pending = false
 			w.finish("", errors.New("authorization window initialization failed"))
 		}
@@ -211,6 +221,20 @@ func webViewAuthorize(ctx context.Context, address string, allowed func(string) 
 	}
 	runtime.KeepAlive(envHandler)
 	return w.result, w.err
+}
+
+func cleanupAuthProfile(dir string) {
+	if os.RemoveAll(dir) == nil {
+		return
+	}
+	go func() {
+		for i := 0; i < 120; i++ {
+			time.Sleep(time.Second)
+			if os.RemoveAll(dir) == nil {
+				return
+			}
+		}
+	}()
 }
 
 func (w *authWindow) inspect(raw string) bool {
