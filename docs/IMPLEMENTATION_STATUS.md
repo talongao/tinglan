@@ -1,5 +1,7 @@
 # 实现状态
 
+登录流程纠正（develop）：撤回不可用的“默认浏览器 + 手动粘贴”方案，移除手动回调 UI。两端统一为授权窗口自动回调；macOS 保持系统 AuthenticationServices，Windows 使用隔离的 Edge/Chrome 窗口。修正 Edge 私密模式参数、等待 CDP 初始化完成再导航，导航失败及时结束并提示；Windows CI 新增真实浏览器窗口的本地合成重定向/JS/取消测试，实际华为扫码仍待验。
+
 Windows 安装修复验证：手动 Windows-only Actions 41015868533 成功。测试/vet/UI、GUI subsystem 与 exe 内嵌资源检查、NSIS 打包、静默安装、中文“听澜.lnk”及目标文件哈希检查全部通过。先前安装检查失败源于 WScript 快捷方式读取返回空目标；改用 IShellLinkW/IPersistFile 后，目标与实际安装路径一致。产物 tinglan-windows-x64-unsigned 仅保留在 Actions；默认浏览器真实扫码、系统栏图标视觉与正常启动体验仍待用户验证，未合并/发布。
 
 CI 触发纠正：此前 develop 虽无 push 触发，但打开的 PR 会间接启动三平台构建。现调整为草稿 PR 全部跳过，正式 PR 仅 macOS 单平台测试/vet，不打包；develop 安装包只能手动勾选平台生成，默认全部不选。main 合并后的三平台打包/发布保持不变。

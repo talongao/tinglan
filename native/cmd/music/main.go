@@ -40,7 +40,6 @@ type model struct {
 	resourceState
 	applicationState
 	typeState
-	browserState
 	persistenceState
 	playAllPending     bool
 	audioRunning       bool
@@ -79,9 +78,6 @@ func newModel() *model {
 	client := huawei.NewClient()
 	m := &model{status: "请登录以读取个人音乐库。", authorize: webauth.Authorize, exchange: client.Exchange, validate: client.ValidateSession}
 	m.initDesktop()
-	if webauth.NeedsManualCallback() {
-		m.authorize = m.browserAuthorize
-	}
 	return m
 }
 
@@ -95,7 +91,7 @@ func (m *model) startLogin() {
 	m.generation++
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	m.cancel, m.busy, m.status = cancel, true, "请在系统浏览器完成华为授权"
+	m.cancel, m.busy, m.status = cancel, true, "请在授权窗口完成华为登录，完成后会自动返回听澜"
 	go func() {
 		defer cancel()
 		attempt := huawei.NewAttempt(time.Now())
@@ -133,7 +129,6 @@ func (m *model) cancelLogin() {
 func (m *model) wake() {
 	m.applySessionChecks()
 	m.applyPersistence()
-	m.applyBrowser()
 	m.applyMedia()
 	if m.reopen.Swap(false) && m.window != nil {
 		m.window.Show()
@@ -160,6 +155,9 @@ func (m *model) wake() {
 				continue
 			}
 			m.status = "登录未完成，请重试；原会话保持不变"
+			if !result.restored {
+				m.status = webauth.LoginErrorMessage(result.err)
+			}
 			if result.restored {
 				m.status = "请登录以读取个人音乐库。"
 			}

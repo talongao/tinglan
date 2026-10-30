@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-func TestWindowsUsesDefaultBrowserEvenWithChromiumInstalled(t *testing.T) {
+func TestWindowsNeverRequestsManualCallback(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows browser policy")
 	}
-	if !NeedsManualCallback() {
-		t.Fatal("Windows must open default browser, not isolated Chromium")
+	if NeedsManualCallback() {
+		t.Fatal("Windows login must capture the callback automatically")
 	}
 }
