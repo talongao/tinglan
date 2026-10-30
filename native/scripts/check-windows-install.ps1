@@ -6,10 +6,14 @@ $target = Join-Path $env:RUNNER_TEMP ('tinglan-install-' + [guid]::NewGuid().ToS
 $process = Start-Process $package.FullName -ArgumentList @('/S', "/D=$target") -Wait -PassThru
 if ($process.ExitCode -ne 0) { throw "Install failed: $($process.ExitCode)" }
 $name = ([char]0x542c).ToString() + [char]0x6f9c
-$link = Join-Path ([Environment]::GetFolderPath('Programs')) "Tinglan/$name.lnk"
+$programs = Join-Path ([Environment]::GetFolderPath('Programs')) 'Tinglan'
+$link = [System.IO.Path]::GetFullPath((Join-Path $programs "$name.lnk"))
 if (!(Test-Path -LiteralPath $link)) { throw 'Unicode Start Menu shortcut missing' }
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($link)
+if ([string]::IsNullOrWhiteSpace($shortcut.TargetPath)) {
+    throw "Cannot read shortcut target from canonical path: $link (size $((Get-Item -LiteralPath $link).Length))"
+}
 $expected = Join-Path $target 'tinglan.exe'
 Write-Output "Expected executable: $expected"
 Write-Output "Shortcut executable: $($shortcut.TargetPath)"
