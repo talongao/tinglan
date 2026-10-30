@@ -25,6 +25,7 @@ if(platform==='darwin'){
  const staging=await mkdtemp(join(tmpdir(),'hwmusic-native-dmg-'));
  try{
   run('ditto',[join(root,'out/native/Tinglan.app'),join(staging,`${APP_DISPLAY_NAME}.app`)]);
+  run('codesign',['--verify','--deep','--strict',join(staging,`${APP_DISPLAY_NAME}.app`)]);
   await symlink('/Applications',join(staging,'Applications'));
   await copyFile(join(payload,'NOTICE.txt'),join(staging,'NOTICE.txt'));
   artifact=join(output,`tinglan-${version}-${process.arch}-${process.env.HWMUSIC_MAC_SIGN_IDENTITY ? 'local-signed' : 'unsigned'}.dmg`);
