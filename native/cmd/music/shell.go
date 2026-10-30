@@ -183,7 +183,7 @@ func config(m *model) app.Config {
 		WindowControls: func() app.WindowControlsStyle {
 			tint := m.ink()
 
-			return app.WindowControlsStyle{Foreground: tint, Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
+			return app.WindowControlsStyle{Foreground: tint, Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭窗口"}
 		}, Title: appDisplayName, Tree: &tree, Width: 1180, Height: 760,
 		Invalidator: &m.invalidator, OnWake: m.wake, OnClosed: m.close, Paint: m.paint,
 		OnResize: m.prepareBackground, TextInput: m.textInput, OnScroll: m.scrollEvent, OnPointer: m.pointerEvent,
