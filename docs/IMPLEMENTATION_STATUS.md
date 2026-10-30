@@ -1,5 +1,7 @@
 # 实现状态
 
+Windows 安装修复验证：手动 Windows-only Actions 41015868533 成功。测试/vet/UI、GUI subsystem 与 exe 内嵌资源检查、NSIS 打包、静默安装、中文“听澜.lnk”及目标文件哈希检查全部通过。先前安装检查失败源于 WScript 快捷方式读取返回空目标；改用 IShellLinkW/IPersistFile 后，目标与实际安装路径一致。产物 tinglan-windows-x64-unsigned 仅保留在 Actions；默认浏览器真实扫码、系统栏图标视觉与正常启动体验仍待用户验证，未合并/发布。
+
 CI 触发纠正：此前 develop 虽无 push 触发，但打开的 PR 会间接启动三平台构建。现调整为草稿 PR 全部跳过，正式 PR 仅 macOS 单平台测试/vet，不打包；develop 安装包只能手动勾选平台生成，默认全部不选。main 合并后的三平台打包/发布保持不变。
 
 Windows 用户反馈修复（2026-10-30，develop）：安装脚本明确 UTF-8 编码；exe 改 GUI subsystem 并嵌入应用 ICO，安装/卸载器使用同一图标。Windows 登录改默认浏览器，不再自动启动独立 Edge/Chrome；暂用手动粘贴 hms 回调，不注册全局协议，真实授权仍待用户验证。会话恢复与主动登录状态分离，首次安装不再显示“取消登录”，显式登录可取消旧恢复任务。新增本地回归通过；新增 CI PE/资源校验和隔离目录静默安装/中文快捷方式检查，CI 结果待核验。
