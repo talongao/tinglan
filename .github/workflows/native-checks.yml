@@ -173,7 +173,7 @@ jobs:
   release:
     name: Publish latest
     needs: gate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && needs.gate.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
