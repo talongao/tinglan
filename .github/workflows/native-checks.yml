@@ -99,6 +99,10 @@ jobs:
         run: npm run test:native:ui
       - name: Package
         run: node native/scripts/package.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+      - name: Check Windows installation
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./native/scripts/check-windows-install.ps1
       - name: Upload installer and checksum
         uses: actions/upload-artifact@v4
         with:

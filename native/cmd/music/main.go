@@ -51,6 +51,7 @@ type model struct {
 	generation         uint64
 	cancel             context.CancelFunc
 	busy               bool
+	restoring          bool
 	status             string
 	session            *huawei.Session
 	authorize          func(context.Context, *huawei.Attempt) (string, error)
@@ -88,6 +89,9 @@ func (m *model) startLogin() {
 	if m.busy {
 		return
 	}
+	if m.restoring {
+		m.cancelLogin()
+	}
 	m.generation++
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -122,7 +126,7 @@ func (m *model) cancelLogin() {
 		m.cancel()
 		m.cancel = nil
 	}
-	m.busy = false
+	m.busy, m.restoring = false, false
 	m.status = "已取消登录"
 }
 
@@ -150,7 +154,7 @@ func (m *model) wake() {
 		if result.generation != m.generation {
 			continue
 		}
-		m.busy, m.cancel = false, nil
+		m.busy, m.restoring, m.cancel = false, false, nil
 		if result.err != nil {
 			if result.restored && m.expireSession(result.err) {
 				continue

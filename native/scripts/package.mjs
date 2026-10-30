@@ -39,6 +39,8 @@ if(platform==='darwin'){
   const files=['tinglan.exe','LICENSE','THIRD_PARTY_NOTICES.txt','icon.LICENSE.txt','NOTICE.txt','SHA256SUMS'];
   const script=`Unicode true
 !include "MUI2.nsh"
+!define MUI_ICON "${esc(join(root,'out/native/windows-resources/app.ico'))}"
+!define MUI_UNICON "${esc(join(root,'out/native/windows-resources/app.ico'))}"
 Name "${esc(APP_DISPLAY_NAME)}"
 OutFile "${esc(artifact)}"
 RequestExecutionLevel user
@@ -77,8 +79,8 @@ ${files.map(file=>` Delete "$INSTDIR\\${file}"`).join('\n')}
  DeleteRegKey HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva"
 SectionEnd
 `;
-  const file=join(staging,'installer.nsi');await writeFile(file,script);
-  run(process.env.HWMUSIC_MAKENSIS||'makensis',['/V2',file]);
+  const file=join(staging,'installer.nsi');await writeFile(file,'\ufeff'+script);
+  run(process.env.HWMUSIC_MAKENSIS||'makensis',['/INPUTCHARSET','UTF8','/V2',file]);
  }finally{await rm(staging,{recursive:true,force:true});}
 }else if(platform==='linux'){
  artifact=join(output,`tinglan-${version}-${process.arch}-unsigned.tar.gz`);

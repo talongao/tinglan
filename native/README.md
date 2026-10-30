@@ -40,7 +40,7 @@ macOS 音频脚本 `native/scripts/test-audio.sh` 使用 Python、系统 afconve
 
 ## 当前边界
 
-- macOS 使用 AuthenticationServices 临时系统授权会话接收本次 hms 回调。Windows/Linux 优先独立临时 Chrome/Edge/Chromium 浏览器会话，通过本机 CDP 自动接收回调，不注册系统 hms；只有无兼容浏览器时回退默认浏览器手动粘贴。HTTP/JavaScript 回调与取消已用本地合成服务器测试，真实华为扫码待验。
+- macOS 使用 AuthenticationServices 临时系统授权会话接收本次 hms 回调。Windows 使用默认浏览器并手动粘贴授权回调；Linux 优先独立临时 Chrome/Edge/Chromium 浏览器会话，通过本机 CDP 自动接收回调，不注册系统 hms；只有无兼容浏览器时回退默认浏览器手动粘贴。HTTP/JavaScript 回调与取消已用本地合成服务器测试，真实华为扫码待验。
 - 业务 HTTP、歌词、封面、音频 Range 均在 Go 内部处理；音频不落盘、不搭本地服务器、不向 CDN 发送业务凭据。
 - 收藏/搜索/歌单/专辑/艺人/历史、队列、受控写操作、网络与本地歌词已有实现与合成测试。
 - macOS 托盘/单实例/媒体键与普通字体选择有适配；物理媒体键待验，Windows/Linux 字体选择已补适配并交叉编译，显示待实机验收；Linux 已接 MPRIS（曲目、状态、播放/定位、音量/随机/循环），Windows 已接 SMTC（曲目、状态、时间线与媒体事件）；后两者只有交叉编译证据，未做实机验收。

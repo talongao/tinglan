@@ -63,3 +63,52 @@ func TestCancelDoesNotExchangeOrReplaceSession(t *testing.T) {
 	}
 	m.close()
 }
+
+func TestFreshInstallRestorationIsNotInteractiveLogin(t *testing.T) {
+	m := newModel()
+	m.openProfile(t.TempDir())
+	m.restoreSession()
+	if m.busy || !m.restoring {
+		t.Fatal("restore incorrectly displays cancel login")
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		ready := len(m.pending) > 0
+		m.mu.Unlock()
+		if ready {
+			m.wake()
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if m.restoring || m.busy || m.session != nil {
+		t.Fatal("fresh install did not settle to logged out")
+	}
+	m.close()
+}
+
+func TestExplicitLoginSupersedesSessionRestoration(t *testing.T) {
+	m := newModel()
+	m.restoring = true
+	cancelled := false
+	m.cancel = func() { cancelled = true }
+	started := make(chan struct{})
+	m.authorize = func(ctx context.Context, _ *huawei.Attempt) (string, error) {
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	m.startLogin()
+	<-started
+	if !cancelled || m.restoring || !m.busy {
+		t.Fatal("restore blocked explicit login")
+	}
+	m.pending = []completion{{generation: m.generation - 1, restored: true, err: errors.New("old restore")}}
+	m.wake()
+	if !m.busy {
+		t.Fatal("stale restoration ended new login")
+	}
+	m.cancelLogin()
+	m.close()
+}

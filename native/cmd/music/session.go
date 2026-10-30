@@ -76,7 +76,7 @@ func (m *model) restoreSession() {
 	if m.demo || m.store == nil {
 		return
 	}
-	m.busy = true
+	m.restoring = true
 	m.status = "正在恢复音乐会话…"
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
