@@ -14,7 +14,7 @@
 - 不提供创建歌单/添加歌曲到歌单入口；已有歌单可浏览，已验证的简介修改/删除逻辑保留。playlist/detail/all 必须使用真实 playListID，删除用 playlist/delete，不能用 favorite/delete 代替。
 - 顶层 playback.fileURL 是音频，fileInfos 可能是 JSON。auditionTime 不能单独判为试听；完整播放按实际资源、权限与解码时长验证。
 - 图标由 native/scripts/make-icon.mjs 与 generate-assets.mjs 生成；矢量源在 native/assets/lucide/，保留 ISC 与 build/icon.LICENSE.txt 归属。
-- 日常开发统一在 develop。main（含管理员）必须通过 PR 合并，Build gate 必须通过，禁止强推和删除。PR 自动验证三个目标；develop push 不构建，仅 workflow_dispatch 勾选目标后构建并保留 artifacts，不发布。
+- 日常开发统一在 develop。main（含管理员）必须通过 PR 合并，Build gate 必须通过，禁止强推和删除。草稿 PR 不运行构建，正式 PR 仅执行单平台代码检查、不打包；develop push 不构建，仅 workflow_dispatch 勾选目标后构建并保留 artifacts，不发布。
 - 二进制公开分发仅通过 GitHub Release；main 合并触发三平台构建，全成功后以 v<version>-build.<run_number> 标签发布 Latest，不覆盖历史版本。手动运行仅允许 develop。发布说明必须保留未签名、非官方、OAuth 身份不属于本项目以及未验平台边界。
 - 不擅自提交、推送、发布、公开仓库或删除研究现场。合成测试/截图不能当作私人账号证据，真实截图需用户授权。
 - 维护简短、可核对的 docs/IMPLEMENTATION_STATUS.md，明确区分实现、离线测试与实机验收。不要引入复杂框架、后端服务或云端凭据代理。

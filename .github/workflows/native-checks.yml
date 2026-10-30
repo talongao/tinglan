@@ -4,12 +4,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       mac_arm64:
         description: macOS Apple Silicon DMG
         type: boolean
-        default: true
+        default: false
       mac_x64:
         description: macOS Intel DMG
         type: boolean
@@ -25,6 +26,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   plan:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
@@ -39,6 +41,7 @@ jobs:
           WINDOWS_X64: ${{ inputs.windows_x64 }}
         run: node native/scripts/ci-targets.mjs
   build:
+    if: github.event_name != 'pull_request'
     needs: plan
     name: Build ${{ matrix.id }}
     strategy:
@@ -117,16 +120,39 @@ jobs:
           name: diagnostics-${{ matrix.id }}
           path: out/native/qa/
           if-no-files-found: ignore
+  pr-check:
+    name: PR code checks
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: native/go.mod
+          cache-dependency-path: native/go.sum
+      - name: Tests and static checks (no package)
+        working-directory: native
+        run: |
+          go test ./... -count=1 -timeout 180s
+          go vet ./...
   gate:
     name: Build gate
-    if: always()
-    needs: [plan, build]
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
+    needs: [plan, build, pr-check]
     runs-on: ubuntu-latest
     steps:
       - env:
+          EVENT: ${{ github.event_name }}
+          PR_CHECK: ${{ needs.pr-check.result }}
           PLAN: ${{ needs.plan.result }}
           BUILD: ${{ needs.build.result }}
-        run: test "$PLAN" = success && test "$BUILD" = success
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            test "$PR_CHECK" = success
+          else
+            test "$PLAN" = success && test "$BUILD" = success
+          fi
   release:
     name: Publish latest
     needs: gate

@@ -2,6 +2,7 @@ import { appendFileSync } from 'node:fs';
 
 export function targets(env) {
   const manual = env.EVENT === 'workflow_dispatch';
+  if (!manual && (env.EVENT !== 'push' || env.REF !== 'refs/heads/main')) throw new Error('Automatic packages are main-only');
   if (manual && env.REF !== 'refs/heads/develop') throw new Error('Manual builds must select develop');
   const all = [
     { id: 'macos-arm64', os: 'macos-15', arch: 'arm64', platform: 'mac', directory: 'darwin-arm64', input: 'MAC_ARM64' },
