@@ -34,7 +34,7 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{Appearance: Appearance{Accent: "red", PanelOpacity: 1, CornerRadius: 11, FontScale: 1}, Volume: .85, Quality: "standard", RepeatMode: "off", ThirdPartyLyrics: true}
+	return Settings{Appearance: Appearance{Accent: "red", PanelOpacity: 1, CornerRadius: 11, FontScale: 1}, Volume: .85, Quality: "standard", RepeatMode: "off", CloseToTray: true, ThirdPartyLyrics: true}
 }
 func clamp(value, low, high, fallback float64) float64 {
 	if math.IsNaN(value) || math.IsInf(value, 0) {

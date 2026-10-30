@@ -1,4 +1,4 @@
-//go:build !darwin || !cgo
+//go:build !windows && (!darwin || !cgo)
 
 package webauth
 
@@ -10,4 +10,4 @@ import (
 func Authorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {
 	return ChromiumAuthorize(ctx, attempt)
 }
-func NeedsManualCallback() bool { return browserBinary() == "" }
+func NeedsManualCallback() bool { return false }

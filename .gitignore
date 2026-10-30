@@ -62,3 +62,6 @@ $RECYCLE.BIN/
 .directory
 
 # Keep source assets, manifests and dependency locks versioned.
+
+# Generated Windows executable resources
+native/cmd/music/icon_windows_*.syso

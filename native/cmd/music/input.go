@@ -8,7 +8,6 @@ import (
 
 var fontDialogScope = tree.ID(shell, "font-dialog-scope")
 var writeDialogScope = tree.ID(shell, "write-dialog-scope")
-var browserDialogScope = tree.ID(shell, "browser-dialog-scope")
 
 func (m *model) textInput(ctx app.TextInputContext) *app.TextInput {
 	input := flex.Fields(&m.query, &m.writeField, &m.fontFilter)(ctx)

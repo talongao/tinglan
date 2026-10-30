@@ -22,8 +22,8 @@ var createDIB = gdi.NewProc("CreateDIBSection")
 var drawText = user.NewProc("DrawTextW")
 var fontMu sync.Mutex
 var enumeratedFamilies map[string]bool
-var enumerateCallback = syscall.NewCallback(func(raw, metric, kind, data uintptr) uintptr {
-	name := syscall.UTF16ToString((*logFont)(unsafe.Pointer(raw)).Face[:])
+var enumerateCallback = syscall.NewCallback(func(raw *logFont, metric, kind, data uintptr) uintptr {
+	name := syscall.UTF16ToString(raw.Face[:])
 	if name != "" && name[0] != '@' && enumeratedFamilies != nil {
 		enumeratedFamilies[name] = true
 	}

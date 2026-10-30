@@ -183,7 +183,7 @@ func config(m *model) app.Config {
 		WindowControls: func() app.WindowControlsStyle {
 			tint := m.ink()
 
-			return app.WindowControlsStyle{Foreground: tint, Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭"}
+			return app.WindowControlsStyle{Foreground: tint, Minimize: "最小化", Maximize: "最大化", Restore: "还原", CloseName: "关闭窗口"}
 		}, Title: appDisplayName, Tree: &tree, Width: 1180, Height: 760,
 		Invalidator: &m.invalidator, OnWake: m.wake, OnClosed: m.close, Paint: m.paint,
 		OnResize: m.prepareBackground, TextInput: m.textInput, OnScroll: m.scrollEvent, OnPointer: m.pointerEvent,
@@ -206,7 +206,7 @@ func config(m *model) app.Config {
 				m.transportMenu = ""
 				return ui.EventResult{Handled: true, Repaint: true}
 			}
-			if e.Key == ui.KeySpace && e.Modifiers == 0 && e.Target != searchID && e.Target != writeFieldID && e.Target != fontFilterID && m.dialog == "" && m.browserPending == nil && !m.fontListOpen {
+			if e.Key == ui.KeySpace && e.Modifiers == 0 && e.Target != searchID && e.Target != writeFieldID && e.Target != fontFilterID && m.dialog == "" && !m.fontListOpen {
 				if !e.Repeat && !e.Release {
 					m.togglePlayback()
 				}
@@ -265,7 +265,7 @@ func config(m *model) app.Config {
 			}
 			if e.Key == ui.KeyEscape {
 				// Modal Escape is routed through Canvas so IME and focus restoration work.
-				if m.fontListOpen || m.dialog != "" || m.browserPending != nil {
+				if m.fontListOpen || m.dialog != "" {
 					return ui.EventResult{}
 				}
 				if m.settingsSelect != "" {
@@ -386,9 +386,6 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 	}
 	if m.fontListOpen {
 		m.paintFontList(c, size)
-	}
-	if m.browserPending != nil {
-		m.paintBrowser(c, size)
 	}
 }
 
@@ -629,7 +626,7 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, s
 }
 
 func (m *model) paintSearch(c *ui.Canvas, b ui.Rect) {
-	if m.dialog == "" && !m.fontListOpen && m.browserPending == nil {
+	if m.dialog == "" && !m.fontListOpen {
 		c.RequestFocus(searchID)
 	}
 	m.searchView.Draw(c, m.fieldTheme(), rect(b.X, b.Y, b.Width-110, 38), func(f *flex.Frame) {
@@ -648,7 +645,7 @@ func (m *model) scrollEvent(e ui.ScrollEvent) ui.EventResult {
 		m.fontScroll = max(0, min(float32(len(m.filteredFonts()))*36-(e.Viewport.Height-264), m.fontScroll+e.DeltaY))
 		return ui.EventResult{Handled: true, Repaint: true}
 	}
-	if m.dialog != "" || m.browserPending != nil {
+	if m.dialog != "" {
 		return ui.EventResult{Handled: true}
 	}
 	if m.stageOpen {

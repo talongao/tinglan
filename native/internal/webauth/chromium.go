@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,11 +19,14 @@ import (
 )
 
 // ChromiumAuthorize owns a disposable browser profile and its loopback CDP
-// connection. Credentials and navigation URLs never reach logs or disk in our app.
+// connection. The temporary browser profile is removed when authorization ends.
 func ChromiumAuthorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {
 	return chromiumAuthorize(ctx, attempt.AuthorizeURL(), false)
 }
 func chromiumAuthorize(ctx context.Context, authorizeURL string, headless bool) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	binary := browserBinary()
 	if binary == "" {
 		return "", errors.New("compatible authorization browser not installed")
@@ -32,7 +36,15 @@ func chromiumAuthorize(ctx context.Context, authorizeURL string, headless bool) 
 		return "", errors.New("temporary browser profile unavailable")
 	}
 	defer os.RemoveAll(dir)
-	args := []string{"--user-data-dir=" + dir, "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-background-networking", "--disable-extensions", "--incognito", "--app=about:blank"}
+	// Edge does not use Chrome's --incognito switch. A normal isolated window
+	// also avoids app-mode startup pages racing the DevTools page target.
+	args := []string{"--user-data-dir=" + dir, "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", "--no-first-run", "--no-default-browser-check", "--disable-sync", "--disable-background-networking", "--disable-extensions", "--new-window"}
+	if strings.Contains(strings.ToLower(filepath.Base(binary)), "msedge") {
+		args = append(args, "--inprivate")
+	} else {
+		args = append(args, "--incognito")
+	}
+	args = append(args, "about:blank")
 	if headless {
 		args = append(args, "--headless=new")
 	}
@@ -81,12 +93,12 @@ wait:
 		req, _ := http.NewRequestWithContext(ctx, "GET", "http://127.0.0.1:"+port+"/json/list", nil)
 		res, e := client.Do(req)
 		if e == nil {
-			var targets []struct{ Type, WebSocketDebuggerURL string }
+			var targets []struct{ Type, URL, WebSocketDebuggerURL string }
 			e = json.NewDecoder(http.MaxBytesReader(nil, res.Body, 1024*1024)).Decode(&targets)
 			res.Body.Close()
 			if e == nil {
 				for _, t := range targets {
-					if t.Type == "page" {
+					if t.Type == "page" && t.URL == "about:blank" {
 						endpoint = t.WebSocketDebuggerURL
 						break
 					}
@@ -122,40 +134,80 @@ wait:
 	conn.SetReadLimit(2 * 1024 * 1024)
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
+	return captureAuthorization(ctx, conn, authorizeURL)
+}
+
+type browserEvent struct {
+	Method string
+	Params json.RawMessage
+	Result json.RawMessage
+	ID     int
+	Error  *struct{ Code int }
+}
+
+func captureAuthorization(ctx context.Context, conn *websocket.Conn, authorizeURL string) (string, error) {
 	id := 0
-	send := func(method string, params any) error {
+	send := func(method string, params any) (int, error) {
 		id++
-		return conn.WriteJSON(map[string]any{"id": id, "method": method, "params": params})
+		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+		return id, conn.WriteJSON(map[string]any{"id": id, "method": method, "params": params})
 	}
+	// Wait for each setup acknowledgement before navigating, so login never
+	// starts before the callback interceptor is ready. Never include remote
+	// errors/URLs in error messages; they can contain authorization credentials.
 	for _, command := range []struct {
 		method string
 		params any
 	}{
 		{"Page.enable", map[string]any{}},
-		{"Network.enable", map[string]any{}},
-		{"Browser.setDownloadBehavior", map[string]any{"behavior": "deny"}},
-		{"Fetch.enable", map[string]any{"patterns": []any{map[string]any{"urlPattern": "*", "requestStage": "Response"}}}},
-		{"Page.navigate", map[string]any{"url": authorizeURL}},
+		{"Fetch.enable", map[string]any{"patterns": []any{map[string]any{"urlPattern": "*", "resourceType": "Document", "requestStage": "Response"}}}},
 	} {
-		if send(command.method, command.params) != nil {
-			return "", errors.New("browser setup failed")
+		pending, err := send(command.method, command.params)
+		if err != nil {
+			return "", errors.New("browser setup write failed")
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		for {
+			var event browserEvent
+			if err := conn.ReadJSON(&event); err != nil {
+				if ctx.Err() != nil {
+					return "", ctx.Err()
+				}
+				return "", fmt.Errorf("browser setup failed at %s", command.method)
+			}
+			if event.ID != pending {
+				continue
+			}
+			if event.Error != nil {
+				return "", fmt.Errorf("browser setup rejected at %s", command.method)
+			}
+			break
 		}
 	}
+	_ = conn.SetReadDeadline(time.Time{})
+	navigateID, err := send("Page.navigate", map[string]any{"url": authorizeURL})
+	if err != nil {
+		return "", errors.New("browser navigation request failed")
+	}
 	for {
-		var event struct {
-			Method string
-			Params json.RawMessage
-			ID     int
-			Error  *struct{ Code int }
-		}
+		var event browserEvent
 		if conn.ReadJSON(&event) != nil {
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
-			return "", errors.New("authorization browser closed")
+			return "", errors.New("authorization window closed")
 		}
-		if event.Error != nil && event.ID != 3 {
-			return "", errors.New("browser authorization control failed")
+		if event.Error != nil {
+			return "", errors.New("browser authorization command rejected")
+		}
+		if event.ID == navigateID {
+			var result struct{ ErrorText string }
+			_ = json.Unmarshal(event.Result, &result)
+			// A callback redirect can produce ERR_ABORTED while its interception
+			// event is still queued; other errors must not leave a blank window.
+			if result.ErrorText != "" && result.ErrorText != "net::ERR_ABORTED" {
+				return "", errors.New("authorization page failed to load")
+			}
 		}
 		if callback := callbackFromEvent(event.Method, event.Params); callback != "" {
 			return callback, nil
@@ -163,12 +215,13 @@ wait:
 		if event.Method == "Fetch.requestPaused" {
 			var p struct{ RequestID string }
 			if json.Unmarshal(event.Params, &p) == nil {
-				if send("Fetch.continueRequest", map[string]any{"requestId": p.RequestID}) != nil {
+				if _, err := send("Fetch.continueRequest", map[string]any{"requestId": p.RequestID}); err != nil {
 					return "", errors.New("browser navigation interrupted")
 				}
 			}
 		}
 	}
+
 }
 
 func callbackFromEvent(method string, data []byte) string {

@@ -66,7 +66,7 @@
 
 听澜仍在持续打磨。目前以 **macOS Apple Silicon** 为主要开发与实际使用环境，本页截图也来自这一版本。Windows / Linux 已有适配代码与构建脚本，尚未完成实机验收。
 
-当前提供源码与本地构建方式，测试包未签名、未公证，尚不是正式发行版。原生版运行时不依赖 Electron、Node.js 或 Chromium；Node.js 仅用于仓库中的启动与构建脚本。
+可从 [Latest Release](https://github.com/talongao/tinglan/releases/latest) 下载 macOS 或 Windows 测试安装包，也可从源码构建。测试包没有开发者证书签名或公证，尚不是正式发行版。原生界面与播放不依赖 Electron 或 Node.js；Node.js 仅用于仓库中的启动与构建脚本。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，Windows 使用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
 
 <details>
 <summary><strong>从源码启动</strong></summary>
@@ -89,7 +89,7 @@ macOS 应用构建：
 npm run build:native:mac
 ```
 
-GitHub Actions 在 macOS arm64 与 Intel x64 原生 runner 上分别构建 DMG 和 SHA256 校验和，普通分支仅保存构建产物，推送与 package.json 版本一致的 v* 标签时自动发布Release 并标为 Latest；Windows/Linux 暂不打包。
+日常开发在 `develop`：到 Actions 手动选择 macOS Apple Silicon、macOS Intel 或 Windows x64 构建，试用包保留在 Artifacts，不发布 Release。`main` 仅接受通过检查的 PR；合并后自动构建三个版本，全部成功才发布到 [Latest Release](https://github.com/talongao/tinglan/releases/latest)。发布标签带独立构建编号，旧版本不会被覆盖。Windows 安装包仍为未完成实机验收的测试构建；Linux 暂不打包。
 
 平台依赖、打包与测试方式见[原生开发说明](native/README.md)。项目已移除旧 Electron 客户端，默认入口为原生版。
 
@@ -104,6 +104,12 @@ GitHub Actions 在 macOS arm64 与 Intel x64 原生 runner 上分别构建 DMG �
 在线歌词优先使用服务端返回的内容。可选的第三方歌词匹配仅查询歌词，不提供音源；匹配时会发送歌名、艺人等曲目信息，不发送账号凭据，可在设置中关闭。找不到合适的歌词时，也可以自己导入。
 
 服务接口、歌词匹配和不同系统的表现仍可能存在差异。具体的验证范围与待办见[实现状态](docs/IMPLEMENTATION_STATUS.md)，不以截图或编译成功代替完整验收。
+
+## 接下来
+
+当前只推进 **Windows 可用性验证**，暂不增加新功能。测试和修复在 `develop` 进行，按需试用包从 Actions Artifacts 获取；经确认合入 `main` 的测试版本通过 Release 分发。
+
+重点验证安装与启动、登录与会话恢复、音乐库与搜索、MP3/FLAC 播放及拖动进度、歌词、托盘续播与系统媒体控制。CI 构建成功只是起点，不代表这些使用体验已经验收。
 
 ## 一起把听澜做好
 

@@ -20,10 +20,11 @@ export function macSigningIdentity() {
 
 // Certificate creation is an explicit one-time setup, never a build side effect.
 export function signMacOS(target) {
-  const identity = process.env.HWMUSIC_MAC_SIGN_IDENTITY;
-  if (process.platform !== 'darwin' || !identity) return;
-  if (identity === '-') throw new Error('A stable certificate identity is required, not ad-hoc signing.');
+  if (process.platform !== 'darwin') return;
+  // The linker's executable-only signature does not seal an .app bundle.
+  // Local test builds still need a complete ad-hoc seal; this is not notarization.
+  const identity = process.env.HWMUSIC_MAC_SIGN_IDENTITY || '-';
   execFileSync('codesign', ['--force', '--sign', identity, '--identifier', 'org.hwmusicdesktop.unofficial.internal.viva', target], { stdio: 'inherit' });
-  execFileSync('codesign', ['--verify', '--strict', target], { stdio: 'inherit' });
+  execFileSync('codesign', ['--verify', '--deep', '--strict', target], { stdio: 'inherit' });
   return identity;
 }

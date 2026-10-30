@@ -19,6 +19,9 @@ export async function writeNotices(destination) {
     for (const name of files) {
       sections.push(`${module.Path} ${module.Version}\n${name}\n${await readFile(join(module.Dir, name), 'utf8')}`);
     }
+    if (module.Path === 'github.com/wailsapp/go-webview2') {
+      sections.push(`${module.Path}/webviewloader\n${await readFile(join(module.Dir, 'webviewloader/LICENSE'), 'utf8')}`);
+    }
   }
   sections.push(await readFile(fileURLToPath(new URL('../../build/icon.LICENSE.txt', import.meta.url)), 'utf8'));
   await writeFile(destination, sections.join('\n\n----------------------------------------\n\n'));

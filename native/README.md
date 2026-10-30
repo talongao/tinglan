@@ -15,7 +15,7 @@ npm run dist
 
 脚本支持 `HWMUSIC_GO`。默认 Go 不在 PATH 时，启动器可使用已构建的本平台独立程序；源码修改后仍需重建。macOS 需要 Xcode Command Line Tools；Linux 需要 X11/XCB、Vulkan、Pango/Cairo 和音频设备；Windows 需要 cgo 编译器。原生依赖由 Go 获取，不需要 Electron。图标与共享名称已生成，图标矢量源与 ISC 许可保存在 `native/assets/lucide/`；只有栅格化图标才需要根目录 Playwright 开发依赖（`native/scripts/make-icon.mjs`）；`generate-assets.mjs` 仅使用 Node.js 与 Go。
 
-`build` / `dist` 默认均为原生。CI 仅构建 macOS arm64 / Intel x64 的 DMG 和校验和；版本标签触发Release 并标为 Latest；Windows/Linux 暂不打包。原生 Windows 为当前用户 NSIS 安装包，卸载保留应用数据；macOS 为 DMG；Linux 为 tar.gz（需系统运行库），不冒充 AppImage。Windows/Linux 打包脚本尚未实机执行。
+`build` / `dist` 默认均为原生。开发统一在 `develop`，Actions 手动勾选 macOS arm64 / Intel x64 / Windows x64，只上传 artifacts。草稿 PR 不运行构建；正式 PR 到 `main` 仅执行单平台代码检查、不打包，必须通过 `Build gate`；合并后重新构建三平台并自动发布 Latest。标签为 `v<package.version>-build.<run_number>`，不覆盖旧版本。Windows 使用当前用户 NSIS 安装包，尚未实机验收；Linux 暂不打包。手动工作流必须选择 develop 且至少勾选一个平台。
 
 本地 `.app` 位于 `out/native/Tinglan.app`，独立程序位于 `out/native/tinglan/<platform>-<arch>/`，带许可证与 SHA256。默认未签名；仅显式设置签名环境变量时使用证书。未公证、不发布，不注册全局 hms。
 
@@ -40,7 +40,7 @@ macOS 音频脚本 `native/scripts/test-audio.sh` 使用 Python、系统 afconve
 
 ## 当前边界
 
-- macOS 使用 AuthenticationServices 临时系统授权会话接收本次 hms 回调。Windows/Linux 优先独立临时 Chrome/Edge/Chromium 浏览器会话，通过本机 CDP 自动接收回调，不注册系统 hms；只有无兼容浏览器时回退默认浏览器手动粘贴。HTTP/JavaScript 回调与取消已用本地合成服务器测试，真实华为扫码待验。
+- 登录通过授权窗口自动接收本次回调，无需复制链接。macOS 使用 AuthenticationServices；develop 中 Windows 改用专用 WebView2 窗口，仅登录时创建，需安装 Microsoft Edge WebView2 Runtime。窗口使用独立临时数据目录，拦截 hms 导航/弹窗、拒绝下载与设备权限，完成或取消后关闭并清理。Linux 保留独立 Chromium/CDP。均不注册系统 hms 协议，不依赖默认浏览器。Windows WebView2 合成回归以 `HWMUSIC_TEST_WEBVIEW2=1 go test ./internal/webauth -run 'TestWebView|TestSyntheticWebView' -v` 显式执行，真实扫码仍待验。
 - 业务 HTTP、歌词、封面、音频 Range 均在 Go 内部处理；音频不落盘、不搭本地服务器、不向 CDN 发送业务凭据。
 - 收藏/搜索/歌单/专辑/艺人/历史、队列、受控写操作、网络与本地歌词已有实现与合成测试。
 - macOS 托盘/单实例/媒体键与普通字体选择有适配；物理媒体键待验，Windows/Linux 字体选择已补适配并交叉编译，显示待实机验收；Linux 已接 MPRIS（曲目、状态、播放/定位、音量/随机/循环），Windows 已接 SMTC（曲目、状态、时间线与媒体事件）；后两者只有交叉编译证据，未做实机验收。

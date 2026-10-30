@@ -25,6 +25,7 @@ if(platform==='darwin'){
  const staging=await mkdtemp(join(tmpdir(),'hwmusic-native-dmg-'));
  try{
   run('ditto',[join(root,'out/native/Tinglan.app'),join(staging,`${APP_DISPLAY_NAME}.app`)]);
+  run('codesign',['--verify','--deep','--strict',join(staging,`${APP_DISPLAY_NAME}.app`)]);
   await symlink('/Applications',join(staging,'Applications'));
   await copyFile(join(payload,'NOTICE.txt'),join(staging,'NOTICE.txt'));
   artifact=join(output,`tinglan-${version}-${process.arch}-${process.env.HWMUSIC_MAC_SIGN_IDENTITY ? 'local-signed' : 'unsigned'}.dmg`);
@@ -37,17 +38,28 @@ if(platform==='darwin'){
   artifact=join(output,`tinglan-${version}-${process.arch}-setup-unsigned.exe`);
   const esc=value=>value.replaceAll('$','$$').replaceAll('"','$\\"');
   const files=['tinglan.exe','LICENSE','THIRD_PARTY_NOTICES.txt','icon.LICENSE.txt','NOTICE.txt','SHA256SUMS'];
+  // LicenseData reads its own file encoding, independently of /INPUTCHARSET.
+  const licenseFile=join(staging,'license-utf16.txt');
+  await writeFile(licenseFile,Buffer.from('\ufeff'+APP_DISPLAY_NAME+' · 安装说明\r\n\r\n'+await readFile(join(payload,'NOTICE.txt'),'utf8'),'utf16le'));
+  const legacyNames=[...new Set([
+    Buffer.from(APP_DISPLAY_NAME,'utf8').toString('latin1'),
+    new TextDecoder('windows-1252').decode(Buffer.from(APP_DISPLAY_NAME,'utf8')),
+  ])].filter(name=>name!==APP_DISPLAY_NAME);
   const script=`Unicode true
 !include "MUI2.nsh"
+!define MUI_ICON "${esc(join(root,'out/native/windows-resources/app.ico'))}"
+!define MUI_UNICON "${esc(join(root,'out/native/windows-resources/app.ico'))}"
 Name "${esc(APP_DISPLAY_NAME)}"
 OutFile "${esc(artifact)}"
 RequestExecutionLevel user
 InstallDir "$LOCALAPPDATA\\Programs\\Tinglan"
 InstallDirRegKey HKCU "Software\\HuaweiMusicViva" "InstallDir"
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "${esc(join(payload,'NOTICE.txt'))}"
+!insertmacro MUI_PAGE_LICENSE "${esc(licenseFile)}"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
+!define MUI_FINISHPAGE_RUN "$INSTDIR\\tinglan.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "打开${esc(APP_DISPLAY_NAME)}"
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -58,6 +70,9 @@ Section
 ${files.map(file=>` File "${esc(join(payload,file))}"`).join('\n')}
  WriteUninstaller "$INSTDIR\\Uninstall.exe"
  CreateDirectory "$SMPROGRAMS\\Tinglan"
+ CreateDirectory "$INSTDIR\\upgrade-backup"
+${legacyNames.map((name,i)=>` IfFileExists "$SMPROGRAMS\\Tinglan\\${esc(name)}.lnk" 0 +2
+ Rename "$SMPROGRAMS\\Tinglan\\${esc(name)}.lnk" "$INSTDIR\\upgrade-backup\\legacy-shortcut-${i}.lnk.bak"`).join('\n')}
  CreateShortcut "$SMPROGRAMS\\Tinglan\\${esc(APP_DISPLAY_NAME)}.lnk" "$INSTDIR\\tinglan.exe"
  CreateShortcut "$SMPROGRAMS\\Tinglan\\Uninstall.lnk" "$INSTDIR\\Uninstall.exe"
  WriteRegStr HKCU "Software\\HuaweiMusicViva" "InstallDir" "$INSTDIR"
@@ -77,8 +92,8 @@ ${files.map(file=>` Delete "$INSTDIR\\${file}"`).join('\n')}
  DeleteRegKey HKCU "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva"
 SectionEnd
 `;
-  const file=join(staging,'installer.nsi');await writeFile(file,script);
-  run(process.env.HWMUSIC_MAKENSIS||'makensis',['/V2',file]);
+  const file=join(staging,'installer.nsi');await writeFile(file,'\ufeff'+script);
+  run(process.env.HWMUSIC_MAKENSIS||'makensis',['/INPUTCHARSET','UTF8','/V2',file]);
  }finally{await rm(staging,{recursive:true,force:true});}
 }else if(platform==='linux'){
  artifact=join(output,`tinglan-${version}-${process.arch}-unsigned.tar.gz`);

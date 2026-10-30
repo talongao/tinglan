@@ -1,5 +1,33 @@
 # 实现状态
 
+发布授权（2026-10-30）：用户明确要求提 PR、合并并发布 Release，覆盖此前 PR #7 保持草稿的限制。本次准备将 develop 的 Windows 安装/授权修复、关闭到托盘默认值及 macOS 完整 bundle 临时签名合入 main；必须通过 PR gate，三平台构建全部成功才发布 Latest。用户反馈 Windows 其余功能暂无大问题，但未逐项提供完整实机验收记录，不以发布代替验收。
+
+macOS 包签名修复（2026-10-30）：用户下载后提示损坏。实际安装包与 v0.0.2 Release arm64 DMG（均校验 SHA256）中的应用都只有 linker-signed/a.out、Info.plist not bound、Sealed Resources none，codesign strict 均报缺少资源签名；历史 Mac 打包脚本一致，不能归因于近期 Windows 改动。用户此前 Release 可打开的具体原因未确定，不以隔离标记推测代替证据。提交 d4f46f4 为无证书测试构建补完整 ad-hoc bundle seal，并在打包复制后验证。macOS arm64 Actions 41037078143 成功，新产物已下载、校验 SHA256、只读挂载，codesign --verify --deep --strict 通过，Info.plist 与资源已绑定；仍未获 Developer ID 签名/Apple 公证，不代表 Gatekeeper 自动放行。未修改用户已安装应用或移除其 quarantine，未合并 main/发布 Release。
+
+关闭行为默认值（2026-10-30）：新配置默认关闭窗口后隐藏到托盘，设置仍可选择退出；已有配置中明确保存的选择保持不变。用户反馈 Windows 其他功能暂无大问题，下一步提供 macOS Apple Silicon 测试包替换验证；仍留 develop，不合并 main 或发布 Release。
+
+Windows 用户反馈修复（2026-10-30，develop）：此前 NSIS 脚本 UTF-8 修复未覆盖独立读取的许可证文本，现许可证页使用 UTF-16LE BOM；完成页增加“打开听澜”。升级时将两种已知错误编码的听澜快捷方式移到安装目录 upgrade-backup（不删除其他快捷方式），新增残留升级检查与实际安装页 UI Automation 检查。WebView2 临时目录被 Runtime/杀毒软件占用时，旧逻辑会覆盖授权结果；现启用 InPrivate controller，目录清理失败改后台重试两分钟，不丢弃授权或取消结果。若退出或持续占用，临时运行时文件仍可能残留；未读取用户设备目录，不宣称已确认具体占用进程。新增持锁清理回归通过。Windows-only Actions 41034649213 全部通过：实际安装器协议框的中文、完成页启动选项、旧乱码快捷方式迁移、WebView2 私密会话的合成回调/取消/关闭/加载失败/重复登录及持锁清理均已核验。新安装包已下载并通过 SHA256 校验；真实华为扫码仍待用户验收，未合并 main 或发布 Release。
+
+Windows WebView2 测试包（2026-10-30）：提交 70d00f4 已推送 develop，手动仅 Windows 构建 41030036111 全部成功。Windows 真实 WebView2 窗口的 302/JS/弹窗回调、取消、关闭、网络失败及重复登录合成测试通过；全模块测试、vet、UI、NSIS 打包、静默安装及中文快捷方式校验通过。产物 tinglan-windows-x64-unsigned，安装包 tinglan-0.0.2-x64-setup-unsigned.exe（约 4.7 MiB）已下载并核验 SHA256。未合并 main、未发布 Release；真实华为扫码与用户设备体验仍待验。覆盖下方“未推送/未运行”的实施时状态。
+
+Windows WebView2 登录试验（develop，2026-10-30）：Windows 的 Authorize 入口改为专用 WebView2 窗口，保留原 hms 回调、state/PKCE/单次消费，不枚举浏览器或注册全局协议。窗口使用独立临时 profile，关闭/取消/完成后释放 controller 并重试清理；拦截导航与新窗口、拒绝设备权限和下载，缺 Runtime 时明确提示。macOS 系统授权会话不变。使用 WebView2 Go loader 与 COM 绑定（不是引入 Wails UI），已补许可证收集。macOS 全模块测试/vet、Windows amd64 登录模块与测试交叉编译/vet 通过；新增 Windows 专属真实 WebView2 合成回归（302、JS、弹窗、取消、关闭、网络失败、重复登录）已接入手动构建步骤，尚未运行，真实扫码仍待用户验收。当前仅本地改动，未推送、未触发 CI、未合并或发布。
+
+回调地址实测（2026-10-30，develop）：使用当前 client_id、随机 state/PKCE、全新无登录 Chromium context，仅替换 redirect_uri 请求公开授权页。`hms://redirect_uri` 进入华为扫码登录页；`tinglan://oauth/callback` 与 `tinglan:/oauth2redirect` 均返回 error=1101/sub_error=20022（invalid redirect_uri）；`http://127.0.0.1:8765/callback` 与 `http://127.0.0.1:49152/callback` 均返回 error=1101/sub_error=20023（redirect_uri not registered）。实际执行了页面 JavaScript，不以首个 HTTP 200 判成功。复测脚本为 `native/scripts/probe-oauth-redirects.mjs`，需本地 playwright-core 与 Chromium（可通过 HWMUSIC_AUTH_BROWSER 指定），不进 CI、不读私人会话、不扫码、不兑换令牌。此结果仅覆盖当前 OAuth 身份与上述地址；保留现有自动回调流程，未注册系统协议、未合并或发布。
+
+登录流程纠正（develop）：撤回不可用的“默认浏览器 + 手动粘贴”方案，移除手动回调 UI。两端统一为授权窗口自动回调；macOS 保持系统 AuthenticationServices，Windows 使用隔离的 Edge/Chrome 窗口。修正 Edge 私密模式参数、等待 CDP 初始化完成再导航，导航失败及时结束并提示；Windows-only Actions 41022042185 已通过真实浏览器窗口的本地合成重定向、JS、取消及加载失败测试，并完成测试/vet/34 项 UI/打包/安装校验。本机 macOS 全模块测试、vet、34 项 UI 和 Chromium 合成测试通过。实际 Windows 华为扫码仍待验；未合并 main、未发布 Release。
+
+Windows 安装修复验证：手动 Windows-only Actions 41015868533 成功。测试/vet/UI、GUI subsystem 与 exe 内嵌资源检查、NSIS 打包、静默安装、中文“听澜.lnk”及目标文件哈希检查全部通过。先前安装检查失败源于 WScript 快捷方式读取返回空目标；改用 IShellLinkW/IPersistFile 后，目标与实际安装路径一致。产物 tinglan-windows-x64-unsigned 仅保留在 Actions；默认浏览器真实扫码、系统栏图标视觉与正常启动体验仍待用户验证，未合并/发布。
+
+CI 触发纠正：此前 develop 虽无 push 触发，但打开的 PR 会间接启动三平台构建。现调整为草稿 PR 全部跳过，正式 PR 仅 macOS 单平台测试/vet，不打包；develop 安装包只能手动勾选平台生成，默认全部不选。main 合并后的三平台打包/发布保持不变。
+
+Windows 用户反馈修复（2026-10-30，develop）：安装脚本明确 UTF-8 编码；exe 改 GUI subsystem 并嵌入应用 ICO，安装/卸载器使用同一图标。Windows 登录改默认浏览器，不再自动启动独立 Edge/Chrome；暂用手动粘贴 hms 回调，不注册全局协议，真实授权仍待用户验证。会话恢复与主动登录状态分离，首次安装不再显示“取消登录”，显式登录可取消旧恢复任务。新增本地回归通过；新增 CI PE/资源校验和隔离目录静默安装/中文快捷方式检查，CI 结果待核验。
+
+当前优先级（用户最新决定）：下一步仅验证 Windows 可用性并修复相关缺陷，暂停新功能。代码留在 develop；PR #7 转为草稿，未启用自动合并。不合并 main、不发布新版本，待用户实机验证并明确确认。Windows 验收清单：安装/启动/卸载、登录/恢复/过期退出、库与搜索、MP3/FLAC/进度/切歌、歌词、托盘隐藏后续播、媒体控制。当前仅 CI 和安装包校验通过，上述实机项均 pending。
+
+Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均通过，Windows x64 的全模块单元测试、vet、34 项 headless UI 检查、NSIS 打包均成功。安装包 tinglan-0.0.2-x64-setup-unsigned.exe 已下载核验 SHA256。修复 MSYS2 安装路径、字体枚举回调指针类型，以及窗口/字体弹窗同名“关闭”导致自动化误点的问题。未跳过失败检查；PR 构建没有发布 Release。Windows 真实安装、登录、音频输出和托盘操作仍未实机验收。
+
+分支/CI 调整（2026-10-30）：按用户最新要求启用 develop 开发、main PR-only（管理员同样受限，禁止强推/删除，要求 Build gate）。main 合并自动构建 macOS arm64/x64 与 Windows x64 并发布唯一构建标签 Latest；develop 只手动选择目标并保存 artifacts。Windows CI 已通过（见下方证据）；安装与播放实机验证仍待完成，Linux 不打包。此前仅 macOS、版本标签触发的记录为历史配置。
+
 更新时间：2026-10-30。最新凭据决策：用户选择应用数据目录存储，覆盖本文较早的钥匙串/固定签名记录。用户要求用 Viva 迁移，覆盖历史“不换 Go”规则。默认启动已切换 Viva；2026-10-30 已移除旧 Electron 源码与工具，原用户数据保留。没有访问私人会话、扫码、真实写操作、提交、推送或发布。
 
 发布流程更新（2026-10-30）：两架构 Actions 构建均已成功。仓库改名为 talongao/tinglan，About 已更新。新增 v* 标签发布 macOS 预发布 Release，合并并校验两架构 SHA256；普通分支仍只上传 artifacts。版本升级为 0.0.2，应用 Info.plist 从 package.json 读取版本。
