@@ -10,7 +10,32 @@ $link = Join-Path ([Environment]::GetFolderPath('Programs')) "Tinglan/$name.lnk"
 if (!(Test-Path -LiteralPath $link)) { throw 'Unicode Start Menu shortcut missing' }
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($link)
-if ($shortcut.TargetPath -ne (Join-Path $target 'tinglan.exe')) { throw 'Wrong shortcut executable' }
+$expected = Join-Path $target 'tinglan.exe'
+Write-Output "Expected executable: $expected"
+Write-Output "Shortcut executable: $($shortcut.TargetPath)"
+# Resolve actual files rather than comparing DOS short paths with long paths.
+Add-Type @'
+using System;
+using System.Text;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class InstalledPath {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern uint GetFinalPathNameByHandle(SafeFileHandle file, StringBuilder path, uint size, uint flags);
+}
+'@
+function Get-CanonicalFilePath([string]$Path) {
+    $stream = [System.IO.File]::OpenRead($Path)
+    try {
+        $buffer = [System.Text.StringBuilder]::new(32768)
+        $length = [InstalledPath]::GetFinalPathNameByHandle($stream.SafeFileHandle, $buffer, $buffer.Capacity, 0)
+        if ($length -eq 0 -or $length -ge $buffer.Capacity) { throw "Cannot resolve installed file: $Path" }
+        return $buffer.ToString()
+    } finally { $stream.Dispose() }
+}
+if ((Get-CanonicalFilePath $shortcut.TargetPath) -ne (Get-CanonicalFilePath $expected)) { throw 'Wrong shortcut executable' }
+$built = Join-Path $root 'out/native/tinglan/win32-x64/tinglan.exe'
+if ((Get-FileHash -LiteralPath $expected).Hash -ne (Get-FileHash -LiteralPath $built).Hash) { throw 'Installed executable differs from payload' }
 if (!(Test-Path -LiteralPath $shortcut.TargetPath)) { throw 'Installed executable missing' }
 # Do not launch the app: installation checks must never open a personal profile.
 Write-Output 'Silent install and Unicode shortcut verified; application was not launched.'
