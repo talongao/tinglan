@@ -1,5 +1,7 @@
 # 项目工作规则
 
+- 当前 roadmap：只做 Windows 可用性验证与相关缺陷修复，验收前不增加新功能。所有改动留在 develop；PR #7 保持草稿，不合并 main、不发布新版，直到用户明确确认。CI 成功不代替 Windows 实机验收。
+
 - 听澜（Tinglan）是 Go + Viva 原生华为音乐第三方桌面客户端。旧 Electron/React 客户端与工具已移除，不恢复旧技术栈。
 - 开工先读 README.md、docs/IMPLEMENTATION_STATUS.md、docs/API_CONTRACT.md、docs/authorized-feature-validation.md。历史方案/验证记录保留作参考，与当前状态冲突时以当前实现和最新用户要求为准。
 - 原生代码在 native/；启动 npm start，构建 npm run build，测试 npm test，静态检查 npm run vet，界面回归 npm run test:native:ui。Go 可执行文件可通过 HWMUSIC_GO 传给构建/启动脚本。

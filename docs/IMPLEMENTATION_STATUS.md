@@ -1,5 +1,7 @@
 # 实现状态
 
+当前优先级（用户最新决定）：下一步仅验证 Windows 可用性并修复相关缺陷，暂停新功能。代码留在 develop；PR #7 转为草稿，未启用自动合并。不合并 main、不发布新版本，待用户实机验证并明确确认。Windows 验收清单：安装/启动/卸载、登录/恢复/过期退出、库与搜索、MP3/FLAC/进度/切歌、歌词、托盘隐藏后续播、媒体控制。当前仅 CI 和安装包校验通过，上述实机项均 pending。
+
 Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均通过，Windows x64 的全模块单元测试、vet、34 项 headless UI 检查、NSIS 打包均成功。安装包 tinglan-0.0.2-x64-setup-unsigned.exe 已下载核验 SHA256。修复 MSYS2 安装路径、字体枚举回调指针类型，以及窗口/字体弹窗同名“关闭”导致自动化误点的问题。未跳过失败检查；PR 构建没有发布 Release。Windows 真实安装、登录、音频输出和托盘操作仍未实机验收。
 
 分支/CI 调整（2026-10-30）：按用户最新要求启用 develop 开发、main PR-only（管理员同样受限，禁止强推/删除，要求 Build gate）。main 合并自动构建 macOS arm64/x64 与 Windows x64 并发布唯一构建标签 Latest；develop 只手动选择目标并保存 artifacts。Windows CI 已通过（见下方证据）；安装与播放实机验证仍待完成，Linux 不打包。此前仅 macOS、版本标签触发的记录为历史配置。

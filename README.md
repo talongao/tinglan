@@ -105,6 +105,12 @@ npm run build:native:mac
 
 服务接口、歌词匹配和不同系统的表现仍可能存在差异。具体的验证范围与待办见[实现状态](docs/IMPLEMENTATION_STATUS.md)，不以截图或编译成功代替完整验收。
 
+## 接下来
+
+当前只推进 **Windows 可用性验证**，暂不增加新功能。测试和修复留在 `develop`，试用安装包从 Actions Artifacts 获取；完成实机验证并确认后，再考虑合入 `main` 和发布。
+
+重点验证安装与启动、登录与会话恢复、音乐库与搜索、MP3/FLAC 播放及拖动进度、歌词、托盘续播与系统媒体控制。CI 构建成功只是起点，不代表这些使用体验已经验收。
+
 ## 一起把听澜做好
 
 欢迎带着使用感受来提 [Issue](https://github.com/talongao/tinglan/issues)，也欢迎修复问题、改善排版和可访问性、补充跨平台验证的 PR。
