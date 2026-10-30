@@ -1,5 +1,7 @@
 # 实现状态
 
+发布授权（2026-10-30）：用户明确要求提 PR、合并并发布 Release，覆盖此前 PR #7 保持草稿的限制。本次准备将 develop 的 Windows 安装/授权修复、关闭到托盘默认值及 macOS 完整 bundle 临时签名合入 main；必须通过 PR gate，三平台构建全部成功才发布 Latest。用户反馈 Windows 其余功能暂无大问题，但未逐项提供完整实机验收记录，不以发布代替验收。
+
 macOS 包签名修复（2026-10-30）：用户下载后提示损坏。实际安装包与 v0.0.2 Release arm64 DMG（均校验 SHA256）中的应用都只有 linker-signed/a.out、Info.plist not bound、Sealed Resources none，codesign strict 均报缺少资源签名；历史 Mac 打包脚本一致，不能归因于近期 Windows 改动。用户此前 Release 可打开的具体原因未确定，不以隔离标记推测代替证据。提交 d4f46f4 为无证书测试构建补完整 ad-hoc bundle seal，并在打包复制后验证。macOS arm64 Actions 41037078143 成功，新产物已下载、校验 SHA256、只读挂载，codesign --verify --deep --strict 通过，Info.plist 与资源已绑定；仍未获 Developer ID 签名/Apple 公证，不代表 Gatekeeper 自动放行。未修改用户已安装应用或移除其 quarantine，未合并 main/发布 Release。
 
 关闭行为默认值（2026-10-30）：新配置默认关闭窗口后隐藏到托盘，设置仍可选择退出；已有配置中明确保存的选择保持不变。用户反馈 Windows 其他功能暂无大问题，下一步提供 macOS Apple Silicon 测试包替换验证；仍留 develop，不合并 main 或发布 Release。

@@ -66,7 +66,7 @@
 
 听澜仍在持续打磨。目前以 **macOS Apple Silicon** 为主要开发与实际使用环境，本页截图也来自这一版本。Windows / Linux 已有适配代码与构建脚本，尚未完成实机验收。
 
-当前提供源码与本地构建方式，测试包未签名、未公证，尚不是正式发行版。原生界面与播放不依赖 Electron 或 Node.js；Node.js 仅用于仓库中的启动与构建脚本。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，develop 中的 Windows 版本改用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
+可从 [Latest Release](https://github.com/talongao/tinglan/releases/latest) 下载 macOS 或 Windows 测试安装包，也可从源码构建。测试包没有开发者证书签名或公证，尚不是正式发行版。原生界面与播放不依赖 Electron 或 Node.js；Node.js 仅用于仓库中的启动与构建脚本。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，Windows 使用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
 
 <details>
 <summary><strong>从源码启动</strong></summary>
@@ -107,7 +107,7 @@ npm run build:native:mac
 
 ## 接下来
 
-当前只推进 **Windows 可用性验证**，暂不增加新功能。测试和修复留在 `develop`，试用安装包从 Actions Artifacts 获取；完成实机验证并确认后，再考虑合入 `main` 和发布。
+当前只推进 **Windows 可用性验证**，暂不增加新功能。测试和修复在 `develop` 进行，按需试用包从 Actions Artifacts 获取；经确认合入 `main` 的测试版本通过 Release 分发。
 
 重点验证安装与启动、登录与会话恢复、音乐库与搜索、MP3/FLAC 播放及拖动进度、歌词、托盘续播与系统媒体控制。CI 构建成功只是起点，不代表这些使用体验已经验收。
 

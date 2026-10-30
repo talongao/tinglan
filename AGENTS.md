@@ -1,6 +1,6 @@
 # 项目工作规则
 
-- 当前 roadmap：只做 Windows 可用性验证与相关缺陷修复，验收前不增加新功能。所有改动留在 develop；PR #7 保持草稿，不合并 main、不发布新版，直到用户明确确认。CI 成功不代替 Windows 实机验收。
+- 当前 roadmap：只做 Windows 可用性验证与相关缺陷修复，验收前不增加新功能。日常改动留在 develop；用户已于 2026-10-30 明确授权将 PR #7 合并 main 并发布本次测试版，后续合并和发布仍需用户授权。CI 成功不代替 Windows 实机验收。
 
 - 听澜（Tinglan）是 Go + Viva 原生华为音乐第三方桌面客户端。旧 Electron/React 客户端与工具已移除，不恢复旧技术栈。
 - 开工先读 README.md、docs/IMPLEMENTATION_STATUS.md、docs/API_CONTRACT.md、docs/authorized-feature-validation.md。历史方案/验证记录保留作参考，与当前状态冲突时以当前实现和最新用户要求为准。
