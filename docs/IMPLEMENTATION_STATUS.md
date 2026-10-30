@@ -1,5 +1,7 @@
 # 实现状态
 
+关闭行为默认值（2026-10-30）：新配置默认关闭窗口后隐藏到托盘，设置仍可选择退出；已有配置中明确保存的选择保持不变。用户反馈 Windows 其他功能暂无大问题，下一步提供 macOS Apple Silicon 测试包替换验证；仍留 develop，不合并 main 或发布 Release。
+
 Windows 用户反馈修复（2026-10-30，develop）：此前 NSIS 脚本 UTF-8 修复未覆盖独立读取的许可证文本，现许可证页使用 UTF-16LE BOM；完成页增加“打开听澜”。升级时将两种已知错误编码的听澜快捷方式移到安装目录 upgrade-backup（不删除其他快捷方式），新增残留升级检查与实际安装页 UI Automation 检查。WebView2 临时目录被 Runtime/杀毒软件占用时，旧逻辑会覆盖授权结果；现启用 InPrivate controller，目录清理失败改后台重试两分钟，不丢弃授权或取消结果。若退出或持续占用，临时运行时文件仍可能残留；未读取用户设备目录，不宣称已确认具体占用进程。新增持锁清理回归通过。Windows-only Actions 41034649213 全部通过：实际安装器协议框的中文、完成页启动选项、旧乱码快捷方式迁移、WebView2 私密会话的合成回调/取消/关闭/加载失败/重复登录及持锁清理均已核验。新安装包已下载并通过 SHA256 校验；真实华为扫码仍待用户验收，未合并 main 或发布 Release。
 
 Windows WebView2 测试包（2026-10-30）：提交 70d00f4 已推送 develop，手动仅 Windows 构建 41030036111 全部成功。Windows 真实 WebView2 窗口的 302/JS/弹窗回调、取消、关闭、网络失败及重复登录合成测试通过；全模块测试、vet、UI、NSIS 打包、静默安装及中文快捷方式校验通过。产物 tinglan-windows-x64-unsigned，安装包 tinglan-0.0.2-x64-setup-unsigned.exe（约 4.7 MiB）已下载并核验 SHA256。未合并 main、未发布 Release；真实华为扫码与用户设备体验仍待验。覆盖下方“未推送/未运行”的实施时状态。
