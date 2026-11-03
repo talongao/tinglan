@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
@@ -361,25 +362,28 @@ func (m *model) sourceRows() []sourceRow {
 	return rows
 }
 
-// sourceCardHeight keeps card layout and scroll extent in one place.
-func sourceCardHeight(row sourceRow) float32 {
-	if row.loginable && row.enabled {
-		return 92
-	}
-	return 56
-}
+// sourceRowHeight keeps the list layout and scroll extent in one place.
+func sourceRowHeight(row sourceRow) float32 { return 56 }
 
-// sourcesSettingsHeight drives both the painter and the scroll extent.
 func (m *model) sourcesSettingsHeight() float32 {
 	height := float32(96)
 	for _, row := range m.sourceRows() {
-		height += sourceCardHeight(row) + 12
+		height += sourceRowHeight(row)
 	}
 	height += 54
 	if height < 360 {
 		height = 360
 	}
 	return height
+}
+
+// sourceShortName is the one-character tile label shown on a source row.
+func sourceShortName(name string) string {
+	name = strings.TrimSpace(name)
+	for _, r := range name {
+		return string(r)
+	}
+	return "?"
 }
 
 func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
@@ -391,51 +395,17 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 	m.text(c, fmt.Sprintf("%d 首 · 来自本机规范化曲库，不随账号退出删除", count), rect(x+2, y+30, w-4, 22), 11, 400, m.muted())
 
 	m.text(c, "音源", rect(x+2, y+66, w-160, 22), 13, 600, m.ink())
-	if m.pill(c, openPluginsID, rect(x+w-132, y+60, 132, 28), "打开插件文件夹", false) {
-		m.openPluginFolder()
-	}
 
 	rowY := y + 96
 	for i, row := range m.sourceRows() {
-		cardH := sourceCardHeight(row)
-		card := rect(x, rowY, w, cardH)
-		visual.Border(c, card, 14, 1, m.line(.07), m.surface(.55))
+		rowH := sourceRowHeight(row)
+		tile := rect(x+2, rowY+14, 26, 26)
+		visual.Border(c, tile, 8, 1, m.line(.1), m.surface(.9))
+		m.centerText(c, sourceShortName(row.name), tile, 11, 650, m.ink())
 
-		m.text(c, row.name, rect(x+16, rowY+14, w-140, 22), 13, 600, m.ink())
-		nameW := m.textWidth(c, row.name, 13, 600)
-		dot := color(0x6b7280, 1)
-		if row.enabled {
-			dot = m.accent()
-		}
-		c.Rounded(rect(x+22+nameW, rowY+22, 6, 6), 3, dot)
-		state := "已停用"
-		if row.enabled {
-			state = "已启用"
-		}
-		m.text(c, state, rect(x+34+nameW, rowY+16, 60, 18), 11, 400, m.muted())
+		m.text(c, row.name, rect(x+40, rowY+17, 180, 20), 13, 600, m.ink())
 
-		// Toggle switch on the card header.
-		tr := rect(x+w-52, rowY+16, 36, 21)
-		tint := color(0x16181c, .16)
-		if row.enabled {
-			tint = m.accent()
-		}
-		c.Rounded(tr, 10.5, tint)
-		dx := float32(3)
-		if row.enabled {
-			dx += 15
-		}
-		c.Shadow(rect(tr.X+dx, tr.Y+3, 15, 15), 7.5, ui.ShadowStyle{OffsetY: 1, Blur: 3}, color(0, .24))
-		c.Rounded(rect(tr.X+dx, tr.Y+3, 15, 15), 7.5, color(0xffffff, 1))
-		if hit(c, sourceSettings.At(i), rect(tr.X-8, tr.Y-8, tr.Width+16, tr.Height+16), row.name+" "+state) {
-			m.toggleSourceRow(row)
-		}
-
-		if !row.loginable || !row.enabled {
-			rowY += cardH + 12
-			continue
-		}
-
+		// Account state is one quiet line, right after the name.
 		account := "账号：未登录"
 		if m.busy && m.loginTarget == row.id {
 			account = "账号：正在登录…"
@@ -444,43 +414,78 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 		} else if _, ok := m.sourceAuth[row.id]; !ok {
 			account = "账号：正在读取…"
 		}
-		m.text(c, account, rect(x+16, rowY+58, w-260, 20), 11, 400, m.muted())
+		if row.loginable && row.enabled {
+			m.text(c, account, rect(x+228, rowY+18, w-420, 18), 11, 400, m.muted())
+		}
 
-		btnY := rowY + 52
-		if m.sourceSignedIn(row.id) {
-			if m.pill(c, sourceLogoutID.At(i), rect(x+w-16-88, btnY, 88, 28), "退出账号", false) {
-				m.logoutSource(row.id)
+		// Right cluster: actions, status, switch.
+		right := x + w - 16
+		tr := rect(right-34, rowY+18, 34, 20)
+		tint := color(0x16181c, .16)
+		if row.enabled {
+			tint = m.accent()
+		}
+		c.Rounded(tr, 10, tint)
+		dx := float32(2.5)
+		if row.enabled {
+			dx += 14
+		}
+		c.Shadow(rect(tr.X+dx, tr.Y+2.5, 15, 15), 7.5, ui.ShadowStyle{OffsetY: 1, Blur: 3}, color(0, .24))
+		c.Rounded(rect(tr.X+dx, tr.Y+2.5, 15, 15), 7.5, color(0xffffff, 1))
+		if hit(c, sourceSettings.At(i), rect(tr.X-8, tr.Y-8, tr.Width+16, tr.Height+16), row.name+" 开关") {
+			m.toggleSourceRow(row)
+		}
+
+		state := "已停用"
+		if row.enabled {
+			state = "已启用"
+		}
+		stateW := m.textWidth(c, state, 11, 400)
+		stateX := tr.X - 14 - stateW
+		dot := color(0x6b7280, 1)
+		if row.enabled {
+			dot = m.accent()
+		}
+		c.Rounded(rect(stateX-10, rowY+23, 5, 5), 2.5, dot)
+		m.text(c, state, rect(stateX, rowY+18, stateW+2, 18), 11, 400, m.muted())
+
+		if row.loginable && row.enabled {
+			btnY := rowY + 14
+			edge := stateX - 18
+			if m.sourceSignedIn(row.id) {
+				if m.pill(c, sourceLogoutID.At(i), rect(edge-84, btnY, 84, 28), "退出账号", false) {
+					m.logoutSource(row.id)
+				}
+				edge -= 92
 			}
-		}
-		label := "登录"
-		btnW := float32(80)
-		if m.sourceSignedIn(row.id) {
-			label = "重新登录"
-			btnW = 96
-		}
-		if m.busy && m.loginTarget == row.id {
-			label = "取消登录"
-		}
-		btnX := x + w - 16 - btnW
-		if m.sourceSignedIn(row.id) {
-			btnX = x + w - 16 - 88 - 8 - btnW
-		}
-		if m.pill(c, sourceLoginID.At(i), rect(btnX, btnY, btnW, 28), label, false) {
+			label := "登录"
+			btnW := float32(72)
+			if m.sourceSignedIn(row.id) {
+				label = "重新登录"
+				btnW = 92
+			}
 			if m.busy && m.loginTarget == row.id {
-				m.cancelLogin()
-			} else {
-				m.loginTarget = row.id
-				m.startLogin()
+				label = "取消登录"
+			}
+			if m.pill(c, sourceLoginID.At(i), rect(edge-btnW, btnY, btnW, 28), label, false) {
+				if m.busy && m.loginTarget == row.id {
+					m.cancelLogin()
+				} else {
+					m.loginTarget = row.id
+					m.startLogin()
+				}
 			}
 		}
-		rowY += cardH + 12
+
+		visual.Border(c, rect(x, rowY+rowH-1, w, 1), 1, 1, m.line(.06), m.line(.06))
+		rowY += rowH
 	}
 
 	importLabel := "从音源导入收藏"
 	if m.importing {
 		importLabel = "正在导入…"
 	}
-	if m.pill(c, importFavoritesID, rect(x, rowY+8, 190, 34), importLabel, m.importing) {
+	if m.pill(c, importFavoritesID, rect(x, rowY+12, 190, 34), importLabel, m.importing) {
 		if m.importing && m.importCancel != nil {
 			m.importCancel()
 			m.importing = false
@@ -489,8 +494,11 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 			m.openImportDialog("favorites")
 		}
 	}
+	if m.pill(c, openPluginsID, rect(x+w-132, rowY+12, 132, 34), "打开插件文件夹", false) {
+		m.openPluginFolder()
+	}
 	if m.importStatus != "" {
-		m.text(c, m.importStatus, rect(x+2, rowY+50, w-4, 22), 11, 400, m.muted())
+		m.text(c, m.importStatus, rect(x+2, rowY+54, w-4, 22), 11, 400, m.muted())
 	}
 }
 
