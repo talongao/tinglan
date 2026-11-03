@@ -85,6 +85,10 @@ func TestLiveHuaweiPlugin(t *testing.T) {
 			t.Fatalf("playlist detail: %v", err)
 		}
 		t.Logf("playlist %q tracks=%d truncated=%v", detail.Playlist.Name, len(detail.Tracks), detail.Truncated)
+		if playback.LyricText == "" && playback.LyricURL == "" {
+			t.Fatalf("no lyric payload for %q", page.Items[0].Title)
+		}
+		t.Logf("lyrics text=%d url=%v", len(playback.LyricText), playback.LyricURL != "")
 	}
 	history, err := src.Catalog().History(ctx, source.PageRequest{Limit: 5})
 	if err != nil {

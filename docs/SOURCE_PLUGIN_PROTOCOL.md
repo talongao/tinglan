@@ -350,7 +350,11 @@ Playback {
 - 播放地址不进入持久化 JSON：`music.Playback` 的 `URL`/`LyricURL` 标记为 `json:"-"`，
   插件边界用显式的 `playbackWire` 传递（`sdk.wirePlayback` 与 `plugin.playbackWire`）。
 - 集成测试：`internal/plugin/huawei_plugin_test.go`（临时目录构建插件并握手）、
-  `internal/plugin/live_huawei_test.go`（`TINGLAN_LIVE_PROFILE` 指向真实数据目录，验证搜索/歌单详情/历史/播放解析）。
+  `internal/plugin/live_huawei_test.go`（`TINGLAN_LIVE_PROFILE` 指向真实数据目录，验证搜索/歌单详情/历史/播放解析/歌词）；
+  `internal/plugin/host_test.go` 校验 WebView 登录窗口的回调规则与域名白名单，并拒绝 `requireSessionExport` 与 http 地址。
+- 实机验证（2026-11-03 晚）：应用启动后插件进程运行，音源页显示「华为音乐 · 已启用」与已登录按钮，
+  收藏 942 首；搜索「周杰伦」经插件返回结果并带来源徽标。未验证：手动在弹出的登录窗口完成扫码、
+  实际出声、Windows 实机（仅 CGO_ENABLED=0 交叉编译）。
 
 尚未实现：
 
