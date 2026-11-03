@@ -39,7 +39,8 @@ jobs:
           MAC_ARM64: ${{ inputs.mac_arm64 }}
           MAC_X64: ${{ inputs.mac_x64 }}
           WINDOWS_X64: ${{ inputs.windows_x64 }}
-        run: node native/scripts/ci-targets.mjs
+        working-directory: native
+        run: go run ./cmd/tinglan-tool ci-targets
   build:
     if: github.event_name != 'pull_request'
     needs: plan
@@ -58,9 +59,6 @@ jobs:
         with:
           go-version-file: native/go.mod
           cache-dependency-path: native/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - name: Windows C compiler
         id: msys
         if: runner.os == 'Windows'
@@ -88,7 +86,11 @@ jobs:
       - name: Verify architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
-        run: node -e 'if (process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
+        shell: bash
+        run: |
+          want="$EXPECTED_ARCH"
+          [ "$want" = "x64" ] && want=amd64
+          test "$(go env GOARCH)" = "$want"
       - name: Dependencies and license sources
         working-directory: native
         run: go mod download
@@ -112,9 +114,11 @@ jobs:
         working-directory: native
         run: go vet ./...
       - name: UI checks
-        run: npm run test:native:ui
+        working-directory: native
+        run: go run ./cmd/tinglan-tool ui-check
       - name: Package
-        run: node native/scripts/package.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+        working-directory: native
+        run: go run ./cmd/tinglan-tool package ${{ matrix.platform }} ${{ matrix.arch }}
       - name: Check Windows installation
         if: runner.os == 'Windows'
         shell: pwsh
@@ -201,7 +205,7 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          version=$(node -p 'require("./package.json").version')
+          version=$(cd native && go run ./cmd/tinglan-tool version --short)
           tag="v${version}-build.${RUN_NUMBER}"
           gh release create "$tag" release-assets/* --target "$COMMIT" \
             --latest --title "听澜 Tinglan ${version} · Build ${RUN_NUMBER}" \

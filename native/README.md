@@ -1,25 +1,26 @@
 # 听澜原生开发说明
 
-默认启动已切到 `cmd/music`（Viva v0.1.3 / Go 1.26.10）。旧 Electron 客户端已移除；不是已经完成全部验收的发行版。macOS arm64 已用于用户实际听歌并经授权截图；自动化验收使用离线合成数据，不替代不同账号权益验证。Windows/Linux 尚未实机验收。按用户最新要求，不以逐像素一致作为收口条件。
+默认启动已切到 `cmd/music`（Viva v0.1.3 / Go 1.27.3）。旧 Electron 客户端已移除；不是已经完成全部验收的发行版。macOS arm64 已用于用户实际听歌并经授权截图；自动化验收使用离线合成数据，不替代不同账号权益验证。Windows/Linux 尚未实机验收。按用户最新要求，不以逐像素一致作为收口条件。
 
 ## 启动与本地构建
 
-在仓库根目录：
+在 `native/` 下：
 
 ```sh
-npm start
-npm run build:native
-npm run build:native:mac
-npm run dist
+go run ./cmd/tinglan-tool start      # 构建并启动
+go run ./cmd/tinglan-tool build      # 独立程序
+go run ./cmd/tinglan-tool mac-app    # macOS .app
+go run ./cmd/tinglan-tool package    # 本机安装包（macOS: DMG）
+go run ./cmd/tinglan-tool ui-check   # 无头界面回归
 ```
 
-脚本支持 `HWMUSIC_GO`。默认 Go 不在 PATH 时，启动器可使用已构建的本平台独立程序；源码修改后仍需重建。macOS 需要 Xcode Command Line Tools；Linux 需要 X11/XCB、Vulkan、Pango/Cairo 和音频设备；Windows 需要 cgo 编译器。原生依赖由 Go 获取，不需要 Electron。图标与共享名称已生成，图标矢量源与 ISC 许可保存在 `native/assets/lucide/`；只有栅格化图标才需要根目录 Playwright 开发依赖（`native/scripts/make-icon.mjs`）；`generate-assets.mjs` 仅使用 Node.js 与 Go。
+工具链已全部由 Go 实现，不再需要 Node.js、npm 或 playwright；`go` 需在 PATH 中。Go 不在 PATH 时，启动器可使用已构建的本平台独立程序；源码修改后仍需重建。macOS 需要 Xcode Command Line Tools；Linux 需要 X11/XCB、Vulkan、Pango/Cairo 和音频设备；Windows 需要 cgo 编译器。原生依赖由 Go 获取，不需要 Electron。图标与共享名称由 `go run ./cmd/tinglan-tool icons` 生成：矢量源与 ISC 许可保存在 `native/assets/lucide/`（SVG），编译进 `native/internal/icons/icons.go`；PNG 母版在 `build/`，`assets` 子命令把它们复制进 `native/internal/icons/`。
 
 `build` / `dist` 默认均为原生。开发统一在 `develop`，Actions 手动勾选 macOS arm64 / Intel x64 / Windows x64，只上传 artifacts。草稿 PR 不运行构建；正式 PR 到 `main` 仅执行单平台代码检查、不打包，必须通过 `Build gate`；合并后重新构建三平台并自动发布 Latest。标签为 `v<package.version>-build.<run_number>`，不覆盖旧版本。Windows 使用当前用户 NSIS 安装包，尚未实机验收；Linux 暂不打包。手动工作流必须选择 develop 且至少勾选一个平台。
 
 本地 `.app` 位于 `out/native/Tinglan.app`，独立程序位于 `out/native/tinglan/<platform>-<arch>/`，带许可证与 SHA256。默认未签名；仅显式设置签名环境变量时使用证书。未公证、不发布，不注册全局 hms。
 
-普通启动自动读取原生专用 profile：系统配置目录下 `huawei-music-desktop/native-v1`。通用设置、歌词缓存与按账号散列隔离的队列/库缓存分开；凭据按用户选择保存在本机应用数据目录，保存失败则仅保留内存会话。不读取或迁移旧 Electron 密文。
+普通启动自动读取原生专用 profile：系统配置目录下 `tinglan/native-v1`（首次启动会把旧的 `huawei-music-desktop/native-v1` 整体迁移过来）。通用设置、歌词缓存与按账号散列隔离的队列/库缓存分开；凭据按用户选择保存在本机应用数据目录，保存失败则仅保留内存会话。不读取或迁移旧 Electron 密文。
 
 ## 离线验证
 
@@ -48,7 +49,7 @@ macOS 音频脚本 `native/scripts/test-audio.sh` 使用 Python、系统 afconve
 
 ### 听澜界面更新（2026-10-29）
 
-- 显示名由 `native/app-name.mjs` 生成，数据目录和技术包名保持不变。
+- 显示名由 `native/internal/appmeta` 生成 `native/cmd/music/app_name.go`，数据目录和技术包名保持不变。
 - 封面支持 JPEG/PNG/GIF/WebP，优先尝试安全的各尺寸/备用地址，缺失时查询专辑封面；失败退避重试，缓存按最近使用淘汰。
 - 侧栏图标与阴影跟随主题色；透明度/圆角设置暂时隐藏，当前字体展示与系统字体输入筛选保留。
 - 应用内空格切换播放/暂停；输入框、编辑弹窗和字体弹窗不截获空格，长按不反复切换。
@@ -60,7 +61,7 @@ macOS 音频脚本 `native/scripts/test-audio.sh` 使用 Python、系统 afconve
 
 ### 本地凭据与可选签名
 
-用户选择将音乐会话保存在应用数据目录，不再依赖系统钥匙串。macOS 路径为 `~/Library/Application Support/huawei-music-desktop/native-v1/session.local.json`，不写入 `.app` 或安装目录。文件为 0600、目录为 0700（Windows 权限语义和真实 ACL 未验）。文件包含 AES-GCM 密文及其随机密钥，一次原子替换；密钥同存不构成对同用户程序的加密保护，实际保护依赖操作系统用户隔离和文件权限。
+用户选择将音乐会话保存在应用数据目录，不再依赖系统钥匙串。macOS 路径为 `~/Library/Application Support/tinglan/native-v1/session.local.json`，不写入 `.app` 或安装目录。文件为 0600、目录为 0700（Windows 权限语义和真实 ACL 未验）。文件包含 AES-GCM 密文及其随机密钥，一次原子替换；密钥同存不构成对同用户程序的加密保护，实际保护依赖操作系统用户隔离和文件权限。
 
 启动/保存/退出均不调用系统凭据接口。旧 `session.enc` 不自动解密，升级后重新登录一次；退出账号删除新旧会话文件，但不访问或删除旧钥匙串项。旧 Electron 数据不迁移。文件损坏或保存失败不输出凭据，保存失败时提示退出后重新登录。原生包白名单不包含用户数据。
 

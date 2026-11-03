@@ -2,18 +2,21 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
 
-	"huawei-music-desktop/native/internal/audio"
-	"huawei-music-desktop/native/internal/huawei"
-	"huawei-music-desktop/native/internal/webauth"
+	"tinglan/native/internal/appmeta"
+	"tinglan/native/internal/audio"
+	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/webauth"
 )
 
 var (
@@ -36,6 +39,8 @@ type completion struct {
 }
 type model struct {
 	desktopState
+	sourceState
+	libraryUIState
 	writeState
 	resourceState
 	applicationState
@@ -65,7 +70,10 @@ type model struct {
 	actualQuality      string
 	resolvedDuration   float64
 	durationMismatch   bool
+	learnedDurationFor string
 	pendingSeek        float64
+	resumeTrackID      string
+	resumePosition     float64
 	startedAt          time.Time
 	lastQueueSave      time.Time
 	listened           float64
@@ -76,7 +84,7 @@ type model struct {
 
 func newModel() *model {
 	client := huawei.NewClient()
-	m := &model{status: "请登录以读取个人音乐库。", authorize: webauth.Authorize, exchange: client.Exchange, validate: client.ValidateSession}
+	m := &model{status: "本地收藏为空；在 设置 → 音源 登录并导入。", authorize: webauth.Authorize, exchange: client.Exchange, validate: client.ValidateSession}
 	m.initDesktop()
 	return m
 }
@@ -91,7 +99,8 @@ func (m *model) startLogin() {
 	m.generation++
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	m.cancel, m.busy, m.status = cancel, true, "请在授权窗口完成华为登录，完成后会自动返回听澜"
+	m.cancel, m.busy = cancel, true
+	m.setStatus("请在授权窗口完成华为登录，完成后会自动返回听澜")
 	go func() {
 		defer cancel()
 		attempt := huawei.NewAttempt(time.Now())
@@ -123,7 +132,7 @@ func (m *model) cancelLogin() {
 		m.cancel = nil
 	}
 	m.busy, m.restoring = false, false
-	m.status = "已取消登录"
+	m.setStatus("已取消登录")
 }
 
 func (m *model) wake() {
@@ -137,6 +146,7 @@ func (m *model) wake() {
 	m.applyEntities()
 	m.applyWrites()
 	m.applyPlaybackResults()
+	m.applySourceResults()
 	m.applyLibraryResults()
 	if m.audioRunning {
 		m.pollAudio()
@@ -151,21 +161,27 @@ func (m *model) wake() {
 		}
 		m.busy, m.restoring, m.cancel = false, false, nil
 		if result.err != nil {
+			if errors.Is(result.err, webauth.ErrWebView2Missing) {
+				m.dialog = "webview-guide"
+				m.setStatus("登录需要 Microsoft Edge WebView2 Runtime")
+				continue
+			}
 			if result.restored && m.expireSession(result.err) {
 				continue
 			}
-			m.status = "登录未完成，请重试；原会话保持不变"
+			m.setStatus("登录未完成，请重试；原会话保持不变")
 			if !result.restored {
-				m.status = webauth.LoginErrorMessage(result.err)
+				m.setStatus(webauth.LoginErrorMessage(result.err))
 			}
 			if result.restored {
-				m.status = "请登录以读取个人音乐库。"
+				m.setStatus("未登录华为音乐；可在 设置 → 音源 登录并导入。")
 			}
 			continue
 		}
-		m.session, m.status = result.session, "音乐会话校验通过 · 仅本次进程有效"
+		m.session = result.session
+		m.setStatus("音乐会话校验通过 · 仅本次进程有效")
 		if result.restored {
-			m.status = "已恢复保存的音乐会话，正在更新音乐库。"
+			m.setStatus("已恢复保存的音乐会话，正在更新音乐库。")
 		}
 		m.installCatalog()
 		m.attachAccount()
@@ -238,6 +254,14 @@ func (m *model) close() {
 }
 
 func main() {
+	// Viva drives AppKit, and AppKit must run on the process's original thread:
+	// viva_system_reduce_motion hops to the main queue with dispatch_sync. Pin the
+	// goroutine before any file or network work can hand it to another thread,
+	// otherwise startup deadlocks with no window.
+	runtime.LockOSThread()
+	// Move the pre-rename profile directory on first launch so the local
+	// library, queue and saved session survive the rename.
+	_ = appmeta.MigrateDataDir()
 	backgroundCheck := flag.Bool("check-background", false, "synthetic hidden-window playback check; requires --demo 2 and --fixture-dir")
 	fixture := flag.String("audio-fixture", "", "explicit synthetic local MP3/FLAC fixture (muted)")
 	demo := flag.Int("demo", 0, "explicit offline synthetic library size (1..10000)")

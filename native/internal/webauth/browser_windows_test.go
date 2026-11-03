@@ -15,7 +15,7 @@ import (
 
 	"github.com/zzl/go-win32api/v2/win32"
 	"golang.org/x/sys/windows"
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 func TestWebViewProfileCleanupRetriesLockedFile(t *testing.T) {

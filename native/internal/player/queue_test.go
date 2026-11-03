@@ -1,7 +1,7 @@
 package player
 
 import (
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 	"testing"
 )
 

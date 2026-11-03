@@ -16,7 +16,7 @@ import (
 	"github.com/zzl/go-com/com"
 	"github.com/zzl/go-webview2/wv2"
 	"github.com/zzl/go-win32api/v2/win32"
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 func NeedsManualCallback() bool { return false }
@@ -101,7 +101,7 @@ func webViewAuthorize(ctx context.Context, address string, allowed func(string) 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	if _, err := webviewloader.GetAvailableCoreWebView2BrowserVersionString(""); err != nil {
-		return "", errors.New("webview2 runtime unavailable")
+		return "", ErrWebView2Missing
 	}
 	dir, err := os.MkdirTemp("", "tinglan-webview-auth-")
 	if err != nil {

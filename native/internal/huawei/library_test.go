@@ -81,7 +81,7 @@ func TestPlaylistRoutesAndHistory(t *testing.T) {
 			return response(`{"result":{"resultCode":"000000"},"contentSimpleInfos":[]}`, 200), nil
 		}
 		body, _ := io.ReadAll(r.Body)
-		if !strings.Contains(string(body), `"contentTypes":[1,4,5,7]`) {
+		if !strings.Contains(string(body), `"contentTypes":[4,5,7]`) {
 			t.Fatal("playlist discovery types")
 		}
 		return response(`{"result":{"resultCode":"000000"},"favoriteInfos":[{"contentID":"song","contentName":"Song","contentType":1},{"contentID":"owned-id","contentName":"Synthetic playlist","contentType":"5"}]}`, 200), nil

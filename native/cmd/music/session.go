@@ -8,7 +8,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/appmeta"
+	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
 type persistenceResult struct {
@@ -55,9 +57,9 @@ func (m *model) applyPersistence() {
 			continue
 		}
 		if r.err != nil {
-			m.status = "本地凭据保存失败，退出后需重新登录。"
+			m.setStatus("本地凭据保存失败，退出后需重新登录。")
 		} else {
-			m.status = "登录成功，音乐会话已保存到本机。"
+			m.setStatus("登录成功，音乐会话已保存到本机。")
 		}
 	}
 }
@@ -67,7 +69,7 @@ func defaultProfile() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(dir, "huawei-music-desktop", "native-v1")
+	return filepath.Join(dir, filepath.FromSlash(appmeta.DataDir))
 }
 
 // Called only for the normal app launch. Automated/headless tests never read a
@@ -77,7 +79,7 @@ func (m *model) restoreSession() {
 		return
 	}
 	m.restoring = true
-	m.status = "正在恢复音乐会话…"
+	m.setStatus("正在恢复音乐会话…")
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	m.cancel = cancel
@@ -109,14 +111,19 @@ func (m *model) attachAccount() {
 		m.queue.Shuffle = m.settings.Shuffle
 		m.queue.Replace(saved.Tracks, saved.Index)
 		m.queue.Position = saved.Position
+		m.rememberResume(saved.Position)
 	}
 	m.localHistory, _ = m.accountStore.LoadHistory()
-	if cached, err := m.accountStore.LoadLibrary(); err == nil && len(cached) > 0 {
-		m.tracks = cached
-		for _, track := range cached {
-			m.favoriteKnown[track.ID] = true
+	// The local canonical library is the only favorites source; the per-account
+	// cache is no longer copied into the visible list.
+	//
+	// Restoring a session must also restore the account's stored login state:
+	// a stale logged_out row would mark every binding Disabled and make every
+	// track look like it has no source.
+	if m.local != nil {
+		if _, err := m.local.EnsureAccount(context.Background(), music.SourceHuawei, m.session.AccountKey(), "华为音乐账号"); err == nil {
+			m.installLocalLibrary()
 		}
-		m.status = "正在更新音乐库 · 缓存可能不是最新"
 	}
 }
 func (m *model) logout() {
@@ -136,18 +143,25 @@ func (m *model) logout() {
 	}
 	m.accountStore = nil
 	m.session = nil
+	if m.local != nil {
+		_ = m.local.DisableSource(music.SourceHuawei)
+		m.installLocalLibrary()
+		m.setStatus("已退出账号；本地收藏仍可用")
+	}
 	if m.store != nil {
 		m.persistMu.Lock()
 		err := m.store.DeleteSession()
 		m.persistMu.Unlock()
 		if err != nil {
-			m.status = "已退出内存会话，但本地凭据清理失败，请重试"
+			m.setStatus("已退出内存会话，但本地凭据清理失败，请重试")
 			return
 		}
 	}
-	m.status = "已退出账号"
+	if m.status == "" {
+		m.setStatus("已退出账号")
+	}
 	if cleanupFailed {
-		m.status = "已退出账号，但本机音乐库缓存清理失败"
+		m.setStatus("已退出账号，但本机音乐库缓存清理失败；本地收藏仍可用")
 	}
 }
 
@@ -161,7 +175,7 @@ func (m *model) expireSession(err error) bool {
 		return false
 	}
 	m.logout()
-	m.status = "音乐会话已过期，请重新登录。"
+	m.setStatus("音乐会话已过期，请重新登录。")
 	return true
 }
 func (m *model) scheduleSessionCheck() {

@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/icons"
+	"tinglan/native/internal/icons"
 )
 
 var transportOptions = tree.Sub(shell, tree.Name("transport-options"))
@@ -25,6 +25,20 @@ func (m *model) paintVolumeMenu(c *ui.Canvas, size ui.Size) {
 	c.Rounded(b, 14, m.surface(1))
 	m.text(c, "音量", rect(b.X+18, b.Y+12, 80, 24), 12, 500, m.ink())
 	m.centerText(c, fmt.Sprintf("%.0f%%", m.settings.Volume*100), rect(b.X+126, b.Y+12, 50, 24), 11, 500, m.secondary())
+	if hit(c, volumeMuteID, rect(b.X+118, b.Y+8, 64, 32), "静音切换") {
+		if m.settings.Volume > 0 {
+			m.volumeBeforeMute = m.settings.Volume
+			m.settings.Volume = 0
+		} else if m.volumeBeforeMute > 0 {
+			m.settings.Volume = m.volumeBeforeMute
+		} else {
+			m.settings.Volume = .85
+		}
+		if m.player != nil {
+			_ = m.player.SetVolume(m.settings.Volume)
+		}
+		m.saveSettings()
+	}
 	r := volumeTrackBounds(size)
 	x := r.X + r.Width*float32(m.settings.Volume)
 	c.Rounded(rect(r.X, r.Y+10, r.Width, 4), 2, m.line(.15))
@@ -73,13 +87,23 @@ func (m *model) paintTransportMenu(c *ui.Canvas, size ui.Size) {
 		selected = 1
 	}
 	if m.transportMenu == "quality" {
-		labels = []string{"标准音质", "无损音质"}
+		labels = []string{"标准", "无损"}
 		selected = 0
 		if m.settings.Quality == "lossless" {
 			selected = 1
 		}
 	}
-	b := rect(size.Width-330, size.Height-96-float32(len(labels))*40-16, 192, float32(len(labels))*40+16)
+	hint := ""
+	if m.transportMenu == "quality" {
+		// The menu picks a request preference, not a measured stream format;
+		// the resolved quality is not exposed by the API, so don't imply it.
+		hint = "优先音质 · 从下一首生效"
+	}
+	hintSpace := float32(0)
+	if hint != "" {
+		hintSpace = 22
+	}
+	b := rect(size.Width-330, size.Height-96-float32(len(labels))*40-16-hintSpace, 192, float32(len(labels))*40+16+hintSpace)
 	c.PushLayer(4)
 	defer c.PopLayer()
 	c.Block(b)
@@ -98,6 +122,9 @@ func (m *model) paintTransportMenu(c *ui.Canvas, size ui.Size) {
 			x += 28
 		}
 		m.text(c, label, rect(x, r.Y, r.Width-(x-r.X)-12, r.Height), 12, 500, m.ink())
+		if selected == i {
+			c.DrawIcon(icons.Check, rect(r.X+r.Width-26, r.Y+11, 14, 14), m.accent())
+		}
 		if hit(c, transportOptions.At(i), r, label) {
 			if m.transportMenu == "mode" {
 				m.settings.Shuffle = i == 3
@@ -109,5 +136,8 @@ func (m *model) paintTransportMenu(c *ui.Canvas, size ui.Size) {
 			m.saveSettings()
 			m.transportMenu = ""
 		}
+	}
+	if hint != "" {
+		m.text(c, hint, rect(b.X+12, b.Y+b.Height-22, b.Width-24, 18), 10, 400, m.muted())
 	}
 }

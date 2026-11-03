@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-multisource-20261031-160118/candidate.json",
+    "sha256": "8a76b9fb4f0c38e38db8daf78c8332627279bf7912b36ad82bf151f0e1bdf7fd",
+    "bytes": 15741
+  },
+  "artifact": {
+    "path": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-multisource-20261031-160118/tinglan-multisource.html",
+    "sha256": "de1f5511aa64fe59b88d4488de30d015d1c274739e1ef6b5b7c6e38cfb8b331f",
+    "bytes": 863824
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-multisource-20261031-160118/review-7/tinglan-multisource.finalize.json",
+    "summaryReceipt": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-multisource-20261031-160118/review-7/tinglan-multisource.finalize-summary.json",
+    "browserCheckReceipt": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-multisource-20261031-160118/review-7/tinglan-multisource.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-31T06:35:15.914Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 3315,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  }
+}

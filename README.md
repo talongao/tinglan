@@ -66,27 +66,33 @@
 
 听澜仍在持续打磨。目前以 **macOS Apple Silicon** 为主要开发与实际使用环境，本页截图也来自这一版本。Windows / Linux 已有适配代码与构建脚本，尚未完成实机验收。
 
-可从 [Latest Release](https://github.com/talongao/tinglan/releases/latest) 下载 macOS 或 Windows 测试安装包，也可从源码构建。测试包没有开发者证书签名或公证，尚不是正式发行版。原生界面与播放不依赖 Electron 或 Node.js；Node.js 仅用于仓库中的启动与构建脚本。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，Windows 使用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
+可从 [Latest Release](https://github.com/talongao/tinglan/releases/latest) 下载 macOS 或 Windows 测试安装包，也可从源码构建。测试包没有开发者证书签名或公证，尚不是正式发行版。原生界面、播放与构建工具链全部由 Go 实现，不依赖 Electron 或 Node.js。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，Windows 使用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
 
 <details>
 <summary><strong>从源码启动</strong></summary>
 
-准备 Go 1.26.10+、Node.js 22.15+ 和本平台 C 编译工具；macOS 需要 Xcode Command Line Tools。在仓库根目录运行：
+准备 Go 1.27.3+ 和本平台 C 编译工具；macOS 需要 Xcode Command Line Tools。构建和工具链全部由 Go 完成，不再需要 Node.js 或 npm。在 `native/` 下运行：
 
 ```sh
-npm start
+go run ./cmd/tinglan-tool start
 ```
 
 构建本机原生程序：
 
 ```sh
-npm run build
+go run ./cmd/tinglan-tool build
 ```
 
 macOS 应用构建：
 
 ```sh
-npm run build:native:mac
+go run ./cmd/tinglan-tool mac-app
+```
+
+离线界面回归（无头 Viva，不需要浏览器驱动）：
+
+```sh
+go run ./cmd/tinglan-tool ui-check
 ```
 
 日常开发在 `develop`：到 Actions 手动选择 macOS Apple Silicon、macOS Intel 或 Windows x64 构建，试用包保留在 Artifacts，不发布 Release。`main` 仅接受通过检查的 PR；合并后自动构建三个版本，全部成功才发布到 [Latest Release](https://github.com/talongao/tinglan/releases/latest)。发布标签带独立构建编号，旧版本不会被覆盖。Windows 安装包仍为未完成实机验收的测试构建；Linux 暂不打包。

@@ -4,7 +4,7 @@ package webauth
 
 import (
 	"context"
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 func Authorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {

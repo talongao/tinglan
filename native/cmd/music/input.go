@@ -10,7 +10,7 @@ var fontDialogScope = tree.ID(shell, "font-dialog-scope")
 var writeDialogScope = tree.ID(shell, "write-dialog-scope")
 
 func (m *model) textInput(ctx app.TextInputContext) *app.TextInput {
-	input := flex.Fields(&m.query, &m.writeField, &m.fontFilter)(ctx)
+	input := flex.Fields(&m.query, &m.writeField, &m.fontFilter, &m.newPlaylist, &m.jevEndpointField, &m.jevKeyField, &m.jevModelField)(ctx)
 	if input != nil {
 		input.NavigationKeys = ctx.ID == fontFilterID
 	}

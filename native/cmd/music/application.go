@@ -2,18 +2,18 @@ package main
 
 import (
 	"fmt"
-	"huawei-music-desktop/native/internal/mainthread"
 	"os"
 	"runtime"
 	"sync/atomic"
 	"time"
+	"tinglan/native/internal/mainthread"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/app/iconpng"
 	"github.com/vivaui/viva/app/singleinstance"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/icons"
-	"huawei-music-desktop/native/internal/media"
+	"tinglan/native/internal/icons"
+	"tinglan/native/internal/media"
 )
 
 type applicationState struct {
@@ -58,7 +58,7 @@ func (m *model) stepPlayback(direction int) {
 }
 func runMusic(m *model) error {
 	if !m.demo && os.Getenv("VIVA_HEADLESS") == "" {
-		claim, primary, err := singleinstance.SingleInstance("org.hwmusicdesktop.unofficial.viva", nil, func([]string) { m.reopen.Store(true); m.requestUpdate() })
+		claim, primary, err := singleinstance.SingleInstance("org.tinglan.unofficial.viva", nil, func([]string) { m.reopen.Store(true); m.requestUpdate() })
 		if err != nil {
 			return err
 		}

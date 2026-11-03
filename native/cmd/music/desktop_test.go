@@ -6,7 +6,7 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/lyrics"
+	"tinglan/native/internal/lyrics"
 )
 
 func click(t *testing.T, d *app.Driver, id ui.ID) {
@@ -92,7 +92,12 @@ func TestNavigationQueueAppearanceAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	click(t, d, nav.At(1))
+	// Demo has no source registry, so enter the browser directly; the entry
+	// dialog itself is covered by the import-dialog tests.
+	m.browseRemote = true
+	m.loadCollections("playlists", true)
 	click(t, d, playlistRows.At(0))
+	click(t, d, confirmWriteID)
 	if len(m.detailTracks) != 2 {
 		t.Fatal("playlist detail did not load")
 	}
@@ -287,5 +292,38 @@ func TestLyricsDragDoesNotSeekAndResumesAfterRelease(t *testing.T) {
 	m.resumeLyricFollow(m.lyricResumeAt)
 	if m.lyricManual || m.lyricDragging {
 		t.Fatal("drag follow did not resume")
+	}
+}
+
+func TestWebViewGuideDialogRenders(t *testing.T) {
+	m := newModel()
+	m.enableDemo(2)
+	m.dialog = "webview-guide"
+	var canvas ui.Canvas
+	d, err := app.NewDriver(config(m), &canvas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	click(t, d, webViewGuideCancelID)
+	if m.dialog != "" {
+		t.Fatal("guide dialog did not close")
+	}
+}
+
+func TestNavLeavesRemotePlaylistBrowser(t *testing.T) {
+	m := newModel()
+	m.enableDemo(2)
+	var canvas ui.Canvas
+	d, err := app.NewDriver(config(m), &canvas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	m.view = 1
+	m.browseRemote = true
+	click(t, d, nav.At(1))
+	if m.browseRemote {
+		t.Fatal("re-entering 我的歌单 kept the remote browser open")
 	}
 }

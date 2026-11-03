@@ -16,7 +16,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"huawei-music-desktop/native/internal/resource"
+	"tinglan/native/internal/resource"
 )
 
 type remoteSource struct {
@@ -28,9 +28,18 @@ type remoteSource struct {
 	requests map[uint64]context.CancelFunc
 }
 
-// OpenRemote probes the resource through the same allowlisted transport used by
-// every subsequent range. AVFoundation only sees an application-private scheme.
-func OpenRemote(ctx context.Context, url string) (*Player, error) {
+// RemoteProbe is the network half of OpenRemote: it checks the allowlisted
+// transport and the container signature away from the main thread.
+type RemoteProbe struct {
+	client *resource.Client
+	url    string
+	total  int64
+	kind   string
+}
+
+// ProbeRemote performs the HTTP probe and format sniff. It is safe to call from
+// a worker goroutine and does not touch AVFoundation.
+func ProbeRemote(ctx context.Context, url string) (*RemoteProbe, error) {
 	client := resource.New()
 	probe, err := client.Range(ctx, url, 0, 512)
 	if err != nil {
@@ -42,18 +51,38 @@ func OpenRemote(ctx context.Context, url string) (*Player, error) {
 	} else if !(len(probe.Bytes) >= 3 && string(probe.Bytes[:3]) == "ID3") && !(len(probe.Bytes) >= 2 && probe.Bytes[0] == 0xff && probe.Bytes[1]&0xe0 == 0xe0) {
 		return nil, errors.New("unsupported audio format")
 	}
+	return &RemoteProbe{client: client, url: url, total: probe.Total, kind: kind}, nil
+}
+
+// Open builds the AVPlayer item. AVFoundation only reports progress when the
+// item is created on a thread with a running run loop (the application main
+// thread); creating it on a worker goroutine leaves the item stuck at
+// status unknown with a zero duration.
+func (r *RemoteProbe) Open() (*Player, error) {
 	streamCtx, cancel := context.WithCancel(context.Background())
-	s := &remoteSource{ctx: streamCtx, cancel: cancel, client: client, url: url, requests: make(map[uint64]context.CancelFunc)}
+	s := &remoteSource{ctx: streamCtx, cancel: cancel, client: r.client, url: r.url, requests: make(map[uint64]context.CancelFunc)}
 	h := cgo.NewHandle(s)
-	raw := C.CString(kind)
+	raw := C.CString(r.kind)
 	defer C.free(unsafe.Pointer(raw))
-	p := &Player{native: C.hm_audio_remote(C.uintptr_t(h), C.longlong(probe.Total), raw), remote: s, handle: h}
+	p := &Player{native: C.hm_audio_remote(C.uintptr_t(h), C.longlong(r.total), raw), remote: s, handle: h}
 	if p.native == nil {
 		cancel()
 		h.Delete()
 		return nil, errors.New("native streaming player unavailable")
 	}
 	return p, nil
+}
+
+// OpenRemote probes the resource through the same allowlisted transport used by
+// every subsequent range. AVFoundation only sees an application-private scheme.
+// Callers on a background goroutine should use ProbeRemote + Open on the main
+// thread instead.
+func OpenRemote(ctx context.Context, url string) (*Player, error) {
+	probe, err := ProbeRemote(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return probe.Open()
 }
 
 //export hm_audio_read

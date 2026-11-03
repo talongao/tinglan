@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 // ChromiumAuthorize owns a disposable browser profile and its loopback CDP

@@ -5,12 +5,13 @@ import (
 	"errors"
 	"io"
 	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 
-	"huawei-music-desktop/native/internal/huawei"
 )
 
 type Appearance struct {
@@ -22,19 +23,41 @@ type Appearance struct {
 	FontFamily   string  `json:"fontFamily,omitempty"`
 	CustomAccent string  `json:"customAccent,omitempty"`
 }
+type SourceSetting struct {
+	ID      string `json:"id"`
+	Enabled bool   `json:"enabled"`
+}
+
+// JevSettings is the optional same-recording enhancement. The API key is not
+// stored here; it lives in the local secret file.
+type JevSettings struct {
+	Enabled   bool     `json:"enabled"`
+	Endpoint  string   `json:"endpoint,omitempty"`
+	Model     string   `json:"model,omitempty"`
+	Threshold float64  `json:"threshold,omitempty"`
+	Models    []string `json:"models,omitempty"`
+}
+
 type Settings struct {
-	Appearance       Appearance `json:"appearance"`
-	Volume           float64    `json:"volume"`
-	Quality          string     `json:"quality"`
-	RepeatMode       string     `json:"repeatMode"`
-	Shuffle          bool       `json:"shuffle"`
-	CloseToTray      bool       `json:"closeToTray"`
-	SyncHistory      bool       `json:"syncHistory"`
-	ThirdPartyLyrics bool       `json:"thirdPartyLyrics"`
+	Appearance       Appearance      `json:"appearance"`
+	Volume           float64         `json:"volume"`
+	Quality          string          `json:"quality"`
+	RepeatMode       string          `json:"repeatMode"`
+	Shuffle          bool            `json:"shuffle"`
+	CloseToTray      bool            `json:"closeToTray"`
+	SyncHistory      bool            `json:"syncHistory"`
+	ThirdPartyLyrics bool            `json:"thirdPartyLyrics"`
+	Sources          []SourceSetting `json:"sources,omitempty"`
+	Jev              JevSettings     `json:"jev,omitempty"`
 }
 
 func Defaults() Settings {
-	return Settings{Appearance: Appearance{Accent: "red", PanelOpacity: 1, CornerRadius: 11, FontScale: 1}, Volume: .85, Quality: "standard", RepeatMode: "off", CloseToTray: true, ThirdPartyLyrics: true}
+	return Settings{
+		Appearance: Appearance{Accent: "red", PanelOpacity: 1, CornerRadius: 11, FontScale: 1},
+		Volume:     .85, Quality: "standard", RepeatMode: "off", CloseToTray: true, ThirdPartyLyrics: true,
+		Sources: []SourceSetting{{ID: "huawei", Enabled: true}},
+		Jev:     JevSettings{Endpoint: "https://api.typesafe.ai", Threshold: .80},
+	}
 }
 func clamp(value, low, high, fallback float64) float64 {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
@@ -74,34 +97,102 @@ func (s *Settings) Sanitize() {
 	default:
 		s.RepeatMode = "off"
 	}
+	sanitizeSources(&s.Sources)
+	sanitizeJev(&s.Jev)
+}
+
+var sourceIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+
+func sanitizeSources(sources *[]SourceSetting) {
+	seen := make(map[string]bool)
+	out := make([]SourceSetting, 0, len(*sources)+1)
+	for _, source := range *sources {
+		if !sourceIDPattern.MatchString(source.ID) || seen[source.ID] {
+			continue
+		}
+		seen[source.ID] = true
+		out = append(out, source)
+	}
+	if !seen["huawei"] {
+		out = append(out, SourceSetting{ID: "huawei", Enabled: true})
+	}
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	*sources = out
+}
+
+func validModelID(model string) bool {
+	if model == "" || len(model) > 200 {
+		return false
+	}
+	for _, r := range model {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeJevEndpoint accepts https and, for self-hosted deployments, http.
+// A base may be the service root or an OpenAI-style /v1 or /v1/systemone URL.
+func normalizeJevEndpoint(raw string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", false
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", false
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if (scheme != "https" && scheme != "http") || parsed.Host == "" || parsed.User != nil {
+		return "", false
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" || len(raw) > 300 {
+		return "", false
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	path = strings.TrimSuffix(path, "/v1/systemone")
+	path = strings.TrimSuffix(path, "/v1")
+	path = strings.TrimSuffix(path, "/systemone")
+	parsed.Scheme = scheme
+	parsed.Path = path
+	return parsed.String(), true
+}
+
+func sanitizeJev(jev *JevSettings) {
+	endpoint, ok := normalizeJevEndpoint(jev.Endpoint)
+	if !ok {
+		endpoint = "https://api.typesafe.ai"
+	}
+	jev.Endpoint = endpoint
+	if !validModelID(strings.TrimSpace(jev.Model)) {
+		jev.Model = ""
+	}
+	if math.IsNaN(jev.Threshold) || jev.Threshold < .5 || jev.Threshold > .99 {
+		jev.Threshold = .80
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(jev.Models))
+	for _, model := range jev.Models {
+		model = strings.TrimSpace(model)
+		if !validModelID(model) || seen[model] {
+			continue
+		}
+		seen[model] = true
+		out = append(out, model)
+		if len(out) == 50 {
+			break
+		}
+	}
+	jev.Models = out
 }
 
 var accentPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-
-type SavedQueue struct {
-	Tracks   []huawei.Track `json:"tracks"`
-	Index    int            `json:"index"`
-	Position float64        `json:"positionSeconds"`
-}
-
-func (q *SavedQueue) Sanitize() {
-	if len(q.Tracks) > 10000 {
-		q.Tracks = q.Tracks[:10000]
-	}
-	filtered := make([]huawei.Track, 0, len(q.Tracks))
-	for _, track := range q.Tracks {
-		if track.ID == "" || len(track.ID) > 200 || track.Title == "" {
-			continue
-		}
-		if !huawei.SafeResourceURL(track.CoverURL) {
-			track.CoverURL = ""
-		}
-		filtered = append(filtered, track)
-	}
-	q.Tracks = filtered
-	q.Index = max(0, min(q.Index, len(q.Tracks)-1))
-	q.Position = clamp(q.Position, 0, 86400, 0)
-}
 
 // Store owns only the explicit native profile. It never opens or
 // imports old Electron data. JSON is replaced atomically under a process-local lock.
@@ -111,6 +202,9 @@ type Store struct {
 }
 
 func New(dir string) *Store { return &Store{dir: dir} }
+
+// Dir returns the profile directory that owns this store.
+func (s *Store) Dir() string { return s.dir }
 func (s *Store) read(name string, out any) error {
 	f, err := os.Open(filepath.Join(s.dir, name))
 	if err != nil {
@@ -165,27 +259,4 @@ func (s *Store) SaveSettings(value Settings) error {
 	defer s.mu.Unlock()
 	value.Sanitize()
 	return s.write("settings.json", value)
-}
-func (s *Store) LoadQueue() (SavedQueue, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var value SavedQueue
-	err := s.read("queue.json", &value)
-	value.Sanitize()
-	return value, err
-}
-func (s *Store) SaveQueue(value SavedQueue) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	value.Sanitize()
-	return s.write("queue.json", value)
-}
-func (s *Store) ClearQueue() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	err := os.Remove(filepath.Join(s.dir, "queue.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
 }

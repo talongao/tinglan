@@ -23,7 +23,7 @@ Go 内部包持有会话与业务 HTTP；macOS AVFoundation 通过 AVAssetResour
 
 | 项目 | 当前结论 |
 |---|---|
-| 本机环境 | macOS arm64 / Apple M4 / Go 1.26.10；不代表 Windows/Linux 验收。 |
+| 本机环境 | macOS arm64 / Apple M4 / Go 1.27.3；不代表 Windows/Linux 验收。 |
 | Go 检查 | 全模块单测、UI 驱动、业务/存储/资源 race、vet 通过；Windows/Linux 字体、授权和媒体包交叉编译通过，媒体集成测试也已编译。 |
 | 合成音频 | 本地及 TLS 测试服务器 Range MP3/FLAC，AVFoundation 与 portableaudio 路径通过；不是华为真实权益音源。 |
 | 原 Electron 基线 | 176 项 Node 单测、typecheck、build 通过；runtime 下载超时，本机未重跑 Electron host 集成。 |

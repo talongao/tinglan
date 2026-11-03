@@ -1,10 +1,10 @@
 package main
 
 import (
-	"huawei-music-desktop/native/internal/huawei"
-	"huawei-music-desktop/native/internal/storage"
 	"testing"
 	"time"
+	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/storage"
 )
 
 func TestCollectionCacheIncludesEmptyResults(t *testing.T) {

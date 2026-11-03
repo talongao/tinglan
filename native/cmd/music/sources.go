@@ -1,0 +1,575 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/vivaui/viva/flex"
+	"tinglan/native/internal/canonical"
+	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/jev"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/playback"
+	"tinglan/native/internal/source"
+	"tinglan/native/internal/storage"
+)
+
+// sourceState owns the account-independent local library, the adapter registry
+// and the optional Jev client. The UI list is a projection of canonical rows.
+type sourceState struct {
+	local         *canonical.Library
+	registry      *source.Registry
+	huaweiSource  *huawei.SourceAdapter
+	resolver      *playback.Resolver
+	rows          []music.CanonicalTrack
+	rowIndex      map[string]int
+	importing     bool
+	importStatus  string
+	importCancel  context.CancelFunc
+	sourceResults []sourceResult
+	currentAccess music.Access
+	playedLink    music.SourceLink
+	rowSources    map[string][]music.SourceID
+
+	resolveCache map[string]cachedResolve
+	resolveMu    sync.Mutex
+
+	jevActive        *jev.Client
+	jevIdentity      jev.Identity
+	jevModels        []jev.Model
+	jevFetching      bool
+	jevTesting       bool
+	jevError         string
+	jevTestStatus    string
+	jevCache         *jev.ModelCache
+	jevModelField    flex.Field
+	jevEndpointField flex.Field
+	jevKeyField      flex.Field
+	fieldView        flex.View
+}
+
+type sourceResult struct {
+	kind     string
+	progress canonical.Progress
+	result   canonical.ImportResult
+	models   []jev.Model
+	identity jev.Identity
+	err      error
+	message  string
+}
+
+func (m *model) openLocalLibrary() {
+	if m.store == nil {
+		return
+	}
+	m.local = nil
+	library, err := canonical.Open(m.store.Dir())
+	if err != nil {
+		m.setStatus("本地收藏库无法读取：" + err.Error())
+		return
+	}
+	m.local = library
+	m.registry = source.NewRegistry()
+	m.huaweiSource = huawei.NewSourceAdapter(huawei.NewClient(), func() *huawei.Session { return m.session })
+	_ = m.registry.Register(m.huaweiSource)
+	m.resolver = playback.New(m.registry)
+	m.rowIndex = make(map[string]int)
+	m.jevCache = jev.NewModelCache()
+	m.jevKeyField.Secure = true
+	m.jevEndpointField.SetText(m.settings.Jev.Endpoint)
+	if m.settings.Jev.Model != "" {
+		m.jevModelField.SetText(m.settings.Jev.Model)
+	}
+	m.installLocalLibrary()
+	m.refreshPlaylists()
+}
+
+func (m *model) installLocalLibrary() {
+	if m.local == nil {
+		return
+	}
+	rows := m.local.Snapshot()
+	m.rows = rows
+	m.rowIndex = make(map[string]int, len(rows))
+	projected := make([]huawei.Track, 0, len(rows))
+	m.rowSources = make(map[string][]music.SourceID, len(rows))
+	for i, row := range rows {
+		m.rowIndex[row.ID] = i
+		m.rowSources[row.ID] = row.Sources()
+		projected = append(projected, m.projectRow(row))
+	}
+	m.tracks = projected
+	m.filtered = projected
+	m.complete = true
+	m.loading = false
+	m.loadError = false
+	if len(projected) > 0 && strings.HasPrefix(m.status, "本地收藏为空") {
+		m.setStatus("")
+	}
+	m.favoriteKnown = make(map[string]bool)
+	m.favoriteOff = make(map[string]bool)
+	for _, track := range projected {
+		m.favoriteKnown[track.ID] = true
+		if row, ok := m.local.Row(track.ID); ok {
+			for _, link := range row.Links {
+				m.favoriteKnown[link.TrackID] = true
+			}
+		}
+	}
+}
+
+func (m *model) projectRow(row music.CanonicalTrack) huawei.Track {
+	artists := make([]huawei.Artist, 0, len(row.Artists))
+	for _, artist := range row.Artists {
+		artists = append(artists, huawei.Artist{ID: artist.ID, Name: artist.Name})
+	}
+	var album *huawei.Album
+	if row.Album != nil {
+		album = &huawei.Album{ID: row.Album.ID, Title: row.Album.Title}
+	}
+	return huawei.Track{
+		ID: row.ID, Title: row.Title, Artists: artists, Album: album,
+		CoverURL: row.CoverURL, CoverURLs: row.CoverCandidates(), Duration: row.Duration,
+		Collected: true,
+	}
+}
+
+func (m *model) canonicalRow(id string) (music.CanonicalTrack, bool) {
+	if m.local == nil {
+		return music.CanonicalTrack{}, false
+	}
+	return m.local.Row(id)
+}
+
+// canonicalFor returns a canonical row for any playable queue item. Favorite
+// rows come from the local library; search/playlist items become a transient
+// single-link row so every stream goes through the same resolver.
+func (m *model) canonicalFor(track huawei.Track) (music.CanonicalTrack, bool) {
+	if row, ok := m.canonicalRow(track.ID); ok {
+		return restrictToSource(row, track.OnlySource), true
+	}
+	neutral := huawei.MusicTrack(track)
+	if !neutral.Valid() {
+		return music.CanonicalTrack{}, false
+	}
+	return music.NewCanonical(neutral, 0, time.Now()), true
+}
+
+// restrictToSource drops bindings from other platforms. Imported playlists set
+// OnlySource because their membership mirrors one remote playlist; a row that
+// also exists elsewhere must not silently play from the other platform.
+func restrictToSource(row music.CanonicalTrack, only string) music.CanonicalTrack {
+	if only == "" {
+		return row
+	}
+	kept := make([]music.SourceLink, 0, len(row.Links))
+	for _, link := range row.Links {
+		if link.Source.String() == only {
+			kept = append(kept, link)
+		}
+	}
+	row.Links = kept
+	return row
+}
+
+func (m *model) matchJudge() (music.Judge, music.MatchPolicy) {
+	policy := music.DefaultMatchPolicy()
+	if !m.settings.Jev.Enabled {
+		return nil, policy
+	}
+	client, err := m.jevClient()
+	if err != nil || client == nil {
+		return nil, policy
+	}
+	if m.settings.Jev.Threshold > 0 {
+		policy.JevMerge = m.settings.Jev.Threshold
+	}
+	return jev.Judge{Client: client}, policy
+}
+
+func (m *model) jevClient() (*jev.Client, error) {
+	if m.store == nil {
+		return nil, jev.ErrNotConfigured
+	}
+	if !m.settings.Jev.Enabled {
+		return nil, jev.ErrDisabled
+	}
+	key, err := m.store.LoadSecret(jev.SecretName(m.settings.Jev.Endpoint))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, jev.ErrNotConfigured
+	}
+	if err != nil {
+		return nil, err
+	}
+	config := jev.Config{
+		Enabled:   true,
+		Endpoint:  m.settings.Jev.Endpoint,
+		APIKey:    strings.TrimSpace(string(key)),
+		Model:     m.settings.Jev.Model,
+		Threshold: m.settings.Jev.Threshold,
+	}
+	client, err := jev.New(config)
+	if err != nil {
+		return nil, err
+	}
+	m.jevActive = client
+	m.jevIdentity = client.Identity()
+	return client, nil
+}
+
+func (m *model) fetchJevModels() {
+	if m.jevFetching {
+		return
+	}
+	client, err := m.jevClient()
+	if err != nil {
+		m.jevError = jevErrorText(err)
+		return
+	}
+	m.jevFetching = true
+	m.jevError = ""
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		models, err := client.Models(ctx)
+		m.postSource(sourceResult{kind: "jev-models", models: models, identity: client.Identity(), err: err})
+	}()
+}
+
+func (m *model) jevConfigDirty() bool {
+	if endpoint := strings.TrimSpace(m.jevEndpointField.Text()); endpoint != "" && endpoint != m.settings.Jev.Endpoint {
+		return true
+	}
+	if strings.TrimSpace(m.jevKeyField.Text()) != "" {
+		return true
+	}
+	if model := strings.TrimSpace(m.jevModelField.Text()); model != "" && model != m.settings.Jev.Model {
+		return true
+	}
+	return false
+}
+
+func (m *model) testJevConfig() {
+	if m.jevTesting {
+		return
+	}
+	if m.jevConfigDirty() {
+		m.jevTestStatus = "请先保存配置"
+		return
+	}
+	if !m.settings.Jev.Enabled {
+		m.jevTestStatus = "请先启用决策模型"
+		return
+	}
+	if strings.TrimSpace(m.settings.Jev.Model) == "" {
+		m.jevTestStatus = "请先选择或添加模型"
+		return
+	}
+	client, err := m.jevClient()
+	if err != nil {
+		m.jevTestStatus = "不可用：" + jevErrorText(err)
+		return
+	}
+	m.jevTesting = true
+	m.jevTestStatus = "正在测试…"
+	identity := client.Identity()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		err := client.SelfTest(ctx)
+		m.postSource(sourceResult{kind: "jev-test", identity: identity, err: err})
+	}()
+}
+
+func jevErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	var api *jev.Error
+	if errors.As(err, &api) {
+		switch api.Kind {
+		case jev.KindAuth:
+			return "API Key 无效或没有权限"
+		case jev.KindModel:
+			return "模型不存在"
+		case jev.KindRateLimit:
+			return "请求过于频繁"
+		case jev.KindNetwork:
+			return "网络不可用"
+		}
+	}
+	if errors.Is(err, jev.ErrDisabled) {
+		return "未启用决策模型"
+	}
+	if errors.Is(err, jev.ErrNotConfigured) {
+		return "缺少 API Key"
+	}
+	return "请求失败"
+}
+
+func (m *model) postSource(result sourceResult) {
+	m.mu.Lock()
+	if !m.closed {
+		m.sourceResults = append(m.sourceResults, result)
+	}
+	m.mu.Unlock()
+	m.requestUpdate()
+}
+
+func (m *model) applySourceResults() {
+	m.mu.Lock()
+	results := m.sourceResults
+	m.sourceResults = nil
+	m.mu.Unlock()
+	for _, result := range results {
+		switch result.kind {
+		case "import-progress":
+			m.importStatus = fmt.Sprintf("正在导入 %s · 第 %d 页 · %d 首", sourceLabel(result.message), result.progress.Pages, result.progress.Result.Added+result.progress.Result.Merged+result.progress.Result.Refreshed)
+		case "import-done":
+			if result.err != nil {
+				m.installLocalLibrary()
+				m.importStatus = "导入失败：" + friendlySourceError(result.err)
+				m.importing = false
+				m.importCancel = nil
+				continue
+			}
+			m.importing = false
+			m.importCancel = nil
+			m.importStatus = fmt.Sprintf("%s 导入完成：新增 %d · 合并 %d · 更新 %d", sourceLabel(result.message), result.result.Added, result.result.Merged, result.result.Refreshed)
+			m.installLocalLibrary()
+			m.notify(fmt.Sprintf("%s 导入完成：新增 %d 首", sourceLabel(result.message), result.result.Added))
+		case "playlist-done":
+			if result.err != nil {
+				m.notify("歌单更新失败：" + friendlySourceError(result.err))
+				continue
+			}
+			if m.localDetail != nil && m.localDetail.ID == result.message {
+				m.openPlaylist(*m.localDetail)
+			}
+			m.refreshPlaylists()
+			m.notify("歌单已更新")
+		case "jev-models":
+			if result.identity.Generation != m.jevIdentity.Generation {
+				// The endpoint/key/model changed while this request was in flight.
+				continue
+			}
+			m.jevFetching = false
+			if result.err != nil {
+				m.jevError = jevErrorText(result.err)
+				continue
+			}
+			m.jevModels = result.models
+			m.jevError = ""
+			if m.jevCache != nil {
+				m.jevCache.Put(result.identity, result.models)
+				if merged := jev.Merge(result.models, manualModels(m.settings.Jev.Models), m.settings.Jev.Model); len(merged) > 0 {
+					m.jevModels = merged
+				}
+			}
+		case "jev-test":
+			m.jevTesting = false
+			if result.identity.Generation != m.jevIdentity.Generation {
+				m.jevTestStatus = "配置已变更，请重新测试"
+				continue
+			}
+			if result.err != nil {
+				m.jevTestStatus = "不可用：" + jevErrorText(result.err)
+				continue
+			}
+			m.jevTestStatus = "可用 · " + m.settings.Jev.Model
+		}
+	}
+}
+
+func (m *model) toggleSource(id music.SourceID) {
+	for i := range m.settings.Sources {
+		if m.settings.Sources[i].ID == id.String() {
+			m.settings.Sources[i].Enabled = !m.settings.Sources[i].Enabled
+			m.saveSettings()
+			return
+		}
+	}
+	m.settings.Sources = append(m.settings.Sources, storage.SourceSetting{ID: id.String(), Enabled: true})
+	m.settings.Sanitize()
+	m.saveSettings()
+}
+
+func (m *model) sourceEnabled(id music.SourceID) bool {
+	for _, setting := range m.settings.Sources {
+		if setting.ID == id.String() {
+			return setting.Enabled
+		}
+	}
+	return false
+}
+
+func sourceLabel(source string) string {
+	switch source {
+	case "huawei":
+		return "华为音乐"
+	case "netease":
+		return "网易云音乐"
+	}
+	return source
+}
+
+func friendlySourceError(err error) string {
+	var classified *source.Error
+	if errors.As(err, &classified) {
+		switch classified.Kind {
+		case source.KindLogin:
+			return "登录已失效，请重新登录"
+		case source.KindPermission:
+			return "没有权限读取"
+		case source.KindRateLimit:
+			return "请求过于频繁"
+		case source.KindUnsupported:
+			return "该音源不支持此操作"
+		case source.KindCanceled:
+			return "已取消"
+		}
+	}
+	return "请检查网络后重试"
+}
+
+func manualModels(values []string) []jev.Model {
+	out := make([]jev.Model, 0, len(values))
+	for _, value := range values {
+		out = append(out, jev.Model{Name: value, Description: "手动添加"})
+	}
+	return out
+}
+
+func (m *model) trackLyricsKey(track huawei.Track) string {
+	if row, ok := m.canonicalFor(track); ok {
+		if links := row.SortedLinks(); len(links) > 0 {
+			return lyricsCacheKey(links[0])
+		}
+	}
+	return "huawei:" + track.ID
+}
+
+// trackOffsetKey identifies one queue row, not one source binding. Lyrics text
+// may be shared per link, but the user's offset belongs to the canonical row.
+func (m *model) trackOffsetKey(track huawei.Track) string {
+	if m.local != nil {
+		if row, ok := m.local.Row(track.ID); ok {
+			return row.ID
+		}
+	}
+	return "huawei:" + track.ID
+}
+
+func (m *model) removeLocalFavorite(id string) {
+	if m.local == nil {
+		return
+	}
+	if err := m.local.Delete(id); err != nil {
+		m.setStatus("本地收藏删除失败")
+		return
+	}
+	m.installLocalLibrary()
+	m.setStatus("已从本地收藏移除")
+}
+
+func (m *model) saveJevConfig() {
+	if m.store == nil {
+		return
+	}
+	m.jevTestStatus = ""
+	before := m.settings.Jev.Endpoint
+	endpoint, err := jev.NormalizeEndpoint(m.jevEndpointField.Text())
+	if err != nil {
+		m.setStatus("决策模型 API 地址格式不正确；可填 http(s)://主机[:端口][/路径]，会自动补 /v1/systemone")
+		return
+	}
+	if model := strings.TrimSpace(m.jevModelField.Text()); model != "" {
+		normalized, err := jev.NormalizeModelID(model)
+		if err != nil {
+			m.setStatus("模型 ID 无效")
+			return
+		}
+		m.settings.Jev.Model = normalized
+	}
+	m.settings.Jev.Endpoint = endpoint
+	m.settings.Sanitize()
+	m.jevEndpointField.SetText(m.settings.Jev.Endpoint)
+	keyChanged := false
+	failed := false
+	if key := strings.TrimSpace(m.jevKeyField.Text()); key != "" {
+		if err := m.store.SaveSecret(jev.SecretName(m.settings.Jev.Endpoint), []byte(key)); err != nil {
+			m.setStatus("决策模型 API Key 保存失败")
+			failed = true
+		} else {
+			m.jevKeyField.SetText("")
+			keyChanged = true
+		}
+	}
+	m.saveSettings()
+	m.jevIdentity = jev.Identity{}
+	m.jevActive = nil
+	m.jevFetching = false
+	m.jevTesting = false
+	m.jevTestStatus = ""
+	if before != m.settings.Jev.Endpoint || keyChanged {
+		m.jevModels = nil
+		m.jevError = ""
+		m.jevCache = jev.NewModelCache()
+		m.jevModelField.SetText(m.settings.Jev.Model)
+	}
+	if !failed {
+		m.setStatus("决策模型配置已保存")
+		if jev.InsecureEndpoint(m.settings.Jev.Endpoint) {
+			m.setStatus("决策模型配置已保存（明文 HTTP，API Key 会发往该地址）")
+		}
+	}
+}
+
+func (m *model) addJevModel() {
+	model, err := jev.NormalizeModelID(m.jevModelField.Text())
+	if err != nil {
+		m.setStatus("模型 ID 无效")
+		return
+	}
+	for _, existing := range m.settings.Jev.Models {
+		if existing == model {
+			m.settings.Jev.Model = model
+			m.saveSettings()
+			return
+		}
+	}
+	m.settings.Jev.Models = append(m.settings.Jev.Models, model)
+	m.settings.Jev.Model = model
+	m.settings.Sanitize()
+	m.saveSettings()
+	m.jevTestStatus = ""
+	m.setStatus("已添加模型 " + model)
+}
+
+func (m *model) selectJevThreshold(value float64) {
+	if value < .5 || value > .99 {
+		return
+	}
+	m.settings.Jev.Threshold = value
+	m.settings.Sanitize()
+	m.jevActive = nil
+	m.jevIdentity = jev.Identity{}
+	m.jevCache = nil
+	m.jevFetching = false
+	m.saveSettings()
+	m.setStatus(fmt.Sprintf("决策模型灰区阈值已设为 %.2f", value))
+}
+
+func (m *model) selectJevModel(name string) {
+	m.settings.Jev.Model = name
+	m.settings.Sanitize()
+	m.saveSettings()
+	m.jevModelField.SetText(name)
+	m.jevTestStatus = ""
+	m.setStatus("已选择模型 " + name)
+}

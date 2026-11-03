@@ -20,7 +20,9 @@ func (c *Client) Playlists(ctx context.Context, s *Session) ([]Playlist, error) 
 		return nil, errors.New("music session missing")
 	}
 	var result []Playlist
-	// The mixed discovery endpoint has been validated with 999, but rejects 1000.
+	// Only playlist-like collections: including contentType 1 (songs) made the
+	// response exceed the 2 MiB body cap and failed the whole request. The
+	// playlist-only payload stays small, so the large page size is safe.
 	pageSize := 999
 	seen := make(map[string]bool)
 	for start := 0; start < 1000000; {
@@ -29,7 +31,7 @@ func (c *Client) Playlists(ctx context.Context, s *Session) ([]Playlist, error) 
 			Start  int    `json:"start"`
 			Limit  int    `json:"limit"`
 			Types  []int  `json:"contentTypes"`
-		}{s.snsUserID, start, pageSize, []int{1, 4, 5, 7}})
+		}{s.snsUserID, start, pageSize, []int{4, 5, 7}})
 		headers, err := musicHeaders(s.token, time.Now())
 		if err != nil {
 			return nil, err

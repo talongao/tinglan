@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/typography"
 	"math"
 	"strings"
+	"tinglan/native/internal/typography"
 )
 
 type typeState struct {

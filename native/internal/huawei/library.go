@@ -27,6 +27,13 @@ type Track struct {
 	CoverURL  string   `json:"coverUrl,omitempty"`
 	CoverURLs []string `json:"coverUrls,omitempty"`
 	Duration  *float64 `json:"durationSeconds,omitempty"`
+	// OnlySource restricts playback to one source binding. Imported playlists
+	// set it so a mirrored list never falls back to another platform's stream.
+	// It is queue state, not source metadata, so it stays out of API payloads.
+	OnlySource string `json:"-"`
+	// Collected marks a row that exists in 收录音乐, so its ID is a stable local
+	// id. Transient search results keep the platform id instead.
+	Collected bool `json:"-"`
 }
 
 func (t Track) ArtistText() string {

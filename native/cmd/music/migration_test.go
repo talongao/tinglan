@@ -3,9 +3,9 @@ package main
 import (
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/huawei"
 	"strings"
 	"testing"
+	"tinglan/native/internal/huawei"
 )
 
 func TestAccountResetDiscardsPendingUIResults(t *testing.T) {
@@ -77,6 +77,10 @@ func TestCustomAccentQueueRemovalAndEntityNavigation(t *testing.T) {
 		t.Fatal("queue removal failed")
 	}
 	click(t, d, clearQueueID)
+	if m.dialog != "clear-queue" {
+		t.Fatal("queue clear did not ask for confirmation")
+	}
+	click(t, d, confirmWriteID)
 	if len(m.queue.Tracks) != 0 {
 		t.Fatal("queue clear failed")
 	}

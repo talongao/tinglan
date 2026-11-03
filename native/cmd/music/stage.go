@@ -3,11 +3,11 @@ package main
 import (
 	"fmt"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/icons"
-	"huawei-music-desktop/native/internal/lyrics"
 	"math"
 	"strings"
 	"time"
+	"tinglan/native/internal/icons"
+	"tinglan/native/internal/lyrics"
 )
 
 func stageProgressBounds(size ui.Size) ui.Rect {
@@ -64,7 +64,11 @@ func (m *model) paintStage(c *ui.Canvas, size ui.Size) {
 		offset = m.lyricScroll
 	}
 	if len(m.lyricLines) == 0 {
-		m.centerText(c, "暂无歌词", rect(area.X, area.Y+area.Height/2-12, area.Width, 24), 13, 400, color(m.palette().text, .5))
+		hint := "暂无歌词"
+		if track != nil {
+			hint = "暂无歌词 · 可在设置中开启第三方歌词匹配，或导入本地 .lrc / .ttml"
+		}
+		m.centerText(c, hint, rect(area.X, area.Y+area.Height/2-12, area.Width, 24), 13, 400, color(m.palette().text, .5))
 	}
 	c.Clip(area)
 	for i, line := range m.lyricLines {
@@ -78,7 +82,13 @@ func (m *model) paintStage(c *ui.Canvas, size ui.Size) {
 			continue
 		}
 		fade := min(float32(1), max(float32(0), (y-area.Y)/(area.Height*.16)), max(float32(0), (area.Y+area.Height-y)/(area.Height*.2)))
-		font, alpha := float32(20.16), float32(.38)*fade
+		// While the user scrolls manually they are reading the other lines, so
+		// dimming them to .38 makes the very thing they asked for unreadable.
+		inactive := float32(.38)
+		if m.lyricManual || m.lyricDragging {
+			inactive = .68
+		}
+		font, alpha := float32(20.16), inactive*fade
 		if size.Width <= 1100 {
 			font = 18
 		}

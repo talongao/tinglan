@@ -86,6 +86,19 @@ var Headphones = ui.Icon{
 }
 
 // heart is a compiled vector icon.
+// Check is a compiled vector icon.
+var Check = ui.Icon{
+	ViewBox: 24.0,
+	Stroke:  1.7,
+	Cap:     ui.CapRound,
+	Join:    ui.JoinRound,
+	Commands: []ui.PathCommand{
+		ui.MoveTo(20.0, 6.0),
+		ui.LineTo(9.0, 17.0),
+		ui.LineTo(4.0, 12.0),
+	},
+}
+
 var Heart = ui.Icon{
 	ViewBox: 24.0,
 	Stroke:  1.7,
@@ -305,6 +318,20 @@ var PlayFilled = ui.Icon{
 		ui.LineTo(6.0, 21.0),
 		ui.LineTo(6.0, 3.0),
 		ui.ClosePath(),
+	},
+}
+
+// plus is a compiled vector icon.
+var Plus = ui.Icon{
+	ViewBox: 24.0,
+	Stroke:  1.7,
+	Cap:     ui.CapRound,
+	Join:    ui.JoinRound,
+	Commands: []ui.PathCommand{
+		ui.MoveTo(12.0, 5.0),
+		ui.LineTo(12.0, 19.0),
+		ui.MoveTo(5.0, 12.0),
+		ui.LineTo(19.0, 12.0),
 	},
 }
 

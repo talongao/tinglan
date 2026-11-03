@@ -6,7 +6,7 @@ import (
 	"errors"
 	"sync"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 type Fetch func(context.Context, int, int) (huawei.Page, error)

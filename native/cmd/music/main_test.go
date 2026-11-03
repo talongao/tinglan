@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 func TestFailedAndStaleLoginPreserveCurrentSession(t *testing.T) {

@@ -4,14 +4,14 @@ package main
 
 import (
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/audio"
-	"huawei-music-desktop/native/internal/media"
-	"huawei-music-desktop/native/internal/testsupport"
 	"math"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+	"tinglan/native/internal/audio"
+	"tinglan/native/internal/media"
+	"tinglan/native/internal/testsupport"
 )
 
 func TestMain(m *testing.M) { os.Exit(testsupport.Run(m)) }

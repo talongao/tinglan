@@ -2,8 +2,8 @@ package main
 
 import (
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/icons"
 	"time"
+	"tinglan/native/internal/icons"
 )
 
 type transportLayout struct{ cover, play, previous, next, progress ui.Rect }
@@ -64,6 +64,11 @@ func (m *model) paintTransport(c *ui.Canvas, size ui.Size, t float32) {
 		title, artist := "尚未选择歌曲", "选择一首歌开始播放"
 		if track != nil {
 			title, artist = track.Title, track.ArtistText()
+			if m.resolving && !m.audioRunning {
+				artist = "正在连接音源…"
+			} else if m.playbackError != "" && !m.audioRunning {
+				artist = m.playbackError + " · 点右侧重试"
+			}
 		}
 		m.text(c, title, rect(106, size.Height-85, 128, 24), 12, 600, m.ink())
 		m.text(c, artist, rect(106, size.Height-59, 144, 22), 11, 400, m.muted())
@@ -74,7 +79,11 @@ func (m *model) paintTransport(c *ui.Canvas, size ui.Size, t float32) {
 		if favorite {
 			icon = icons.HeartFilled
 		}
-		if m.iconButton(c, dockFavoriteID, rect(242, size.Height-85, 28, 28), icon, "收藏当前歌曲", favorite) {
+		hint := "加入本机收藏"
+		if favorite {
+			hint = "从本机收藏移除（不影响华为音乐收藏）"
+		}
+		if m.iconButton(c, dockFavoriteID, rect(242, size.Height-85, 28, 28), icon, hint, favorite) {
 			m.toggleFavorite(*track)
 		}
 	}
@@ -100,6 +109,11 @@ func (m *model) paintTransport(c *ui.Canvas, size ui.Size, t float32) {
 	}
 	fg := m.ink()
 	c.DrawIcon(icon, rect(b.play.X+11, b.play.Y+11, 22, 22), fg)
+	if m.playbackError != "" && !m.audioRunning && track != nil {
+		if m.pill(c, retryPlaybackID, rect(b.play.X+56, b.play.Y+7, 62, 30), "重试", false) {
+			m.playCurrent()
+		}
+	}
 	c.HitWithOptions(toggleID, b.play, "播放或暂停", ui.HitOptions{Disabled: track == nil})
 	if track != nil && c.Clicked(toggleID) {
 		m.togglePlayback()
@@ -111,7 +125,11 @@ func (m *model) paintTransport(c *ui.Canvas, size ui.Size, t float32) {
 		c.Rounded(rect(b.progress.X, b.progress.Y+6, b.progress.Width*float32(min(1, position/duration)), 5), 2.5, m.accent())
 	}
 	c.HitWithOptions(progressID, b.progress, "播放进度", ui.HitOptions{Role: ui.RoleSlider, Disabled: m.player == nil})
-	m.text(c, durationText(&duration), rect(b.progress.X+b.progress.Width+10, b.progress.Y-2, 38, 20), 10, 400, m.muted())
+	total := "--:--"
+	if duration > 0 {
+		total = durationText(&duration)
+	}
+	m.text(c, total, rect(b.progress.X+b.progress.Width+10, b.progress.Y-2, 38, 20), 10, 400, m.muted())
 	if t > .95 {
 		menu := rect(208, size.Height-53, 28, 24)
 		c.Rounded(menu, 14, m.surface(.9))

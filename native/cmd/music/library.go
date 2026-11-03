@@ -10,13 +10,15 @@ import (
 
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/audio"
-	"huawei-music-desktop/native/internal/huawei"
-	"huawei-music-desktop/native/internal/library"
-	"huawei-music-desktop/native/internal/lyrics"
-	queuepkg "huawei-music-desktop/native/internal/player"
-	"huawei-music-desktop/native/internal/storage"
-	"huawei-music-desktop/native/internal/visual"
+	"tinglan/native/internal/audio"
+	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/library"
+	"tinglan/native/internal/librarydb"
+	"tinglan/native/internal/lyrics"
+	"tinglan/native/internal/music"
+	queuepkg "tinglan/native/internal/player"
+	"tinglan/native/internal/storage"
+	"tinglan/native/internal/visual"
 )
 
 type libraryResult struct {
@@ -69,42 +71,52 @@ type desktopState struct {
 	collectionCancel     context.CancelFunc
 	collectionLoading    bool
 	collectionFailed     bool
+	collectionMessage    string
 	libraryRefreshing    bool
 	scroll               [5]float32
 	detailScroll         float32
 	entityScroll         float32
 	settingsScroll       float32
-	settingsSelect       string
-	lyricStats           storage.LyricStats
-	selected             int
-	queueOpen            bool
-	transportMenu        string
-	queueScroll          float32
-	lyricsMenuOpen       bool
-	lyricResumeAt        time.Time
-	lyricResumeTimer     *time.Timer
-	lyricDragY           float32
-	lyricDragStart       float32
-	lyricDragging        bool
-	lyricDragged         bool
-	playTimer            *time.Timer
-	background           ui.Bitmap
-	backgroundGlass      ui.Bitmap
-	backgroundSize       ui.Size
-	favoriteOff          map[string]bool
-	favoriteKnown        map[string]bool
-	playlists            []huawei.Playlist
-	detail               *huawei.Playlist
-	detailTracks         []huawei.Track
-	remoteHistory        []huawei.Track
-	localHistory         []huawei.Track
-	remoteHistoryOpen    bool
-	lyricLines           []lyrics.Line
-	stageOpen            bool
-	lyricOffset          float64
-	lyricTrack           string
-	lyricManual          bool
-	lyricScroll          float32
+	playbackError        string
+	// volumeBeforeMute remembers the level so clicking the percentage can
+	// toggle mute without losing the user's setting.
+	volumeBeforeMute float64
+
+	// remotePending is the playlist the user clicked in the remote browser;
+	// importing runs only after the confirmation dialog.
+	remotePending     huawei.Playlist
+	remotePendingOK   bool
+	settingsSelect    string
+	lyricStats        storage.LyricStats
+	selected          int
+	queueOpen         bool
+	transportMenu     string
+	queueScroll       float32
+	lyricsMenuOpen    bool
+	lyricResumeAt     time.Time
+	lyricResumeTimer  *time.Timer
+	lyricDragY        float32
+	lyricDragStart    float32
+	lyricDragging     bool
+	lyricDragged      bool
+	playTimer         *time.Timer
+	background        ui.Bitmap
+	backgroundGlass   ui.Bitmap
+	backgroundSize    ui.Size
+	favoriteOff       map[string]bool
+	favoriteKnown     map[string]bool
+	playlists         []huawei.Playlist
+	detail            *huawei.Playlist
+	detailTracks      []huawei.Track
+	remoteHistory     []huawei.Track
+	localHistory      []huawei.Track
+	remoteHistoryOpen bool
+	lyricLines        []lyrics.Line
+	stageOpen         bool
+	lyricOffset       float64
+	lyricTrack        string
+	lyricManual       bool
+	lyricScroll       float32
 }
 
 func (m *model) initDesktop() {
@@ -117,6 +129,16 @@ func (m *model) initDesktop() {
 func (m *model) openProfile(dir string) {
 	m.store = storage.New(dir)
 	m.settings, _ = m.store.LoadSettings()
+	if !m.demo {
+		m.openLocalLibrary()
+		if saved, err := m.store.LoadQueue(); err == nil && len(saved.Tracks) > 0 {
+			m.queue.Mode = m.settings.RepeatMode
+			m.queue.Shuffle = m.settings.Shuffle
+			m.queue.Replace(saved.Tracks, saved.Index)
+			m.queue.Position = saved.Position
+			m.rememberResume(saved.Position)
+		}
+	}
 	if m.demo {
 		saved, err := m.store.LoadQueue()
 		if err == nil {
@@ -124,6 +146,7 @@ func (m *model) openProfile(dir string) {
 			m.queue.Shuffle = m.settings.Shuffle
 			m.queue.Replace(saved.Tracks, saved.Index)
 			m.queue.Position = saved.Position
+			m.rememberResume(saved.Position)
 		}
 	}
 }
@@ -159,7 +182,7 @@ func (m *model) enableDemo(count int) {
 		}
 	}
 	m.covers = map[string]ui.Bitmap{"https://fixture.dbankcdn.cn/synthetic-cover": {ID: 500, Version: 1, Width: 256, Height: 256, Stride: 1024, Pix: pix}}
-	m.status = "离线合成测试数据 · 不是本人音乐库"
+	m.setStatus("离线合成测试数据 · 不是本人音乐库")
 	all := syntheticTracks(count)
 	m.covers["https://fixture.dbankcdn.cn/synthetic-cover"] = visual.Round(m.covers["https://fixture.dbankcdn.cn/synthetic-cover"], 22)
 	m.catalog = library.New(func(ctx context.Context, start, limit int) (huawei.Page, error) {
@@ -179,6 +202,7 @@ func (m *model) enableDemo(count int) {
 		m.favoriteKnown[track.ID] = true
 	}
 	m.playlists = []huawei.Playlist{{ID: "synthetic-playlist", Title: "离线测试歌单", Kind: "owned", Description: "合成歌单，不会修改真实账号"}}
+	m.localPlaylists = []librarydb.Playlist{{ID: "synthetic-local", Kind: "local", Name: "离线测试歌单", Description: "合成歌单，不会修改真实账号", TrackCount: min(2, len(m.tracks))}}
 }
 
 func (m *model) loadLibrary(all bool) {
@@ -209,12 +233,12 @@ func (m *model) loadLibrary(all bool) {
 }
 
 func (m *model) installCatalog() {
-	m.clearLibrary()
-	client, session := huawei.NewClient(), m.session
-	m.catalog = library.New(func(ctx context.Context, start, limit int) (huawei.Page, error) {
-		return client.Favorites(ctx, session, start, limit)
-	})
-	m.loadLibrary(false)
+	// Favorites are now local and account-independent. Login only re-enables
+	// the Huawei adapter; the list itself comes from favorites.local.json.
+	m.installLocalLibrary()
+	if len(m.tracks) == 0 {
+		m.setStatus("本地收藏为空，可在设置 → 音源中从华为音乐导入。")
+	}
 }
 
 func (m *model) clearLibrary() {
@@ -320,16 +344,19 @@ func (m *model) applyLibraryResults() {
 					continue
 				}
 				m.collectionFailed = true
+				m.collectionMessage = collectionError(r.kind, r.err)
 				continue
 			}
 
 			m.collectionFailed = false
+			m.collectionMessage = ""
 			if !r.cached && m.accountStore != nil {
 				_ = m.accountStore.SaveCollection(r.kind, r.detailID, storage.Collection{Playlists: r.playlists, Tracks: r.tracks})
 			}
 			switch r.kind {
 			case "playlists":
 				m.playlists = r.playlists
+				m.refreshImportedMeta(r.playlists)
 			case "detail":
 				if m.detail != nil && m.detail.ID == r.detailID {
 					m.detailTracks = r.tracks
@@ -350,7 +377,7 @@ func (m *model) applyLibraryResults() {
 				if m.expireSession(r.err) {
 					continue
 				}
-				m.status = "搜索失败，请重试。"
+				m.setStatus("搜索失败，请重试。")
 				continue
 			}
 			seen := make(map[string]bool)
@@ -378,7 +405,7 @@ func (m *model) applyLibraryResults() {
 			if m.expireSession(r.err) {
 				continue
 			}
-			m.status = "读取失败，已加载内容保留；点击重试。"
+			m.setStatus("读取失败，已加载内容保留；点击重试。")
 			continue
 		}
 		if (m.libraryRefreshing || len(m.tracks) > len(r.tracks)) && !r.complete {
@@ -449,10 +476,10 @@ func (m *model) moreSearch() {
 func (m *model) loadSearchPage(ctx context.Context, cancel context.CancelFunc, epoch uint64, query string, start int) {
 	go func() {
 		defer cancel()
-		page, err := huawei.NewClient().Search(ctx, query, start, 20)
+		tracks, next, err := m.searchTracks(ctx, query, start)
 		m.mu.Lock()
 		if !m.closed {
-			m.results = append(m.results, libraryResult{epoch: epoch, tracks: page.Tracks, search: true, query: query, err: err, searchNext: page.Next, complete: !page.More || page.Next <= start})
+			m.results = append(m.results, libraryResult{epoch: epoch, tracks: tracks, search: true, query: query, err: err, searchNext: next, complete: next <= start})
 		}
 		m.mu.Unlock()
 		m.requestUpdate()
@@ -468,18 +495,18 @@ func (m *model) saveSettings() {
 	}
 	if m.store != nil {
 		if err := m.store.SaveSettings(m.settings); err != nil {
-			m.status = "设置保存失败，本次修改仍在内存中。"
+			m.setStatus("设置保存失败，本次修改仍在内存中。")
 		}
 	}
 }
 func (m *model) saveQueue() {
 	store := m.accountStore
-	if m.demo {
+	if m.demo || store == nil {
 		store = m.store
 	}
 	if store != nil {
 		if err := store.SaveQueue(storage.SavedQueue{Tracks: m.queue.Tracks, Index: m.queue.Index, Position: m.queue.Position}); err != nil {
-			m.status = "队列保存失败。"
+			m.setStatus("队列保存失败。")
 		}
 	}
 }
@@ -493,6 +520,16 @@ func (m *model) startTracks(tracks []huawei.Track, index int) {
 	m.queue.Replace(tracks, index)
 	m.playCurrent()
 	m.saveQueue()
+}
+
+// rememberResume records the queue's restored playhead so the first play can
+// continue where the user left off, without leaking that offset into a later,
+// different track.
+func (m *model) rememberResume(position float64) {
+	if track := m.queue.Current(); track != nil && position > 0 {
+		m.resumeTrackID = track.ID
+		m.resumePosition = position
+	}
 }
 
 func (m *model) playListTrack(tracks []huawei.Track, index int) {
@@ -512,6 +549,18 @@ func (m *model) playCurrent() {
 	if track == nil {
 		return
 	}
+	// pollAudio keeps queue.Position at the live playhead, so it still holds the
+	// previous track's position when a new track starts. Only a restored queue
+	// that still points at the same track may resume; everything else starts at
+	// zero, otherwise the new track would seek to a stale offset (slow start,
+	// or an immediate "ended" when the offset is past the new duration).
+	m.pendingSeek = 0
+	if m.resumeTrackID != "" && track.ID == m.resumeTrackID {
+		m.pendingSeek = m.resumePosition
+	}
+	m.resumeTrackID = ""
+	m.resumePosition = 0
+	m.queue.Position = 0
 	m.listened = 0
 	m.lastPoll = time.Time{}
 	m.lastPosition = 0
@@ -525,8 +574,10 @@ func (m *model) playCurrent() {
 		m.player = nil
 	}
 	m.lyricOffset = 0
+	m.currentAccess = music.AccessUnknown
+	m.playedLink = music.SourceLink{}
 	if m.store != nil {
-		m.lyricOffset = m.store.LyricOffset(track.ID)
+		m.lyricOffset = m.store.LyricOffset(m.trackOffsetKey(*track))
 	}
 	m.audioState = audio.State{}
 	m.resolvedDuration = 0
@@ -538,7 +589,7 @@ func (m *model) playCurrent() {
 	}
 	if m.fixtureDir == "" {
 		m.lyricLines = lyrics.Parse("[00:00.00]离线合成歌词\n[00:01.00]用于验证切句与高亮\n[00:02.00]不是来自真实歌曲\n[00:03.00]播放即将结束")
-		m.status = "合成曲目已加入队列；未配置合成音频目录。"
+		m.setStatus("合成曲目已加入队列；未配置合成音频目录。")
 		return
 	}
 	name := "tone.mp3"
@@ -547,7 +598,7 @@ func (m *model) playCurrent() {
 	}
 	p, err := audio.OpenLocalFixture(filepath.Join(m.fixtureDir, name))
 	if err != nil {
-		m.status = "合成音频不可用，请检查夹具目录。"
+		m.setStatus("合成音频不可用，请检查夹具目录。")
 		return
 	}
 	m.player = p
@@ -629,6 +680,16 @@ func (m *model) pollAudio() {
 	}
 	m.audioState = m.player.Snapshot()
 	m.queue.Position = m.audioState.Position
+	// List APIs never return a duration, so remember the one the decoder
+	// reports and persist it in the queue entry. Without this a restored
+	// player shows a playhead against a 0:00 total.
+	if d := m.audioState.Duration; d > 0 {
+		if t := m.queue.Current(); t != nil && m.learnedDurationFor != t.ID {
+			t.Duration = &d
+			m.learnedDurationFor = t.ID
+			m.saveQueue()
+		}
+	}
 	m.checkDuration()
 	m.updateMedia()
 	now := time.Now()
@@ -641,9 +702,10 @@ func (m *model) pollAudio() {
 	}
 	m.lastPoll = now
 	m.lastPosition = m.audioState.Position
-	if !m.demo && m.settings.SyncHistory && m.listened >= 30 && !m.historyReported && m.writer != nil && m.queue.Current() != nil {
+	if !m.demo && m.settings.SyncHistory && m.listened >= 30 && !m.historyReported && m.writer != nil && m.queue.Current() != nil && m.playedLink.Source == music.SourceHuawei {
 		m.historyReported = true
 		writer, track, listened := m.writer, *m.queue.Current(), int(m.listened)
+		track.ID = m.playedLink.TrackID
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
@@ -685,7 +747,7 @@ func (m *model) pollAudio() {
 		return
 	}
 	if m.audioState.Failed {
-		m.status = "原生音频播放失败。"
+		m.setStatus("原生音频播放失败。")
 		m.audioRunning = false
 		return
 	}

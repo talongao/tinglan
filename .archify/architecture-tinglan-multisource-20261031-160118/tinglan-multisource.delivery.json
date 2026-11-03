@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "2760155f-2860-403b-ac51-7c6a28aeadd3",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-multisource-20261031-160118/candidate.json",
+  "output": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-multisource-20261031-160118/tinglan-multisource.html",
+  "specification": {
+    "sha256": "8a76b9fb4f0c38e38db8daf78c8332627279bf7912b36ad82bf151f0e1bdf7fd",
+    "bytes": 15741
+  },
+  "artifact": {
+    "sha256": "de1f5511aa64fe59b88d4488de30d015d1c274739e1ef6b5b7c6e38cfb8b331f",
+    "bytes": 863824
+  }
+}

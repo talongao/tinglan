@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 const sessionFile = "session.local.json"

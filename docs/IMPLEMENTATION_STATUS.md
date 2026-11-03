@@ -1,4 +1,8 @@
-# 实现状态
+登录窗口（2026-11-02，develop，未提交）：macOS 的华为登录从系统授权 sheet（ASWebAuthenticationSession）改为应用内 `WKWebView` 窗口（`native/internal/webauth/browser_darwin.m`）：独立 `NSWindow`（820×720）、`WKWebsiteDataStore.nonPersistent` 临时 cookie、`WKNavigationDelegate` 只放行 `huawei.AllowedLoginURL` 的 https 域并在 `hms://` 回调时关窗；窗口不可用或设置 `TINGLAN_AUTH_SYSTEM=1` 时回落到原系统 sheet，绝不启动外置浏览器。Windows 侧补 WebView2 安装引导：缺 Runtime 时 `webauth.ErrWebView2Missing` 触发“需要安装 WebView2”dialog，含微软官方 Evergreen bootstrapper 下载入口（约 1.5 MB，不打包 Chromium）。验证：`go build ./...`、`go vet ./...`、`go test ./...` 通过，新增 dialog 渲染测试；WKWebView 窗口与 Windows 安装引导尚未实机验证。未提交、未推送。
+
+数据库 v3 实施（2026-11-01，develop，未提交）：按 `docs/MULTISOURCE_DB_DESIGN.md` v3 落地 SQLite 23 表（不建 `FOREIGN KEY`，`native/internal/librarydb/schema.sql` 内嵌，sha256 校验 DDL 摘要）、`tracks` 为收录音乐唯一事实源、`favorites`/`playlist_tracks` 只存 `track_id`；导入走 `import_runs`/`import_stage` 暂存，正常完成后单事务 `BEGIN IMMEDIATE` 发布，失败/取消不改动已发布数据；收藏更新只停用该音源绑定并保留曲目（无绑定仍显示，标记不可用）；歌单分本地与导入两类，导入歌单单副本 `(profile, source, source_playlist_id)`、成员镜像、远端删除后回到“导入”状态，本地歌单可增删改、删除为硬删除；账号切换后更新导入歌单先弹确认再覆盖。旧 `favorites.local.json` 按 `migration_key + input_digest` 迁移并归档为 `.migrated`；队列/历史仍为文件，队列改为 `queue.local.json` v2（`items[]` 内联元数据、可选 `trackId`、`sources[]` 绑定、`onlySource`），不保存播放地址，旧 `queue.json` 读一次后归档为 `.migrated` 且新格式存在时不再回读；导入歌单的曲目带 `onlySource`，取源时只探测该平台绑定，不会回落到其他音源。UI 已接入：我的收藏“从音源导入收藏”dialog（导入/更新/去登录/重试）、搜索页音源 tabs、歌单页（新建/导入/只读标记/更新/删除）、加入歌单 dialog、底部 toast。TTML 逐字歌词解析（`native/internal/lyrics/ttml.go`，父容器相对时间、`timeContainer="seq"` 拒绝）已接入歌词加载与本地导入。Node 工具链已移除：`package.json`、`package-lock.json`、`native/app-name.mjs`、`native/scripts/*.mjs`、`native/assets/lucide/*.mjs` 删除，改由 `native/cmd/tinglan-tool`（build/start/mac-app/package/ui-check/assets/icons/licenses/ci-targets/version）+ `native/internal/appmeta` 承担，CI 不再安装 Node。验证：`go build ./...`、`go vet ./...`、`go test ./cmd/music/ ./internal/...` 通过，`go run ./cmd/tinglan-tool ui-check` 布局 2 首/33 项 + 965 首/1 项通过。旧歌单浏览缓存（`collection-*.json`）不迁移：旧版本没有“导入歌单”功能，缓存里只有浏览时的远端列表，不含用户拥有的数据；新歌单页通过“导入歌单”按需重新拉取，因此不存在需要保留的导入态。未提交、未推送；网易云适配器、真实账号导入/取源、Windows 实机验收仍未验证。
+
+多源收藏实现（2026-10-31，develop）：用户明确将多源收藏纳入 roadmap，华为音乐作为其中一源，首期接入网易云。已按评审稿完成第一阶段代码：本地规范收藏库（`favorites.local.json`，账号无关；退出登录将来源绑定置为停用但保留曲目，重新导入可恢复）、provider-neutral `music` 类型与两阶段同曲归并（代码相似度先筛候选，只有灰区才调用可选 Jev）、`source` 契约与注册表、华为音源适配器、按曲目导入序探测且完整播放优先的三态取源、Jev 客户端（模型列表/手输模型/端点与凭据代次隔离）、歌词缓存按音源命名空间、设置页新增“音源”（音源账号登录/退出、导入、决策模型配置：单保存、测试连接）。Jev 地址支持自部署 http(s)，可填服务根、`/v1` 或 `/v1/systemone` 基础地址；手输模型 ID 按不透明字符串保存。网易云适配器尚未实现，因此当前实际可用音源只有华为；没有真实账号验证导入、音源解析或 Jev 调用，Windows 实机验收仍是发布门槛。`go build`、`go vet` 与全模块测试通过；未提交、未推送。
 
 发布授权（2026-10-30）：用户明确要求提 PR、合并并发布 Release，覆盖此前 PR #7 保持草稿的限制。本次准备将 develop 的 Windows 安装/授权修复、关闭到托盘默认值及 macOS 完整 bundle 临时签名合入 main；必须通过 PR gate，三平台构建全部成功才发布 Latest。用户反馈 Windows 其余功能暂无大问题，但未逐项提供完整实机验收记录，不以发布代替验收。
 
@@ -22,7 +26,7 @@ CI 触发纠正：此前 develop 虽无 push 触发，但打开的 PR 会间接�
 
 Windows 用户反馈修复（2026-10-30，develop）：安装脚本明确 UTF-8 编码；exe 改 GUI subsystem 并嵌入应用 ICO，安装/卸载器使用同一图标。Windows 登录改默认浏览器，不再自动启动独立 Edge/Chrome；暂用手动粘贴 hms 回调，不注册全局协议，真实授权仍待用户验证。会话恢复与主动登录状态分离，首次安装不再显示“取消登录”，显式登录可取消旧恢复任务。新增本地回归通过；新增 CI PE/资源校验和隔离目录静默安装/中文快捷方式检查，CI 结果待核验。
 
-当前优先级（用户最新决定）：下一步仅验证 Windows 可用性并修复相关缺陷，暂停新功能。代码留在 develop；PR #7 转为草稿，未启用自动合并。不合并 main、不发布新版本，待用户实机验证并明确确认。Windows 验收清单：安装/启动/卸载、登录/恢复/过期退出、库与搜索、MP3/FLAC/进度/切歌、歌词、托盘隐藏后续播、媒体控制。当前仅 CI 和安装包校验通过，上述实机项均 pending。
+历史优先级（2026-10-30，已被 2026-10-31 多源 roadmap 更新覆盖）：当时下一步仅验证 Windows 可用性并修复相关缺陷，暂停新功能。代码留在 develop；PR #7 转为草稿，未启用自动合并。不合并 main、不发布新版本，待用户实机验证并明确确认。Windows 验收清单：安装/启动/卸载、登录/恢复/过期退出、库与搜索、MP3/FLAC/进度/切歌、歌词、托盘隐藏后续播、媒体控制。当前仅 CI 和安装包校验通过，上述实机项均 pending；多源收藏设计已另行纳入 roadmap。
 
 Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均通过，Windows x64 的全模块单元测试、vet、34 项 headless UI 检查、NSIS 打包均成功。安装包 tinglan-0.0.2-x64-setup-unsigned.exe 已下载核验 SHA256。修复 MSYS2 安装路径、字体枚举回调指针类型，以及窗口/字体弹窗同名“关闭”导致自动化误点的问题。未跳过失败检查；PR 构建没有发布 Release。Windows 真实安装、登录、音频输出和托盘操作仍未实机验收。
 
@@ -236,3 +240,5 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 歌词入口改无边框“词”，直接进入沉浸页，移除歌词抽屉；右下角“···”菜单提供导入和 ±0.5 秒偏移，取消跟随开关。滚动/拖动后 5 秒无操作恢复跟随，持续操作延长等待，拖动不触发歌词点击 seek；保留空时间戳的播放语义，但不为空文本占用视觉行高。截图歌曲的实际歌词文件未读取，真实间距效果待验。
 
 采用 Viva WindowCustomTitlebar，自绘背景与顶部拖动区，双击行为交框架；macOS 保留左侧系统红黄绿控件，Windows/Linux 使用 Viva 右侧最小化/最大化/还原/关闭控件。关闭仍遵守关闭到托盘设置。17 项 headless 布局覆盖歌单卡片、沉浸菜单与小窗；macOS 真实窗口操作及 Windows/Linux 桌面行为待验，合成图不等同实机验收。
+
+2026-11-03 第三轮 UX 修复与插件调研：移除收藏列表的列标题行（歌曲/专辑/交互提示）；专辑、歌手与歌单详情页改为整页滚动（此前只滚动固定高度的小列表区，歌单页还会被网格滚动分支拦截，表现为“点进去没法滚动”），新增 3 个到达末行的滚动回归测试；设置新增“高级”二级页，决策模型配置从“音源”迁出，音源页高度相应收缩；搜索结果增加“搜索范围：<已启用音源>”；播放器未知总时长显示 `--:--`，解码器报出时长后写回队列。插件化调研见 [SOURCE_PLUGIN_RESEARCH.md](SOURCE_PLUGIN_RESEARCH.md)：结论是 Go `plugin` 包不可用、当前阶段仍用进程内注册，外置进程适配器需等第二个真实音源落地后再评估。验证：`go build`、`go vet`、`go test ./...`、`tinglan-tool ui-check` 通过；macOS 真机抽查收藏页、专辑页滚动与“高级”设置页。Windows 未实机验证；未提交、未推送。

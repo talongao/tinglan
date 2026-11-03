@@ -2,7 +2,7 @@ package main
 
 import (
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/visual"
+	"tinglan/native/internal/visual"
 )
 
 func (m *model) glass(c *ui.Canvas, b ui.Rect, radius, opacity float32) {

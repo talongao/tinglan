@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 type Collection struct {
