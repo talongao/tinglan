@@ -495,6 +495,8 @@ conflict         状态冲突（代次过期、账号不匹配）
 - 旧 `source.Adapter`、`Capabilities` 旧接口、`LoginState`、`source.Search`/`SearchPage` 与 `Registry` 的 `Adapter` 桥已删除；
   `Registry` 只维护 `Source` 表（`RegisterSource/Source/SourceList/Order/Reorder`），UI 与导入都经 `Source`。
 - `ImportPage.RemoteDeleted` 已加入契约，供导入在正常跑完且源确认删除时标记远端删除；Huawei 适配器暂不产生该标记。
+- 华为源同时存在两条装配路径：默认发行版经外置插件协议（`native/cmd/huawei-source`，见协议文档 §16.1）；
+  `go run`/单测可用 `cmd/music` 的 `devSource`（`builtin.Huawei`）进程内回退，二者走同一个 `Source` 接口。
 
 ## 13. 已定与后续
 

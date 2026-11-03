@@ -22,23 +22,44 @@ type Plugin struct {
 // NewPlugin handshakes with a freshly started process and returns the source.
 func NewPlugin(ctx context.Context, manifest Manifest, proc *Process, host *Host) (*Plugin, error) {
 	p := &Plugin{manifest: manifest, proc: proc, desc: descriptorFor(manifest), host: host}
-	var runtime source.Descriptor
+	services := []string{"session", "webview", "log"}
 	params := map[string]any{
-		"protocolMin": 1,
-		"protocolMax": 1,
-		"hostServices": []string{
-			"session", "webview", "auth.present", "log",
+		"protocolVersion": map[string]int{"min": 1, "max": 1},
+		"hostServices":    services,
+		"limits": map[string]int{
+			"sessionValueBytes": 1 << 20,
+			"sessionTotalBytes": 8 << 20,
+			"sessionKeys":       64,
 		},
+		"hostVersion": "1.0",
 	}
-	if err := proc.Call(ctx, "initialize", params, &runtime); err != nil {
+	var handshake struct {
+		ProtocolVersion      int               `json:"protocolVersion"`
+		Descriptor           source.Descriptor `json:"descriptor"`
+		RequiredHostServices []string          `json:"requiredHostServices"`
+	}
+	if err := proc.Call(ctx, "initialize", params, &handshake); err != nil {
 		return nil, fmt.Errorf("initialize: %w", err)
 	}
+	if handshake.ProtocolVersion != 1 {
+		return nil, fmt.Errorf("initialize: unsupported protocol %d", handshake.ProtocolVersion)
+	}
+	provided := make(map[string]bool, len(services))
+	for _, service := range services {
+		provided[service] = true
+	}
+	for _, service := range handshake.RequiredHostServices {
+		if !provided[service] {
+			return nil, fmt.Errorf("initialize: plugin requires unknown host service %q", service)
+		}
+	}
+	runtime := handshake.Descriptor
 	merged, err := mergeDescriptor(manifest, runtime)
 	if err != nil {
 		return nil, err
 	}
 	p.desc = merged
-	if err := proc.Notify("initialized", map[string]any{"protocolVersion": 1}); err != nil {
+	if err := proc.Notify("initialized", map[string]any{"generation": 1}); err != nil {
 		return nil, err
 	}
 	return p, nil
@@ -247,12 +268,42 @@ func (l librarySource) Import(ctx context.Context, request source.ImportRequest)
 }
 
 func (l librarySource) Resolve(ctx context.Context, request source.ResolveRequest) (music.Playback, error) {
-	var out music.Playback
+	var out playbackWire
 	err := l.p.proc.Call(ctx, "source.library.resolve", map[string]any{
 		"track":   request.Track,
 		"quality": request.Quality,
 	}, &out)
-	return out, classify(l.p.desc.ID, "resolve", err)
+	if err != nil {
+		return music.Playback{}, classify(l.p.desc.ID, "resolve", err)
+	}
+	return music.Playback{
+		URL: out.URL, Quality: out.Quality, Access: parseAccess(out.Access),
+		Evidence: out.Evidence, Duration: out.Duration,
+		LyricURL: out.LyricURL, LyricText: out.LyricText,
+	}, nil
+}
+
+// playbackWire mirrors the SDK's wire type: music.Playback hides URLs from
+// JSON so they can never be persisted, but the plugin boundary must carry them.
+type playbackWire struct {
+	URL       string   `json:"url"`
+	Quality   string   `json:"quality,omitempty"`
+	Access    string   `json:"access"`
+	Evidence  string   `json:"evidence,omitempty"`
+	Duration  *float64 `json:"durationSeconds,omitempty"`
+	LyricURL  string   `json:"lyricUrl,omitempty"`
+	LyricText string   `json:"lyricText,omitempty"`
+}
+
+func parseAccess(v string) music.Access {
+	switch v {
+	case "full":
+		return music.AccessFull
+	case "preview":
+		return music.AccessPreview
+	default:
+		return music.AccessUnknown
+	}
 }
 
 type catalogSource struct{ p *Plugin }

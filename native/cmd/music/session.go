@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"tinglan/native/internal/appmeta"
 	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 )
 
 type persistenceResult struct {
@@ -24,28 +26,12 @@ type persistenceState struct {
 	persistResults []persistenceResult
 }
 
+// persistSession is a no-op now: the external source persists its own session
+// through the host's credential namespace during login. The shell only mirrors
+// the account identity.
 func (m *model) persistSession() {
-	if m.store == nil || m.session == nil {
-		return
-	}
-	version := m.persistVersion.Add(1)
-	store, session := m.store, m.session
-	go func() {
-		m.persistMu.Lock()
-		if m.persistVersion.Load() != version {
-			m.persistMu.Unlock()
-			return
-		}
-		err := store.SaveSession(session)
-		m.persistMu.Unlock()
-		m.mu.Lock()
-		if !m.closed {
-			m.persistResults = append(m.persistResults, persistenceResult{version, err})
-		}
-		m.mu.Unlock()
-		m.requestUpdate()
-	}()
 }
+
 func (m *model) applyPersistence() {
 	m.mu.Lock()
 	results := m.persistResults
@@ -78,19 +64,22 @@ func (m *model) restoreSession() {
 		return
 	}
 	m.restoring = true
-	m.setStatus("正在恢复音乐会话…")
+	m.setStatus("正在恢复登录状态…")
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	m.cancel = cancel
 	go func() {
 		defer cancel()
-		session, err := m.store.LoadSession()
-		// A network outage must not destroy a saved session or its cache.
-		if err == nil {
-			validation := m.checkSession(ctx, session)
-			if sessionExpired(validation) {
-				err = validation
-			}
+		// The source owns the session now; the shell only mirrors the account
+		// identity. A network outage keeps an unknown state instead of logging
+		// the user out.
+		status, err := m.verifySource(ctx)
+		var session *source.Session
+		switch status.State {
+		case source.AuthSignedIn, source.AuthUnknown:
+			session = mirrorSession(status)
+		case source.AuthExpired:
+			err = source.NewError(music.SourceHuawei, "verify", source.KindLogin, errors.New("session expired"))
 		}
 		m.mu.Lock()
 		if !m.closed {
@@ -132,6 +121,12 @@ func (m *model) logout() {
 	}
 	m.persistVersion.Add(1)
 	m.cancelLogin()
+	if src, ok := m.primarySource(); ok {
+		_ = src.Auth().Logout(context.Background())
+	}
+	if m.plugins != nil {
+		_ = m.plugins.ClearSession(music.SourceHuawei)
+	}
 	accountStore := m.accountStore
 	cleanupFailed := false
 	m.clearLibrary()
@@ -184,11 +179,11 @@ func (m *model) scheduleSessionCheck() {
 	if m.sessionTimer != nil {
 		m.sessionTimer.Stop()
 	}
-	epoch, session := m.accountEpoch, m.session
+	epoch := m.accountEpoch
 	m.sessionTimer = time.AfterFunc(5*time.Minute, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		err := m.checkSession(ctx, session)
+		err := m.checkSession(ctx)
 		m.mu.Lock()
 		if !m.closed {
 			m.sessionChecks = append(m.sessionChecks, sessionCheckResult{epoch, err})

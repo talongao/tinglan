@@ -29,7 +29,6 @@ import (
 type sourceState struct {
 	local         *canonical.Library
 	registry      *source.Registry
-	builtinSource builtin.Interactive
 	resolver      *playback.Resolver
 	rows          []music.CanonicalTrack
 	rowIndex      map[string]int
@@ -52,6 +51,7 @@ type sourceState struct {
 	jevError      string
 	jevTestStatus string
 	jevCache      *jev.ModelCache
+	devSource     builtin.Interactive
 	plugins       *plugin.Manager
 	pluginEntries []plugin.Entry
 	pluginBusy    bool
@@ -84,10 +84,10 @@ func (m *model) openLocalLibrary() {
 	}
 	m.local = library
 	m.registry = source.NewRegistry()
-	m.builtinSource = builtin.Huawei(func() *source.Session { return m.session })
-	m.initResourceClient()
-	_ = m.registry.RegisterSource(m.builtinSource)
 	m.loadPlugins()
+	m.registerDevFallback()
+	m.seedLegacySession()
+	m.initResourceClient()
 	m.resolver = playback.New(m.registry)
 	m.rowIndex = make(map[string]int)
 	m.jevCache = jev.NewModelCache()
@@ -98,6 +98,22 @@ func (m *model) openLocalLibrary() {
 	}
 	m.installLocalLibrary()
 	m.refreshPlaylists()
+}
+
+// registerDevFallback keeps `go run ./cmd/music` and the test suite usable when
+// the bundled plugin is absent. The shipped app always has the plugin, so this
+// adapter is never registered in a release build.
+func (m *model) registerDevFallback() {
+	if m.registry == nil {
+		return
+	}
+	if _, ok := m.registry.Source(music.SourceHuawei); ok {
+		return
+	}
+	fallback := builtin.Huawei(func() *source.Session { return m.session })
+	if err := m.registry.RegisterSource(fallback); err == nil {
+		m.devSource = fallback
+	}
 }
 
 func (m *model) installLocalLibrary() {
@@ -617,33 +633,59 @@ func (m *model) selectJevModel(name string) {
 // providerTracks converts neutral rows back to the provider wire shape. It is
 // a migration seam: every call disappears once the shell speaks music.*.
 
-// catalogSource returns the full-contract catalog for the built-in Huawei
-// source. Shell code must go through the Source contract rather than a provider client so the
+// primarySource is the source the shell's account-scoped pages are built
+// around. Every source is a plugin now, so this is a lookup rather than a
+// dedicated built-in adapter.
+func (m *model) primarySource() (source.Source, bool) {
+	if m.registry == nil {
+		return nil, false
+	}
+	if src, ok := m.registry.Source(music.SourceHuawei); ok {
+		return src, true
+	}
+	list := m.registry.SourceList()
+	if len(list) == 0 {
+		return nil, false
+	}
+	return list[0], true
+}
+
+// catalogSource returns the catalogue surface of the primary source. Shell code
+// must go through the Source contract rather than a provider client so the
 // adapter stays the only place that knows provider endpoints.
 func (m *model) catalogSource() source.CatalogSource {
-	if m.builtinSource == nil {
+	src, ok := m.primarySource()
+	if !ok {
 		return nil
 	}
-	return m.builtinSource.Catalog()
+	return src.Catalog()
 }
 
 var errNoSource = errors.New("音源未注册")
 
-// manageSource returns the provider write surface for the built-in source.
+// manageSource returns the provider write surface of the primary source.
 func (m *model) manageSource() source.ManageSource {
-	if m.builtinSource == nil {
+	src, ok := m.primarySource()
+	if !ok {
 		return nil
 	}
-	return m.builtinSource.Manage()
+	return src.Manage()
 }
 
-// checkSession validates a stored session before it is installed.
-func (m *model) checkSession(ctx context.Context, session *source.Session) error {
-	if m.builtinSource == nil {
-		return errors.New("音源未初始化")
+// checkSession asks the source to verify its account against the network. An
+// expired account becomes a login error; an unknown state stays retryable.
+func (m *model) checkSession(ctx context.Context) error {
+	status, err := m.verifySource(ctx)
+	if err != nil {
+		return err
 	}
-	_, err := m.builtinSource.CheckSession(ctx, session)
-	return err
+	switch status.State {
+	case source.AuthExpired:
+		return source.NewError(music.SourceHuawei, "verify", source.KindLogin, errors.New("session expired"))
+	case source.AuthSignedOut:
+		return source.NewError(music.SourceHuawei, "verify", source.KindLogin, errors.New("signed out"))
+	}
+	return nil
 }
 
 // loadPlugins discovers installed plugins and restarts the ones the user
@@ -653,6 +695,7 @@ func (m *model) loadPlugins() {
 		return
 	}
 	m.plugins = plugin.NewManager(filepath.Join(m.store.Dir(), "sources"), m.store, pluginLogger{})
+	m.plugins.AddRoot(bundledPluginRoot())
 	m.pluginEntries = m.plugins.List()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

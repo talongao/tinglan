@@ -335,6 +335,23 @@ Playback {
 - Shell：设置 → 音源 → 「外置音源」列出插件；首次启用弹出授权对话框（名称、目录、权限说明），
   启用后进入同一 `Registry`，搜索页签、导入对话框与设置列表都自动出现该源。
 
+### 16.1 华为源作为预置外置插件（同日晚）
+
+- `native/cmd/huawei-source` 是随应用分发的插件进程：`native/internal/plugin/sdk`（插件侧协议）
+  与 `native/internal/plugin/wire`（帧与 JSON-RPC 基础）供它与第三方插件共用；
+  `native/plugins/huawei/source.json` 声明 `builtin: true`、入口按平台、能力与资源域。
+- `tinglan-tool mac-app` 把插件构建到 `Tinglan.app/Contents/Resources/sources/huawei/`；
+  宿主启动时把该目录加入 Manager 根，`Builtin` 插件在用户未显式禁用时默认启用。
+- 登录完全走协议：插件 `source.auth.login` 内部嵌套 `host.webview.open` 打开系统登录窗口，
+  回调 URL 返回后在插件进程内做 code exchange，再把会话写进 `host.session`；宿主不再持有 provider 会话。
+- 旧版本地登录在首次启动时迁移：宿主读取旧会话，按插件 `Auth().Status()` 的账号指纹比对，
+  不一致先清空命名空间，再以 `host.session` 写入；迁移成功后删除旧会话文件。
+- 会话状态、过期/未知、账号切换都由插件 `source.auth.status/verify` 回报；`cmd/music` 只镜像 `source.Session`。
+- 播放地址不进入持久化 JSON：`music.Playback` 的 `URL`/`LyricURL` 标记为 `json:"-"`，
+  插件边界用显式的 `playbackWire` 传递（`sdk.wirePlayback` 与 `plugin.playbackWire`）。
+- 集成测试：`internal/plugin/huawei_plugin_test.go`（临时目录构建插件并握手）、
+  `internal/plugin/live_huawei_test.go`（`TINGLAN_LIVE_PROFILE` 指向真实数据目录，验证搜索/歌单详情/历史/播放解析）。
+
 尚未实现：
 
 - `host.auth.present`（纯 HTTP 扫码需要在宿主窗口渲染二维码）当前返回 `-32004`；

@@ -26,7 +26,7 @@ type Entry struct {
 
 // Manager discovers, launches and stops external source plugins.
 type Manager struct {
-	root   string
+	roots  []string
 	store  *storage.Store
 	logger source.Logger
 
@@ -38,7 +38,7 @@ type Manager struct {
 // NewManager prepares the plugin root; plugins live under <app data>/sources.
 func NewManager(root string, store *storage.Store, logger source.Logger) *Manager {
 	return &Manager{
-		root:    root,
+		roots:   []string{root},
 		store:   store,
 		logger:  logger,
 		plugins: map[music.SourceID]*Plugin{},
@@ -47,14 +47,24 @@ func NewManager(root string, store *storage.Store, logger source.Logger) *Manage
 }
 
 // Root returns the directory users install plugins into.
-func (m *Manager) Root() string { return m.root }
+func (m *Manager) Root() string { return m.roots[0] }
+
+// AddRoot adds a read-only search root such as the app bundle's plugins. Earlier
+// roots win when two roots ship the same source id.
+func (m *Manager) AddRoot(dir string) {
+	if dir == "" {
+		return
+	}
+	for _, existing := range m.roots {
+		if existing == dir {
+			return
+		}
+	}
+	m.roots = append(m.roots, dir)
+}
 
 // List scans the plugin root for source.json files.
 func (m *Manager) List() []Entry {
-	items, err := os.ReadDir(m.root)
-	if err != nil {
-		return nil
-	}
 	m.mu.Lock()
 	enabled := make(map[music.SourceID]bool, len(m.enabled))
 	for id, on := range m.enabled {
@@ -67,22 +77,33 @@ func (m *Manager) List() []Entry {
 	m.mu.Unlock()
 
 	var out []Entry
-	for _, item := range items {
-		if !item.IsDir() {
+	seen := map[music.SourceID]bool{}
+	for _, root := range m.roots {
+		items, err := os.ReadDir(root)
+		if err != nil {
 			continue
 		}
-		dir := filepath.Join(m.root, item.Name())
-		manifest, loadErr := LoadManifest(dir)
-		if loadErr != nil {
-			continue
+		for _, item := range items {
+			if !item.IsDir() {
+				continue
+			}
+			dir := filepath.Join(root, item.Name())
+			manifest, loadErr := LoadManifest(dir)
+			if loadErr != nil {
+				continue
+			}
+			id := music.SourceID(manifest.ID)
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			out = append(out, Entry{
+				Manifest: manifest,
+				Dir:      dir,
+				Enabled:  enabled[id],
+				Running:  running[id],
+			})
 		}
-		entry := Entry{
-			Manifest: manifest,
-			Dir:      dir,
-			Enabled:  enabled[music.SourceID(manifest.ID)],
-			Running:  running[music.SourceID(manifest.ID)],
-		}
-		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Manifest.ID < out[j].Manifest.ID })
 	return out
@@ -137,6 +158,16 @@ func (m *Manager) Disable(registry *source.Registry, id music.SourceID) error {
 // LoadEnabled starts every previously enabled plugin and registers it.
 func (m *Manager) LoadEnabled(ctx context.Context, registry *source.Registry) []string {
 	m.loadEnabledState()
+	// Sources shipped with the app start once, until the user disables them.
+	for _, entry := range m.List() {
+		id := music.SourceID(entry.Manifest.ID)
+		if !entry.Manifest.Builtin {
+			continue
+		}
+		if _, decided := m.enabled[id]; !decided {
+			m.enabled[id] = true
+		}
+	}
 	var failures []string
 	for _, id := range m.enabledIDs() {
 		if err := m.Enable(ctx, registry, id); err != nil {
@@ -190,6 +221,9 @@ func (m *Manager) start(ctx context.Context, entry Entry) (*Plugin, error) {
 	}
 	binary, err := secureJoin(entry.Dir, relative)
 	if err != nil {
+		return nil, err
+	}
+	if binary, err = filepath.Abs(binary); err != nil {
 		return nil, err
 	}
 	if info, err := os.Stat(binary); err != nil || info.IsDir() {
@@ -285,4 +319,35 @@ func (m *Manager) saveEnabled() {
 		return
 	}
 	_ = m.store.SaveSecret(enabledSecret, raw)
+}
+
+// SeedSession writes one value into a plugin's credential namespace. It exists
+// only for the built-in source upgrade path, where a session saved by an older
+// build has to move into the plugin's namespace before its first start.
+func (m *Manager) SeedSession(id music.SourceID, key, value string) error {
+	if m.store == nil {
+		return errors.New("plugin session storage unavailable")
+	}
+	host := NewHost(id, m.store, m.logger)
+	doc, err := host.load()
+	if err != nil {
+		return err
+	}
+	if _, exists := doc.Entries[key]; exists {
+		return nil
+	}
+	doc.Entries[key] = sessionEntry{Value: value, Revision: 1}
+	return host.save(doc)
+}
+
+// ClearSession removes a plugin's stored session values. Used when the user
+// logs out: the source cannot erase the host namespace itself.
+func (m *Manager) ClearSession(id music.SourceID) error {
+	if m.store == nil {
+		return nil
+	}
+	if err := m.store.DeleteSecret("plugin.session." + string(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }

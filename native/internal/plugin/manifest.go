@@ -28,6 +28,9 @@ type Manifest struct {
 	HostServices    []string          `json:"hostServices"`
 	ResourceDomains []string          `json:"resourceDomains"`
 	Digest          Digest            `json:"digest,omitempty"`
+	// Builtin marks a source shipped with the app. The host enables it on first
+	// run; the user may still disable it afterwards.
+	Builtin bool `json:"builtin,omitempty"`
 }
 
 // ProtocolRange is the wire protocol range the plugin supports.
@@ -65,9 +68,9 @@ type Capabilities struct {
 
 // Collection is one importable list declared by the plugin.
 type Collection struct {
-	Kind        string `json:"kind"`
-	ID          string `json:"id,omitempty"`
-	Name        string `json:"name,omitempty"`
+	Kind         string `json:"kind"`
+	ID           string `json:"id,omitempty"`
+	Name         string `json:"name,omitempty"`
 	PlaylistKind string `json:"playlistKind,omitempty"`
 }
 

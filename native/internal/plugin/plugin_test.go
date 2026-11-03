@@ -48,17 +48,21 @@ func serveFakePlugin() {
 		switch msg.Method {
 		case "initialize":
 			result = map[string]any{
-				"schemaVersion": 1,
-				"id":            "fake",
-				"name":          "测试音源",
-				"shortName":     "测",
-				"capabilities": map[string]any{
-					"search": true, "import": true, "collections": []any{
-						map[string]any{"kind": "favorites", "name": "我喜欢的音乐"},
+				"protocolVersion":      1,
+				"requiredHostServices": []string{},
+				"descriptor": map[string]any{
+					"schemaVersion": 1,
+					"id":            "fake",
+					"name":          "测试音源",
+					"shortName":     "测",
+					"capabilities": map[string]any{
+						"search": true, "import": true, "collections": []any{
+							map[string]any{"kind": "favorites", "name": "我喜欢的音乐"},
+						},
+						"maxPageSize": 20,
 					},
-					"maxPageSize": 20,
+					"resourceDomains": []string{"*.example.test"},
 				},
-				"resourceDomains": []string{"*.example.test"},
 			}
 		case "source.auth.status":
 			result = map[string]any{"state": "signedOut"}

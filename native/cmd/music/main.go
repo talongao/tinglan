@@ -58,6 +58,7 @@ type model struct {
 	restoring          bool
 	status             string
 	session            *source.Session
+	loginSaved         bool
 	signIn             func(context.Context) (*source.Session, error)
 	player             *audio.Player
 	audioState         audio.State
@@ -148,6 +149,10 @@ func (m *model) wake() {
 			continue
 		}
 		m.busy, m.restoring, m.cancel = false, false, nil
+		if result.err == nil && result.restored && result.session == nil {
+			m.setStatus("未登录华为音乐；可在 设置 → 音源 登录并导入。")
+			continue
+		}
 		if result.err != nil {
 			if errors.Is(result.err, webauth.ErrWebView2Missing) {
 				m.dialog = "webview-guide"
@@ -167,16 +172,16 @@ func (m *model) wake() {
 			continue
 		}
 		m.session = result.session
-		m.setStatus("音乐会话校验通过 · 仅本次进程有效")
 		if result.restored {
-			m.setStatus("已恢复保存的音乐会话，正在更新音乐库。")
+			m.setStatus("已恢复登录状态，正在更新音乐库。")
+		} else if m.loginSaved {
+			m.setStatus("登录成功，登录状态已保存在本机。")
+		} else {
+			m.setStatus("登录成功，但登录状态未能保存，退出应用后需重新登录。")
 		}
 		m.installCatalog()
 		m.attachAccount()
 		m.scheduleSessionCheck()
-		if !result.restored && m.store != nil {
-			m.persistSession()
-		}
 	}
 }
 
@@ -305,8 +310,5 @@ func (m *model) runSignIn(ctx context.Context) (*source.Session, error) {
 	if m.signIn != nil {
 		return m.signIn(ctx)
 	}
-	if m.builtinSource == nil {
-		return nil, errors.New("音源未初始化")
-	}
-	return m.builtinSource.SignIn(ctx)
+	return m.runSourceLogin(ctx)
 }

@@ -368,8 +368,8 @@ func (m *model) resourceAllowed(raw string) bool {
 // same allowlist the adapter declares.
 func (m *model) initResourceClient() {
 	domains := []string{".dbankcdn.cn", ".tingmall.com", ".kuke.com"}
-	if m.builtinSource != nil {
-		domains = m.builtinSource.Describe().ResourceDomains
+	if src, ok := m.primarySource(); ok {
+		domains = src.Describe().ResourceDomains
 	}
 	m.resourceClient = resource.NewFor(domains)
 }

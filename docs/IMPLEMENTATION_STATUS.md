@@ -281,3 +281,19 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   搜索页出现「示例音源」页签，搜索返回示例条目并带来源徽标；重启应用后插件自动恢复运行。
 - 未实现：`host.auth.present` 返回 -32004（扫码登录需要宿主二维码窗口）、升级重新授权与签名校验、
   Windows 实机验证。`docs/SOURCE_PLUGIN_PROTOCOL.md` §16 记录实现现状。
+
+## 2026-11-03 晚：华为源改为预置外置插件
+
+- 新增 `native/internal/plugin/wire`（Content-Length 帧、JSON-RPC 消息）与 `native/internal/plugin/sdk`
+  （插件侧 `Serve`、`initialize`/`initialized` 握手、`Host` 的会话/WebView/日志回调）。
+- 新增 `native/cmd/huawei-source` 与 `native/plugins/huawei/source.json`（`builtin: true`）：
+  登录经 `source.auth.login` 在插件进程内嵌套 `host.webview.open` 完成 code exchange，会话写入宿主加密命名空间；
+  搜索/歌单/详情/历史/导入/播放解析/写操作全部经协议方法。
+- `Manager` 支持多根目录（用户 `sources/` + 应用包 `Resources/sources/`），`Builtin` 插件默认启用且尊重用户显式禁用；
+  `tinglan-tool mac-app` 打包插件二进制；启动时把旧版本地登录迁移到插件会话命名空间（比对账号指纹，成功后删除旧会话文件）。
+- 修复：插件入口相对路径需转绝对路径、`initialize` 握手字段、`playbackWire` 显式传递播放地址（`music.Playback` 的 URL 不参与 JSON）、
+  会话迁移把 `AccountKey` 误当 `userID` 导致二次 sha256（改为 `session.UserID`）。
+- 验证：`go build/vet/test ./...` 全绿；`tinglan-tool ui-check` 0 问题；`GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...` 通过；
+  实机应用启动后插件进程运行、设置页显示「华为音乐 · 已启用」与已登录按钮、收藏 942 首；搜索「周杰伦」经插件返回结果并带来源徽标。
+  `internal/plugin/live_huawei_test.go`（真实数据目录）验证 搜索/歌单详情/历史/播放解析。
+- 未验证：手动点开插件窗口登录（需要真实扫码/账号密码）、播放实际出声、Windows 实机；`go run` 仍走 `devSource` 进程内回退。
