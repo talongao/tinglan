@@ -356,7 +356,10 @@ Playback {
   收藏 942 首；搜索「周杰伦」经插件返回结果并带来源徽标；`TestPlaybackStartLatency` 经
   `TINGLAN_PLUGIN_ROOT` 指向应用包插件目录，真实账号下 `AUDIO_STARTED after 1.76s`（位置推进、时长 270s），
   即插件解析 + 远程解码 + 播放全链路可用；live 测试另验证歌单详情、历史 200 条、歌词地址。
-  未验证：手动在弹出的登录窗口完成扫码（需要真人交互）、Windows 实机（仅 CGO_ENABLED=0 交叉编译）。
+  登录窗口（2026-11-03 晚）：设置→音源→重新登录 经插件 `Auth.Login` → `host.webview.open` 弹出
+  「听澜 · 华为账号登录」窗口（AXWebArea：华为账号-登录），关闭窗口即取消，原会话保持不变
+  （`source_accounts` 仍为 huawei|91c7…|logged_in）。
+  未验证：在窗口内完成真实扫码（需要真人交互）、Windows 实机（仅 CGO_ENABLED=0 交叉编译）。
 
 尚未实现：
 
