@@ -428,6 +428,7 @@ func (m *model) applySourceResults() {
 }
 
 func (m *model) toggleSource(id music.SourceID) {
+	defer m.clampSearchSource()
 	for i := range m.settings.Sources {
 		if m.settings.Sources[i].ID == id.String() {
 			m.settings.Sources[i].Enabled = !m.settings.Sources[i].Enabled
@@ -645,6 +646,69 @@ func (m *model) selectJevModel(name string) {
 // primarySource is the source the shell's account-scoped pages are built
 // around. Every source is a plugin now, so this is a lookup rather than a
 // dedicated built-in adapter.
+// trackAvailable reports whether a row still has at least one enabled source.
+// Rows that lost every source are rendered grey instead of pretending they can
+// play; the resolver would fail anyway.
+func (m *model) trackAvailable(t music.Track) bool {
+	if sources, ok := m.rowSources[t.ID]; ok && len(sources) > 0 {
+		for _, id := range sources {
+			if m.sourceEnabled(id) {
+				return true
+			}
+		}
+		return false
+	}
+	if t.Source != "" {
+		return m.sourceEnabled(t.Source)
+	}
+	return true
+}
+
+// clampSearchSource keeps the search tab on an enabled source: disabling the
+// selected plugin must not leave the page querying a source that is gone.
+func (m *model) clampSearchSource() {
+	if m.searchSource == "" || m.sourceEnabled(m.searchSource) {
+		return
+	}
+	m.searchSource = ""
+	m.filtered = nil
+	m.searchNext = 0
+	m.searchMore = false
+}
+
+// accountSourceID is the source that owns the login UI. It prefers Huawei when
+// present and otherwise falls back to the first registered source.
+func (m *model) accountSourceID() music.SourceID {
+	if m.registry != nil {
+		if _, ok := m.registry.Source(music.SourceHuawei); ok {
+			return music.SourceHuawei
+		}
+		if list := m.registry.SourceList(); len(list) > 0 {
+			return list[0].ID()
+		}
+	}
+	return music.SourceHuawei
+}
+
+// accountSourceName is the display name used by account-related copy.
+func (m *model) accountSourceName() string {
+	return m.sourceDisplayName(m.accountSourceID())
+}
+
+// accountSourceReady reports whether the source owning the account UI is
+// enabled. Login and logout affordances are hidden until it is, because the
+// provider no longer runs inside the shell.
+func (m *model) accountSourceReady() bool {
+	id := m.accountSourceID()
+	if m.registry == nil {
+		return false
+	}
+	if _, ok := m.registry.Source(id); !ok {
+		return false
+	}
+	return m.sourceEnabled(id)
+}
+
 func (m *model) primarySource() (source.Source, bool) {
 	if m.registry == nil {
 		return nil, false
@@ -773,6 +837,7 @@ func (m *model) disablePlugin(id music.SourceID) {
 	if m.plugins == nil || m.pluginBusy {
 		return
 	}
+	defer m.clampSearchSource()
 	m.pluginBusy = true
 	entry, ok := m.pluginEntry(id)
 	go func() {

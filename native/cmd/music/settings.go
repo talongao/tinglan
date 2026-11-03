@@ -9,6 +9,7 @@ import (
 	"tinglan/native/internal/icons"
 	"tinglan/native/internal/jev"
 	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 	"tinglan/native/internal/storage"
 	"tinglan/native/internal/typography"
 	"tinglan/native/internal/visual"
@@ -39,11 +40,7 @@ func (m *model) settingsHeight() float32 {
 		return 640
 	}
 	if m.settingsTab == 3 {
-		extra := float32(0)
-		if n := len(m.pluginEntries); n > 0 {
-			extra = float32(n)*36 + 72
-		}
-		return 360 + extra
+		return m.sourcesSettingsHeight()
 	}
 	if m.settingsTab == 4 {
 		return 720
@@ -165,8 +162,8 @@ func (m *model) paintSettings(c *ui.Canvas, b ui.Rect) {
 			m.queue.SetShuffle(i == 3)
 			m.settings.RepeatMode = []string{"off", "all", "one", "off"}[i]
 		})
-		m.settingToggle(c, historySettingID, rect(x, y+186, w, 54), "同步播放到华为历史", &m.settings.SyncHistory)
-		m.settingHint(c, rect(x, y+242, w, 60), "开启后，实际听到一定时长才会上报；快速跳过的曲目不记入华为历史，", "不会上报未播放的秒数。尚未用真实账号验证，失败不影响播放。")
+		m.settingToggle(c, historySettingID, rect(x, y+186, w, 54), "同步播放到"+m.accountSourceName()+"历史", &m.settings.SyncHistory)
+		m.settingHint(c, rect(x, y+242, w, 60), "开启后，实际听到一定时长才会上报；快速跳过的曲目不记入平台历史，", "不会上报未播放的秒数。写操作尚未用真实账号验证，失败不影响播放。")
 		m.settingToggle(c, thirdPartyLyricsID, rect(x, y+304, w, 54), "第三方歌词匹配", &m.settings.ThirdPartyLyrics)
 		m.settingHint(c, rect(x, y+360, w, 60), "华为接口没有返回歌词时，按歌名、艺人、时长匹配酷狗音乐和 LRCLIB。", "只请求歌词文本，不涉及音源，不上传账号信息。")
 		m.text(c, "歌词缓存", rect(x+2, y+432, w-4, 22), 12, 400, m.ink())
@@ -305,27 +302,65 @@ func (m *model) settingsInput(c *ui.Canvas, id ui.ID, b ui.Rect, label, placehol
 	})
 }
 
+func (m *model) builtinSources() []source.Source {
+	if m.registry == nil {
+		return nil
+	}
+	out := make([]source.Source, 0, 2)
+	for _, src := range m.registry.SourceList() {
+		if src == nil || m.isPluginSource(src.ID()) {
+			continue
+		}
+		out = append(out, src)
+	}
+	return out
+}
+
+// sourcesSettingsHeight drives both the painter and the scroll extent. Layout
+// lives in one place so adding a plugin row can never overlap the import
+// action again.
+func (m *model) sourcesSettingsHeight() float32 {
+	rows := len(m.pluginEntries)
+	builtin := len(m.builtinSources())
+	pluginsTop := float32(126+builtin*34) + 18
+	rowTop := pluginsTop + 28
+	if rows == 0 {
+		rowTop += 24
+	} else {
+		rowTop += float32(rows) * 34
+	}
+	importY := rowTop + 14
+	total := importY + 74
+	if total < 360 {
+		total = 360
+	}
+	return total
+}
+
 func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
-	m.text(c, "音源账号", rect(x+2, y+10, w-4, 24), 13, 600, m.ink())
-	account := "华为音乐 · 未登录（导入收藏前先登录）"
-	if m.session != nil {
-		account = "华为音乐 · 已登录"
-	}
-	if m.busy {
-		account = "华为音乐 · 正在登录…"
-	}
+	name := m.accountSourceName()
+	ready := m.accountSourceReady() && !m.demo
+	account := name + " · 未登录"
 	if m.demo {
 		account = "离线合成数据 · 不连接音源"
-	}
-	m.text(c, account, rect(x+2, y+36, w-240, 22), 11, 400, m.muted())
-	label := "登录"
-	if m.session != nil {
-		label = "重新登录"
+	} else if !ready {
+		account = name + " · 未启用（在下方启用后才能登录）"
+	} else if m.session != nil {
+		account = name + " · 已登录"
 	}
 	if m.busy {
-		label = "取消登录"
+		account = name + " · 正在登录…"
 	}
-	if !m.demo {
+	m.text(c, "音源账号", rect(x+2, y+10, w-4, 24), 13, 600, m.ink())
+	m.text(c, account, rect(x+2, y+36, w-240, 22), 11, 400, m.muted())
+	if ready {
+		label := "登录"
+		if m.session != nil {
+			label = "重新登录"
+		}
+		if m.busy {
+			label = "取消登录"
+		}
 		if m.pill(c, loginID, rect(x+w-222, y+28, 110, 34), label, false) {
 			if m.busy {
 				m.cancelLogin()
@@ -333,10 +368,10 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 				m.startLogin()
 			}
 		}
-	}
-	if !m.demo && m.session != nil {
-		if m.pill(c, logoutID, rect(x+w-104, y+28, 104, 34), "退出账号", false) {
-			m.logout()
+		if m.session != nil {
+			if m.pill(c, logoutID, rect(x+w-104, y+28, 104, 34), "退出账号", false) {
+				m.logout()
+			}
 		}
 	}
 
@@ -346,29 +381,29 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 	}
 	m.text(c, "本地收藏", rect(x+2, y+78, w-4, 24), 13, 600, m.ink())
 	m.text(c, fmt.Sprintf("%d 首 · 来自本机规范化曲库，不随账号退出删除", count), rect(x+2, y+104, w-4, 22), 11, 400, m.muted())
-	if m.registry != nil {
-		for i, src := range m.registry.SourceList() {
-			if src == nil || m.isPluginSource(src.ID()) {
-				continue
-			}
-			on := m.sourceEnabled(src.ID())
-			state := "已停用"
-			if on {
-				state = "已启用"
-			}
-			label := m.sourceDisplayName(src.ID()) + " 音源 · " + state
-			if m.pill(c, sourceSettings.At(i), rect(x+2, y+126+float32(i)*34, 210, 28), label, on) {
-				m.toggleSource(src.ID())
-			}
+
+	builtin := m.builtinSources()
+	rowY := y + 126
+	for i, src := range builtin {
+		on := m.sourceEnabled(src.ID())
+		state := "已停用"
+		if on {
+			state = "已启用"
+		}
+		label := m.sourceDisplayName(src.ID()) + " 音源 · " + state
+		if m.pill(c, sourceSettings.At(i), rect(x+2, rowY+float32(i)*34, 210, 28), label, on) {
+			m.toggleSource(src.ID())
 		}
 	}
-	pluginsTop := y + 126 + float32(len(m.registry.SourceList()))*34 + 26
-	m.text(c, "外置音源", rect(x+2, pluginsTop, w-4, 22), 13, 600, m.ink())
-	if m.plugins == nil || len(m.pluginEntries) == 0 {
-		m.text(c, "把插件目录放进本机 sources 文件夹后重启应用即可在这里启用。", rect(x+2, pluginsTop+24, w-140, 20), 11, 400, m.muted())
-		if m.pill(c, openPluginsID, rect(x+w-132, pluginsTop+18, 132, 28), "打开插件文件夹", false) {
-			m.openPluginFolder()
-		}
+	pluginsTop := y + float32(126+len(builtin)*34) + 18
+	m.text(c, "外置音源", rect(x+2, pluginsTop, w-160, 22), 13, 600, m.ink())
+	if m.pill(c, openPluginsID, rect(x+w-132, pluginsTop-4, 132, 28), "打开插件文件夹", false) {
+		m.openPluginFolder()
+	}
+	rowTop := pluginsTop + 28
+	if len(m.pluginEntries) == 0 {
+		m.text(c, "把插件目录放进本机 sources 文件夹后重启应用即可在这里启用。", rect(x+2, rowTop, w-4, 20), 11, 400, m.muted())
+		rowTop += 24
 	} else {
 		for i, entry := range m.pluginEntries {
 			state := "未启用"
@@ -378,8 +413,7 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 				state = "启用中…"
 			}
 			label := entry.Manifest.Name + " · " + state
-			activeStyle := entry.Running
-			if m.pill(c, pluginSettings.At(i), rect(x+2, pluginsTop+24+float32(i)*36, w-150, 28), label, activeStyle) {
+			if m.pill(c, pluginSettings.At(i), rect(x+2, rowTop+float32(i)*34, w-160, 28), label, entry.Running) {
 				if entry.Running {
 					m.disablePlugin(music.SourceID(entry.Manifest.ID))
 				} else {
@@ -387,15 +421,15 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 				}
 			}
 		}
-		if m.pill(c, openPluginsID, rect(x+w-132, pluginsTop+18, 132, 28), "打开插件文件夹", false) {
-			m.openPluginFolder()
-		}
+		rowTop += float32(len(m.pluginEntries)) * 34
 	}
+
+	importY := rowTop + 14
 	importLabel := "从音源导入收藏"
 	if m.importing {
 		importLabel = "正在导入…"
 	}
-	if m.pill(c, importFavoritesID, rect(x, y+180, 190, 34), importLabel, m.importing) {
+	if m.pill(c, importFavoritesID, rect(x, importY, 190, 34), importLabel, m.importing) {
 		if m.importing && m.importCancel != nil {
 			m.importCancel()
 			m.importing = false
@@ -405,9 +439,8 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 		}
 	}
 	if m.importStatus != "" {
-		m.text(c, m.importStatus, rect(x+2, y+224, w-4, 22), 11, 400, m.muted())
+		m.text(c, m.importStatus, rect(x+2, importY+42, w-4, 22), 11, 400, m.muted())
 	}
-
 }
 
 func (m *model) paintAdvancedSettings(c *ui.Canvas, x, y, w float32) {

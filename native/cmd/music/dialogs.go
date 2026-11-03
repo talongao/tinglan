@@ -587,7 +587,7 @@ func (m *model) importPlaylist(p music.Playlist) {
 		return
 	}
 	if m.local == nil || m.session == nil {
-		m.notify("请先登录华为音乐")
+		m.notify("请先登录" + m.accountSourceName())
 		return
 	}
 	playlist, err := m.local.EnsureImportedPlaylist(context.Background(), music.SourceHuawei, p.ID, p.Name, p.Description, p.CoverURL)
@@ -697,14 +697,23 @@ func (m *model) paintAccountSwitchDialog(c *ui.Canvas, size ui.Size) {
 	}
 }
 
-// searchSource searches the currently selected platform tab. Unregistered or
-// disabled sources fall back to the Huawei adapter so the page keeps working.
+// searchSource searches the currently selected platform tab. The selection is
+// clamped to an enabled source, so disabling a plugin never leaves the page
+// querying a stale source.
 func (m *model) searchTracks(ctx context.Context, query string, start int) ([]music.Track, int, error) {
-	id := m.searchSource
-	if id == "" {
-		id = music.SourceHuawei
-	}
 	catalog := m.catalogSource()
+	if enabled := m.dialogSources(); len(enabled) > 0 {
+		id := m.searchSource
+		if id == "" || !m.sourceEnabled(id) {
+			id = enabled[0].ID()
+		}
+		for _, src := range enabled {
+			if src.ID() == id {
+				catalog = src.Catalog()
+				break
+			}
+		}
+	}
 	cursor := ""
 	if start > 0 {
 		cursor = fmt.Sprint(start)

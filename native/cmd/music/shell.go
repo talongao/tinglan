@@ -358,7 +358,7 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 	if m.view == 1 {
 		subtitle = "收藏与自建歌单"
 		if m.browseRemote {
-			subtitle = "从华为音乐选择要导入的歌单"
+			subtitle = "从" + m.accountSourceName() + "选择要导入的歌单"
 		}
 	}
 	if m.view == 4 {
@@ -370,7 +370,7 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 	if m.view == 3 {
 		subtitle = "本机最近播放记录"
 		if m.remoteHistoryOpen {
-			subtitle = "华为音乐账号的播放历史"
+			subtitle = m.accountSourceName() + "账号的播放历史"
 		}
 	}
 	if m.entity == nil {
@@ -587,11 +587,13 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 			count = fmt.Sprintf("没有找到“%s”", m.searchQuery)
 		}
 		m.text(c, count, rect(b.X+21, b.Y, 320, 20), 12, 600, m.muted())
-		// Sources will multiply; make the scope explicit instead of relying on
-		// the per-row badge to communicate where results come from.
-		scope := "搜索范围：" + m.searchScopeLabel()
-		scopeWidth := m.textWidth(c, scope, 11, 400)
-		m.text(c, scope, rect(b.X+b.Width-21-scopeWidth, b.Y+1, scopeWidth, 18), 11, 400, m.muted())
+		// With a single source the tab row is hidden, so name the scope here.
+		// Multiple sources show their own tab row under the field instead.
+		if len(m.dialogSources()) <= 1 {
+			scope := "搜索范围：" + m.searchScopeLabel()
+			scopeWidth := m.textWidth(c, scope, 11, 400)
+			m.text(c, scope, rect(b.X+b.Width-21-scopeWidth, b.Y+1, scopeWidth, 18), 11, 400, m.muted())
+		}
 		viewport = rect(b.X+21, b.Y+26, b.Width-42, max(0, b.Height-46))
 	}
 	c.Clip(viewport)
@@ -648,6 +650,9 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 		nameTint := m.ink()
 		if current {
 			nameTint = m.accent()
+		}
+		if !m.trackAvailable(t) {
+			nameTint = color(0x9aa0a8, 1)
 		}
 		m.text(c, t.Title, rect(titleX, y+10, r.Width*.4-30, 22), 13, 550, nameTint)
 		m.text(c, t.ArtistText(), rect(titleX, y+32, r.Width*.4-30, 18), 11, 400, m.muted())
@@ -756,12 +761,19 @@ func (m *model) paintSearch(c *ui.Canvas, b ui.Rect) {
 			m.searchError = false
 		}
 	}
-	m.paintSearchTabs(c, rect(b.X, b.Y+58, b.Width, 32))
+	tabsVisible := len(m.dialogSources()) > 1
+	if tabsVisible {
+		m.paintSearchTabs(c, rect(b.X, b.Y+46, b.Width, 32))
+	}
 	if strings.TrimSpace(m.query.Text()) == "" && !m.searchLoading && m.searchQuery == "" {
 		m.centerText(c, "输入歌曲或艺人名称开始搜索", rect(b.X, b.Y+140, b.Width, 24), 13, 400, m.muted())
 		return
 	}
-	m.paintLibrary(c, rect(b.X, b.Y+100, b.Width, b.Height-100), m.filtered, true)
+	listY := float32(100)
+	if tabsVisible {
+		listY = 88
+	}
+	m.paintLibrary(c, rect(b.X, b.Y+listY, b.Width, b.Height-listY), m.filtered, true)
 }
 
 func (m *model) scrollEvent(e ui.ScrollEvent) ui.EventResult {

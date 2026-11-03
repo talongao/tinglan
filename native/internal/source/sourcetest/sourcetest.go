@@ -18,8 +18,11 @@ type Fake struct {
 	AuthErr    error
 	Pages      []source.ImportPage
 	ImportErr  error
+	SearchErr  error
 	Playback   music.Playback
 	ResolveErr error
+	// SearchResults feeds Catalog().Search.
+	SearchResults []music.Track
 	// Calls records import cursors in order.
 	Calls []string
 	// ResolveCalls records the resolved track ids in order.
@@ -48,7 +51,7 @@ func (f *Fake) Describe() source.Descriptor {
 
 func (f *Fake) Auth() source.AuthSource       { return fakeAuth{f} }
 func (f *Fake) Library() source.LibrarySource { return fakeLibrary{f} }
-func (f *Fake) Catalog() source.CatalogSource { return fakeCatalog{} }
+func (f *Fake) Catalog() source.CatalogSource { return fakeCatalog{f} }
 func (f *Fake) Lyrics() source.LyricsSource   { return fakeLyrics{} }
 func (f *Fake) Manage() source.ManageSource   { return fakeManage{} }
 
@@ -94,10 +97,16 @@ func (l fakeLibrary) Resolve(_ context.Context, request source.ResolveRequest) (
 	return l.f.Playback, l.f.ResolveErr
 }
 
-type fakeCatalog struct{}
+type fakeCatalog struct{ f *Fake }
 
-func (fakeCatalog) Search(context.Context, source.SearchRequest) (source.Page[music.Track], error) {
-	return source.Page[music.Track]{}, nil
+func (c fakeCatalog) Search(context.Context, source.SearchRequest) (source.Page[music.Track], error) {
+	if c.f.SearchErr != nil {
+		return source.Page[music.Track]{}, c.f.SearchErr
+	}
+	if len(c.f.SearchResults) == 0 {
+		return source.Page[music.Track]{}, nil
+	}
+	return source.Page[music.Track]{Items: c.f.SearchResults}, nil
 }
 func (fakeCatalog) Playlists(context.Context, source.PlaylistRequest) (source.Page[music.Playlist], error) {
 	return source.Page[music.Playlist]{}, nil

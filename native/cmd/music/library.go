@@ -535,6 +535,7 @@ func (m *model) playListTrack(tracks []music.Track, index int) {
 	if index < 0 || index >= len(tracks) {
 		return
 	}
+	m.playFailures = 0
 	if m.view != 2 || m.entity != nil {
 		m.startTracks(tracks, index)
 		return
@@ -768,8 +769,11 @@ func (m *model) pollAudio() {
 		return
 	}
 	if m.audioState.Failed {
-		m.setStatus("原生音频播放失败。")
 		m.audioRunning = false
+		if m.skipUnplayable() {
+			return
+		}
+		m.setStatus("原生音频播放失败。")
 		return
 	}
 	// Schedule only while playing/buffering; paused and idle windows have no timer.

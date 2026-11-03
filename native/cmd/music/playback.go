@@ -159,6 +159,24 @@ func openRemote(ctx context.Context, url string) (*audio.Player, error) {
 	}
 }
 
+// skipUnplayable advances to the next queue entry after a playback failure and
+// returns true when playback was restarted. The failure counter is reset by any
+// successful start or explicit user action, so a queue whose entries are all
+// broken terminates instead of looping forever.
+func (m *model) skipUnplayable() bool {
+	if len(m.queue.Tracks) <= 1 || m.playFailures >= len(m.queue.Tracks)-1 {
+		return false
+	}
+	m.playFailures++
+	if !m.queue.Step(1, true) {
+		return false
+	}
+	m.playbackError = ""
+	m.setStatus("这首歌无法播放，已自动跳到下一首。")
+	m.playCurrent()
+	return true
+}
+
 func (m *model) postPlayback(r playbackResult) {
 	m.mu.Lock()
 	if !m.closed {
@@ -203,6 +221,11 @@ func (m *model) applyPlaybackResults() {
 				m.playbackError = "播放失败"
 				m.setStatus("播放失败，请重试或选择其他音质。")
 			}
+			// A dead track must not park the player: walk to the next entry and
+			// stop only after every entry failed once (see skipUnplayable).
+			if m.skipUnplayable() {
+				continue
+			}
 			// Leave the transport in a state the user can act on: a paused
 			// icon with 0:00 looks like a stuck player, not a failure.
 			m.audioRunning = false
@@ -216,6 +239,7 @@ func (m *model) applyPlaybackResults() {
 		}
 		m.player = r.player
 		m.playbackError = ""
+		m.playFailures = 0
 		m.lyricLines = r.lyrics
 		m.lyricSource = r.lyricSource
 		m.lyricTrack = ""
