@@ -427,6 +427,36 @@ func (m *model) applySourceResults() {
 	}
 }
 
+// toggleSourceRow routes the switch to the right mechanism: plugins are
+// processes that must be started or stopped, while built-in sources only need
+// their setting flipped.
+func (m *model) toggleSourceRow(row sourceRow) {
+	if !m.isPluginSource(row.id) {
+		m.toggleSource(row.id)
+		return
+	}
+	m.setSourceEnabled(row.id, !row.enabled)
+	if row.enabled {
+		m.disablePlugin(row.id)
+		return
+	}
+	m.askEnablePlugin(row.id)
+}
+
+// setSourceEnabled records the user's preference; it does not touch processes.
+func (m *model) setSourceEnabled(id music.SourceID, enabled bool) {
+	for i := range m.settings.Sources {
+		if m.settings.Sources[i].ID == id.String() {
+			m.settings.Sources[i].Enabled = enabled
+			m.saveSettings()
+			return
+		}
+	}
+	m.settings.Sources = append(m.settings.Sources, storage.SourceSetting{ID: id.String(), Enabled: enabled})
+	m.settings.Sanitize()
+	m.saveSettings()
+}
+
 func (m *model) toggleSource(id music.SourceID) {
 	defer m.clampSearchSource()
 	defer m.refreshSourceAuth(id)
@@ -916,6 +946,7 @@ func (m *model) enablePlugin(id music.SourceID) {
 		m.pluginBusy = false
 		m.pluginEntries = m.plugins.List()
 		m.mu.Unlock()
+		m.setSourceEnabled(id, true)
 		m.notify("已启用 " + entry.Manifest.Name)
 		m.refreshSourceAuth(id)
 		m.invalidator.Invalidate()
@@ -935,6 +966,7 @@ func (m *model) disablePlugin(id music.SourceID) {
 		m.pluginBusy = false
 		m.pluginEntries = m.plugins.List()
 		m.mu.Unlock()
+		m.setSourceEnabled(id, false)
 		if ok {
 			m.notify("已停用 " + entry.Manifest.Name)
 		}

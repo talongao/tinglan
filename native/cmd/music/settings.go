@@ -361,19 +361,21 @@ func (m *model) sourceRows() []sourceRow {
 	return rows
 }
 
-// sourcesSettingsHeight drives both the painter and the scroll extent. Layout
-// lives in one place so adding a source row can never overlap the import
-// action again.
-func (m *model) sourcesSettingsHeight() float32 {
-	rows := m.sourceRows()
-	height := float32(96)
-	for _, row := range rows {
-		height += 38
-		if row.loginable && row.enabled {
-			height += 30
-		}
+// sourceCardHeight keeps card layout and scroll extent in one place.
+func sourceCardHeight(row sourceRow) float32 {
+	if row.loginable && row.enabled {
+		return 92
 	}
-	height += 58
+	return 56
+}
+
+// sourcesSettingsHeight drives both the painter and the scroll extent.
+func (m *model) sourcesSettingsHeight() float32 {
+	height := float32(96)
+	for _, row := range m.sourceRows() {
+		height += sourceCardHeight(row) + 12
+	}
+	height += 54
 	if height < 360 {
 		height = 360
 	}
@@ -388,24 +390,52 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 	m.text(c, "本地收藏", rect(x+2, y+4, w-4, 24), 13, 600, m.ink())
 	m.text(c, fmt.Sprintf("%d 首 · 来自本机规范化曲库，不随账号退出删除", count), rect(x+2, y+30, w-4, 22), 11, 400, m.muted())
 
-	rows := m.sourceRows()
 	m.text(c, "音源", rect(x+2, y+66, w-160, 22), 13, 600, m.ink())
-	if m.pill(c, openPluginsID, rect(x+w-132, y+62, 132, 28), "打开插件文件夹", false) {
+	if m.pill(c, openPluginsID, rect(x+w-132, y+60, 132, 28), "打开插件文件夹", false) {
 		m.openPluginFolder()
 	}
+
 	rowY := y + 96
-	for i, row := range rows {
+	for i, row := range m.sourceRows() {
+		cardH := sourceCardHeight(row)
+		card := rect(x, rowY, w, cardH)
+		visual.Border(c, card, 14, 1, m.line(.07), m.surface(.55))
+
+		m.text(c, row.name, rect(x+16, rowY+14, w-140, 22), 13, 600, m.ink())
+		nameW := m.textWidth(c, row.name, 13, 600)
+		dot := color(0x6b7280, 1)
+		if row.enabled {
+			dot = m.accent()
+		}
+		c.Rounded(rect(x+22+nameW, rowY+22, 6, 6), 3, dot)
 		state := "已停用"
 		if row.enabled {
 			state = "已启用"
 		}
-		if m.pill(c, sourceSettings.At(i), rect(x+2, rowY, w-160, 28), row.name+" · "+state, row.enabled) {
-			m.toggleSource(row.id)
+		m.text(c, state, rect(x+34+nameW, rowY+16, 60, 18), 11, 400, m.muted())
+
+		// Toggle switch on the card header.
+		tr := rect(x+w-52, rowY+16, 36, 21)
+		tint := color(0x16181c, .16)
+		if row.enabled {
+			tint = m.accent()
 		}
-		rowY += 38
+		c.Rounded(tr, 10.5, tint)
+		dx := float32(3)
+		if row.enabled {
+			dx += 15
+		}
+		c.Shadow(rect(tr.X+dx, tr.Y+3, 15, 15), 7.5, ui.ShadowStyle{OffsetY: 1, Blur: 3}, color(0, .24))
+		c.Rounded(rect(tr.X+dx, tr.Y+3, 15, 15), 7.5, color(0xffffff, 1))
+		if hit(c, sourceSettings.At(i), rect(tr.X-8, tr.Y-8, tr.Width+16, tr.Height+16), row.name+" "+state) {
+			m.toggleSourceRow(row)
+		}
+
 		if !row.loginable || !row.enabled {
+			rowY += cardH + 12
 			continue
 		}
+
 		account := "账号：未登录"
 		if m.busy && m.loginTarget == row.id {
 			account = "账号：正在登录…"
@@ -414,15 +444,28 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 		} else if _, ok := m.sourceAuth[row.id]; !ok {
 			account = "账号：正在读取…"
 		}
-		m.text(c, account, rect(x+24, rowY-4, w-260, 20), 11, 400, m.muted())
+		m.text(c, account, rect(x+16, rowY+58, w-260, 20), 11, 400, m.muted())
+
+		btnY := rowY + 52
+		if m.sourceSignedIn(row.id) {
+			if m.pill(c, sourceLogoutID.At(i), rect(x+w-16-88, btnY, 88, 28), "退出账号", false) {
+				m.logoutSource(row.id)
+			}
+		}
 		label := "登录"
+		btnW := float32(80)
 		if m.sourceSignedIn(row.id) {
 			label = "重新登录"
+			btnW = 96
 		}
 		if m.busy && m.loginTarget == row.id {
 			label = "取消登录"
 		}
-		if m.pill(c, sourceLoginID.At(i), rect(x+w-222, rowY-8, 110, 30), label, false) {
+		btnX := x + w - 16 - btnW
+		if m.sourceSignedIn(row.id) {
+			btnX = x + w - 16 - 88 - 8 - btnW
+		}
+		if m.pill(c, sourceLoginID.At(i), rect(btnX, btnY, btnW, 28), label, false) {
 			if m.busy && m.loginTarget == row.id {
 				m.cancelLogin()
 			} else {
@@ -430,19 +473,14 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 				m.startLogin()
 			}
 		}
-		if m.sourceSignedIn(row.id) {
-			if m.pill(c, sourceLogoutID.At(i), rect(x+w-104, rowY-8, 104, 30), "退出账号", false) {
-				m.logoutSource(row.id)
-			}
-		}
-		rowY += 30
+		rowY += cardH + 12
 	}
 
 	importLabel := "从音源导入收藏"
 	if m.importing {
 		importLabel = "正在导入…"
 	}
-	if m.pill(c, importFavoritesID, rect(x, rowY+16, 190, 34), importLabel, m.importing) {
+	if m.pill(c, importFavoritesID, rect(x, rowY+8, 190, 34), importLabel, m.importing) {
 		if m.importing && m.importCancel != nil {
 			m.importCancel()
 			m.importing = false
@@ -452,7 +490,7 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 		}
 	}
 	if m.importStatus != "" {
-		m.text(c, m.importStatus, rect(x+2, rowY+58, w-4, 22), 11, 400, m.muted())
+		m.text(c, m.importStatus, rect(x+2, rowY+50, w-4, 22), 11, 400, m.muted())
 	}
 }
 
