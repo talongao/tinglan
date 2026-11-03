@@ -71,15 +71,19 @@ type ResolveRequest struct {
 // Capabilities is static: it describes what the adapter can do, not whether it
 // is currently logged in.
 type Capabilities struct {
-	Import   bool
-	Resolve  bool
-	Search   bool
-	Lyrics   bool
-	Playlist bool
+	Import   bool `json:"import"`
+	Resolve  bool `json:"resolve"`
+	Search   bool `json:"search"`
+	Lyrics   bool `json:"lyrics"`
+	Playlist bool `json:"playlist"`
 	// Collections lists the importable collections this source exposes.
-	Collections []Collection
+	Collections []Collection `json:"collections,omitempty"`
 	// MaxPageSize is the largest limit Import accepts. Zero means unlimited.
-	MaxPageSize int
+	MaxPageSize int `json:"maxPageSize,omitempty"`
+	// LoginKinds lists the authentication methods this source supports.
+	LoginKinds []LoginKind `json:"loginKinds,omitempty"`
+	// LoginRequired lists operations that need a signed-in account.
+	LoginRequired []string `json:"loginRequired,omitempty"`
 }
 
 // Kind classifies failures so the UI and resolver can react without inspecting

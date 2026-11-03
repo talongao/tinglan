@@ -124,6 +124,19 @@ func (m *model) pill(c *ui.Canvas, id ui.ID, b ui.Rect, label string, primary bo
 	m.centerText(c, label, b, 12, 500, tint)
 	return hit(c, id, b, label)
 }
+
+// rowDim is the muted tint used for rows whose sources are all disabled.
+func (m *model) rowDim() ui.Color { return color(0x777d87, 1) }
+
+func (m *model) iconButtonDim(c *ui.Canvas, id ui.ID, b ui.Rect, icon ui.Icon, label string, active bool, dim bool) bool {
+	if !dim {
+		return m.iconButton(c, id, b, icon, label, active)
+	}
+	size := float32(19)
+	c.DrawIcon(icons.RoundedStroke(icon), rect(b.X+(b.Width-size)/2, b.Y+(b.Height-size)/2, size, size), m.rowDim())
+	return hit(c, id, b, label)
+}
+
 func (m *model) iconButton(c *ui.Canvas, id ui.ID, b ui.Rect, icon ui.Icon, label string, active bool) bool {
 	tint := m.muted()
 	if active {
@@ -407,6 +420,8 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 			m.paintImportDialog(c, size)
 		case "new-playlist":
 			m.paintNewPlaylistDialog(c, size)
+		case "import-plugin":
+			m.paintImportPluginDialog(c, size)
 		case "add-playlist":
 			m.paintAddToPlaylistDialog(c, size)
 		case "account-switch":
@@ -602,8 +617,9 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 		}
 		r := rect(viewport.X, y, viewport.Width, 58)
 
+		available := m.trackAvailable(t)
 		current := m.queue.Current() != nil && m.queue.Current().ID == t.ID
-		if current {
+		if current && available {
 			tint := m.accent()
 			tint.Alpha = .09
 			c.Rounded(r, 11, tint)
@@ -635,12 +651,20 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 				}
 			}
 		} else {
-			m.text(c, fmt.Sprintf("%02d", i+1), rect(r.X+17, y+20, 26, 18), 11, 400, color(0xb6bac1, 1))
+			indexTint := color(0xb6bac1, 1)
+			if !available {
+				indexTint = m.rowDim()
+			}
+			m.text(c, fmt.Sprintf("%02d", i+1), rect(r.X+17, y+20, 26, 18), 11, 400, indexTint)
 		}
 		titleX := r.X + 42
 		if b.Width > 740 {
 			c.Rounded(rect(titleX+10, y+9, 40, 40), 11, color(0xb6bac1, .25))
-			c.DrawIcon(icons.Music2, rect(titleX+20, y+19, 20, 20), color(0xb6bac1, 1))
+			placeholder := color(0xb6bac1, 1)
+			if !available {
+				placeholder = m.rowDim()
+			}
+			c.DrawIcon(icons.Music2, rect(titleX+20, y+19, 20, 20), placeholder)
 			m.trackCover(c, t, rect(titleX+10, y+9, 40, 40))
 			titleX += 62
 		}
@@ -648,11 +672,13 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 		if current {
 			nameTint = m.accent()
 		}
-		if !m.trackAvailable(t) {
-			nameTint = color(0x9aa0a8, 1)
+		subTint := m.muted()
+		if !available {
+			nameTint = m.rowDim()
+			subTint = m.rowDim()
 		}
 		m.text(c, t.Title, rect(titleX, y+10, r.Width*.4-30, 22), 13, 550, nameTint)
-		m.text(c, t.ArtistText(), rect(titleX, y+32, r.Width*.4-30, 18), 11, 400, m.muted())
+		m.text(c, t.ArtistText(), rect(titleX, y+32, r.Width*.4-30, 18), 11, 400, subTint)
 		if len(t.Artists) > 0 && t.Artists[0].ID != "" && hit(c, artistRows.At(i), rect(titleX, y+32, r.Width*.4-30, 18), "艺人 "+t.ArtistText()) {
 			m.openEntity("artist", t.Artists[0].ID, t.Artists[0].Name)
 		}
@@ -665,13 +691,17 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 		// used to run under the badge in a 900×600 window.
 		albumRect.Width = max(0, (r.X+r.Width-198)-albumRect.X)
 		if album != "" {
-			m.text(c, album, albumRect, 11, 400, m.muted())
+			albumTint := m.muted()
+			if !available {
+				albumTint = m.rowDim()
+			}
+			m.text(c, album, albumRect, 11, 400, albumTint)
 		}
 		if t.Album != nil && t.Album.ID != "" && hit(c, albumRows.At(i), albumRect, "专辑 "+album) {
 			m.openEntity("album", t.Album.ID, t.Album.Title)
 		}
-		m.paintSourceBadges(c, t.ID, rect(r.X+r.Width-192, y+19, 76, 20))
-		if m.iconButton(c, collectRows.At(i), rect(r.X+r.Width-83, y+14, 30, 30), icons.Plus, "加入歌单 "+t.Title, false) {
+		m.paintSourceBadges(c, t.ID, rect(r.X+r.Width-192, y+19, 76, 20), !available)
+		if m.iconButtonDim(c, collectRows.At(i), rect(r.X+r.Width-83, y+14, 30, 30), icons.Plus, "加入歌单 "+t.Title, false, !available) {
 			m.openAddToPlaylist(t)
 		}
 		favorite := (!search || m.favoriteKnown[t.ID] || m.demo) && !m.favoriteOff[t.ID]
@@ -683,7 +713,7 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 		if favorite {
 			heartHint = "从本机收藏移除 " + t.Title + "（不影响华为音乐收藏）"
 		}
-		if m.iconButton(c, hearts.At(i), rect(r.X+r.Width-43, y+14, 30, 30), heart, heartHint, favorite) {
+		if m.iconButtonDim(c, hearts.At(i), rect(r.X+r.Width-43, y+14, 30, 30), heart, heartHint, favorite, !available) {
 			m.toggleFavorite(t)
 		}
 	}
@@ -989,7 +1019,7 @@ func (m *model) paintTitlebar(c *ui.Canvas, size ui.Size) {
 	c.MoveRegion(rect(leading, 0, max(0, size.Width-leading-trailing), 28))
 }
 
-func (m *model) paintSourceBadges(c *ui.Canvas, rowID string, b ui.Rect) {
+func (m *model) paintSourceBadges(c *ui.Canvas, rowID string, b ui.Rect, dim bool) {
 	sources := m.rowSources[rowID]
 	if len(sources) == 0 {
 		// Transient rows (search results, remote playlist entries, one-off
@@ -1013,8 +1043,13 @@ func (m *model) paintSourceBadges(c *ui.Canvas, rowID string, b ui.Rect) {
 		r := rect(b.X+float32(i)*26, b.Y, 22, 18)
 		tint := m.accent()
 		tint.Alpha = .10
+		ink := m.accent()
+		if dim {
+			tint = color(0x777d87, .10)
+			ink = m.rowDim()
+		}
 		c.Rounded(r, 5, tint)
-		m.text(c, label, rect(r.X+6, r.Y+1, 14, 16), 10, 600, m.accent())
+		m.text(c, label, rect(r.X+6, r.Y+1, 14, 16), 10, 600, ink)
 		// The badge is a one-character legend; give it an accessible label so
 		// hovering/AT explains which platform it stands for.
 		c.HitWithOptions(tree.ID(shell, "source-badge-"+rowID+"-"+source.String()), r, "来源："+sourceLabel(source.String()), ui.HitOptions{})

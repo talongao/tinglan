@@ -107,15 +107,22 @@ func (p *Plugin) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 					Min int `json:"min"`
 					Max int `json:"max"`
 				} `json:"protocolVersion"`
+				// AssignedID is set when the host imported this plugin and owns
+				// its identity; the plugin adopts it instead of its built-in id.
+				AssignedID string `json:"assignedId"`
 			}
 			_ = json.Unmarshal(msg.Params, &params)
 			if params.ProtocolVersion.Min > ProtocolVersion || params.ProtocolVersion.Max < ProtocolVersion {
 				_ = c.respondError(msg.IDString(), -32002, "unsupported protocol version")
 				continue
 			}
+			descriptor := p.Source.Describe()
+			if params.AssignedID != "" {
+				descriptor.ID = music.SourceID(params.AssignedID)
+			}
 			result := map[string]any{
 				"protocolVersion":      ProtocolVersion,
-				"descriptor":           p.Source.Describe(),
+				"descriptor":           descriptor,
 				"requiredHostServices": p.HostServices,
 			}
 			if err := c.respond(msg.IDString(), result); err != nil {

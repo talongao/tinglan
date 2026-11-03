@@ -2,13 +2,16 @@ package plugin
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
@@ -18,11 +21,28 @@ import (
 // Entry describes one discovered plugin on disk.
 type Entry struct {
 	Manifest Manifest
-	Dir      string
-	Enabled  bool
-	Running  bool
-	Err      string
+	// Descriptor is the host cache written the last time the plugin ran. It
+	// supplies the display name and capabilities while the plugin is stopped.
+	Descriptor source.Descriptor
+	Dir        string
+	Enabled    bool
+	Running    bool
+	Err        string
 }
+
+// ID is the plugin's assigned source id.
+func (e Entry) ID() music.SourceID { return e.Descriptor.ID }
+
+// Name is the display name reported by the plugin.
+func (e Entry) Name() string {
+	if e.Descriptor.Name != "" {
+		return e.Descriptor.Name
+	}
+	return string(e.Descriptor.ID)
+}
+
+// LoginKinds reports which login methods the plugin declared.
+func (e Entry) LoginKinds() []source.LoginKind { return e.Descriptor.Capabilities.LoginKinds }
 
 // Manager discovers, launches and stops external source plugins.
 type Manager struct {
@@ -92,20 +112,31 @@ func (m *Manager) List() []Entry {
 			if loadErr != nil {
 				continue
 			}
-			id := music.SourceID(manifest.ID)
-			if seen[id] {
+			descriptor, _ := LoadDescriptor(dir)
+			if descriptor.ID == "" {
+				descriptor.ID = music.SourceID(manifest.ID)
+			}
+			if descriptor.ID == "" {
+				descriptor.ID = music.SourceID(item.Name())
+			}
+			if descriptor.Name == "" {
+				descriptor.Name = string(descriptor.ID)
+			}
+			id := descriptor.ID
+			if id == "" || seen[id] {
 				continue
 			}
 			seen[id] = true
 			out = append(out, Entry{
-				Manifest: manifest,
-				Dir:      dir,
-				Enabled:  enabled[id],
-				Running:  running[id],
+				Manifest:   manifest,
+				Descriptor: descriptor,
+				Dir:        dir,
+				Enabled:    enabled[id],
+				Running:    running[id],
 			})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Manifest.ID < out[j].Manifest.ID })
+	sort.Slice(out, func(i, j int) bool { return out[i].ID() < out[j].ID() })
 	return out
 }
 
@@ -160,7 +191,7 @@ func (m *Manager) LoadEnabled(ctx context.Context, registry *source.Registry) []
 	m.loadEnabledState()
 	// Sources shipped with the app start once, until the user disables them.
 	for _, entry := range m.List() {
-		id := music.SourceID(entry.Manifest.ID)
+		id := entry.ID()
 		if !entry.Manifest.Builtin {
 			continue
 		}
@@ -206,7 +237,7 @@ func (m *Manager) Running() int {
 
 func (m *Manager) find(id music.SourceID) (Entry, bool) {
 	for _, entry := range m.List() {
-		if entry.Manifest.ID == string(id) {
+		if entry.ID() == id {
 			return entry, true
 		}
 	}
@@ -217,7 +248,7 @@ func (m *Manager) start(ctx context.Context, entry Entry) (*Plugin, error) {
 	manifest := entry.Manifest
 	relative, ok := manifest.EntryPath()
 	if !ok {
-		return nil, fmt.Errorf("插件 %s 不支持当前平台（%s）", manifest.ID, PlatformKey())
+		return nil, fmt.Errorf("插件 %s 不支持当前平台（%s）", entry.ID(), PlatformKey())
 	}
 	binary, err := secureJoin(entry.Dir, relative)
 	if err != nil {
@@ -229,12 +260,12 @@ func (m *Manager) start(ctx context.Context, entry Entry) (*Plugin, error) {
 	if info, err := os.Stat(binary); err != nil || info.IsDir() {
 		return nil, fmt.Errorf("插件入口不存在：%s", relative)
 	}
-	host := NewHost(music.SourceID(manifest.ID), m.store, m.logger)
+	host := NewHost(entry.ID(), m.store, m.logger)
 	proc, err := StartProcess(ctx, entry.Dir, binary, nil, nil, host)
 	if err != nil {
 		return nil, fmt.Errorf("启动插件失败：%w", err)
 	}
-	plugin, err := NewPlugin(ctx, manifest, proc, host)
+	plugin, err := NewPlugin(ctx, manifest, entry.ID(), proc, host)
 	if err != nil {
 		_ = proc.Close()
 		if tail := proc.Stderr(); tail != "" {
@@ -352,4 +383,174 @@ func (m *Manager) ClearSession(id music.SourceID) error {
 		return err
 	}
 	return nil
+}
+
+// Probe launches a plugin from dir just long enough to read the descriptor it
+// reports during initialize. It is used when importing a plugin, before the
+// host decides where the plugin lives.
+func (m *Manager) Probe(ctx context.Context, dir string) (source.Descriptor, error) {
+	manifest, err := LoadManifest(dir)
+	if err != nil {
+		return source.Descriptor{}, err
+	}
+	relative, ok := manifest.EntryPath()
+	if !ok {
+		return source.Descriptor{}, fmt.Errorf("插件不支持当前平台（%s）", PlatformKey())
+	}
+	binary, err := secureJoin(dir, relative)
+	if err != nil {
+		return source.Descriptor{}, err
+	}
+	host := NewHost("", m.store, m.logger)
+	proc, err := StartProcess(ctx, dir, binary, nil, nil, host)
+	if err != nil {
+		return source.Descriptor{}, fmt.Errorf("启动插件失败：%w", err)
+	}
+	plugin, err := NewPlugin(ctx, manifest, "", proc, host)
+	if err != nil {
+		_ = proc.Close()
+		return source.Descriptor{}, err
+	}
+	defer plugin.Close()
+	return plugin.Describe(), nil
+}
+
+// Install imports a plugin directory into the managed root. The host assigns
+// the source id so two plugins authored on the same machine cannot collide.
+func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, error) {
+	srcDir, err := filepath.Abs(srcDir)
+	if err != nil {
+		return Entry{}, err
+	}
+	info, err := os.Stat(srcDir)
+	if err != nil || !info.IsDir() {
+		return Entry{}, errors.New("不是有效的插件目录")
+	}
+	desc, err := m.Probe(ctx, srcDir)
+	if err != nil {
+		return Entry{}, err
+	}
+	id := m.assignID(desc.Name)
+	dest := filepath.Join(m.Root(), id)
+	if err := os.MkdirAll(dest, 0o700); err != nil {
+		return Entry{}, err
+	}
+	if err := copyPluginTree(srcDir, dest); err != nil {
+		_ = os.RemoveAll(dest)
+		return Entry{}, err
+	}
+	cached := descriptorRecord(id, desc)
+	if err := SaveDescriptor(dest, cached); err != nil {
+		_ = os.RemoveAll(dest)
+		return Entry{}, err
+	}
+	manifest, err := LoadManifest(dest)
+	if err != nil {
+		_ = os.RemoveAll(dest)
+		return Entry{}, err
+	}
+	// The copied manifest belongs to the host now: pin the assigned id so a
+	// later plugin update cannot silently rename itself.
+	manifest.ID = id
+	if err := SaveManifest(dest, manifest); err != nil {
+		_ = os.RemoveAll(dest)
+		return Entry{}, err
+	}
+	return Entry{Manifest: manifest, Descriptor: cached, Dir: dest, Enabled: false}, nil
+}
+
+func descriptorRecord(id string, desc source.Descriptor) source.Descriptor {
+	desc.ID = music.SourceID(id)
+	desc.SchemaVersion = 1
+	return desc
+}
+
+// assignID builds a readable, collision-free directory/source id.
+func (m *Manager) assignID(name string) string {
+	base := slug(name)
+	if base == "" {
+		base = "source"
+	}
+	existing := map[string]bool{}
+	for _, entry := range m.List() {
+		existing[string(entry.ID())] = true
+	}
+	for i := 0; i < 100; i++ {
+		suffix := make([]byte, 2)
+		_, _ = rand.Read(suffix)
+		id := fmt.Sprintf("%s-%x", base, suffix)
+		if !existing[id] {
+			return id
+		}
+	}
+	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
+}
+
+func slug(name string) string {
+	var b strings.Builder
+	lastDash := true
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || r == ' ':
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+		if b.Len() >= 24 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// copyPluginTree copies regular files, refusing overly large trees.
+func copyPluginTree(src, dest string) error {
+	const maxBytes = 256 << 20
+	var total int64
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if d.Name() == DescriptorFile || d.Name() == ".DS_Store" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(dest, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		if total > maxBytes {
+			return errors.New("插件目录过大")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(0o600)
+		if info.Mode()&0o111 != 0 {
+			mode = 0o700
+		}
+		return os.WriteFile(target, data, mode)
+	})
 }

@@ -32,6 +32,7 @@ func main() {
 				Import:      true,
 				Resolve:     true,
 				MaxPageSize: 20,
+				LoginKinds:  []source.LoginKind{source.LoginWebView},
 				Collections: []source.Collection{{Kind: "favorites", Name: "示例收藏"}},
 			},
 			ResourceDomains: []string{"*.example.com"},

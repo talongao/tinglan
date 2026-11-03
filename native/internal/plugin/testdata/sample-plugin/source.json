@@ -1,20 +1,9 @@
 {
   "schemaVersion": 1,
-  "id": "sample",
-  "name": "示例音源",
-  "shortName": "示例",
-  "accent": "#2F6FEB",
-  "icon": "",
-  "entry": { "darwin-arm64": "bin/sample", "darwin-x64": "bin/sample", "windows-x64": "bin/sample.exe" },
-  "protocol": { "min": 1, "max": 1 },
-  "capabilities": {
-    "search": true, "playlists": true, "playlistDetail": true,
-    "albumDetail": true, "artistDetail": true, "history": true,
-    "lyrics": false, "import": true, "resolve": true,
-    "loginKinds": ["webview"], "loginRequired": [],
-    "collections": [{ "kind": "favorites", "name": "示例收藏" }],
-    "maxPageSize": 20, "qualities": ["standard"]
-  },
-  "hostServices": ["session", "log"],
-  "resourceDomains": ["*.example.com"]
+  "entry": {
+    "darwin-arm64": "bin/sample",
+    "darwin-x64": "bin/sample",
+    "windows-x64": "bin/sample.exe",
+    "linux-x64": "bin/sample"
+  }
 }

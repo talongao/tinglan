@@ -145,6 +145,9 @@ func macApp(root string, stdout, stderr io.Writer) error {
 	}, stdout, stderr); err != nil {
 		return err
 	}
+	if err := copyFile(filepath.Join(root, "native", "plugins", "huawei", "descriptor.json"), filepath.Join(pluginDir, "descriptor.json")); err != nil {
+		return err
+	}
 	if err := copyFile(filepath.Join(root, "native", "plugins", "huawei", "source.json"), filepath.Join(pluginDir, "source.json")); err != nil {
 		return err
 	}

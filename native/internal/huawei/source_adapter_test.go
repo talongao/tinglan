@@ -29,8 +29,11 @@ func TestSourceAdapterIdentityAndCapabilities(t *testing.T) {
 	if !capabilities.Import || !capabilities.Resolve || capabilities.MaxPageSize != 50 {
 		t.Fatalf("capabilities = %+v", capabilities)
 	}
-	if len(capabilities.Collections) != 1 || capabilities.Collections[0].Kind != "favorites" {
+	if len(capabilities.Collections) != 2 || capabilities.Collections[0].Kind != "favorites" || capabilities.Collections[1].Kind != "playlist" {
 		t.Fatalf("collections = %+v", capabilities.Collections)
+	}
+	if len(capabilities.LoginKinds) != 1 || capabilities.LoginKinds[0] != source.LoginWebView {
+		t.Fatalf("login kinds = %+v", capabilities.LoginKinds)
 	}
 }
 

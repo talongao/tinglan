@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"tinglan/native/internal/lyrics"
 	"tinglan/native/internal/music"
@@ -20,10 +21,11 @@ type Plugin struct {
 }
 
 // NewPlugin handshakes with a freshly started process and returns the source.
-func NewPlugin(ctx context.Context, manifest Manifest, proc *Process, host *Host) (*Plugin, error) {
-	p := &Plugin{manifest: manifest, proc: proc, desc: descriptorFor(manifest), host: host}
+func NewPlugin(ctx context.Context, manifest Manifest, expectedID music.SourceID, proc *Process, host *Host) (*Plugin, error) {
+	p := &Plugin{manifest: manifest, proc: proc, desc: source.Descriptor{SchemaVersion: 1, ID: expectedID, Name: string(expectedID)}, host: host}
 	services := []string{"session", "webview", "log"}
 	params := map[string]any{
+		"assignedId":      string(expectedID),
 		"protocolVersion": map[string]int{"min": 1, "max": 1},
 		"hostServices":    services,
 		"limits": map[string]int{
@@ -54,7 +56,7 @@ func NewPlugin(ctx context.Context, manifest Manifest, proc *Process, host *Host
 		}
 	}
 	runtime := handshake.Descriptor
-	merged, err := mergeDescriptor(manifest, runtime)
+	merged, err := acceptDescriptor(manifest, expectedID, runtime)
 	if err != nil {
 		return nil, err
 	}
@@ -65,107 +67,26 @@ func NewPlugin(ctx context.Context, manifest Manifest, proc *Process, host *Host
 	return p, nil
 }
 
-func descriptorFor(manifest Manifest) source.Descriptor {
-	return source.Descriptor{
-		SchemaVersion: manifest.SchemaVersion,
-		ID:            music.SourceID(manifest.ID),
-		Name:          manifest.Name,
-		ShortName:     manifest.ShortName,
-		Accent:        manifest.Accent,
-		Capabilities: source.Capabilities{
-			Import:      manifest.Capabilities.Import,
-			Resolve:     manifest.Capabilities.Resolve,
-			Search:      manifest.Capabilities.Search,
-			Lyrics:      manifest.Capabilities.Lyrics,
-			Playlist:    manifest.Capabilities.PlaylistDetail,
-			Collections: collectionsFor(manifest),
-			MaxPageSize: manifest.Capabilities.MaxPageSize,
-		},
-		ResourceDomains: manifest.ResourceDomains,
+// acceptDescriptor validates what the plugin reported during the handshake.
+// Capabilities and display metadata come from the plugin itself; the host only
+// insists on a stable id and a display name.
+func acceptDescriptor(manifest Manifest, expectedID music.SourceID, runtime source.Descriptor) (source.Descriptor, error) {
+	if runtime.ID == "" {
+		return source.Descriptor{}, errors.New("initialize: plugin did not report an id")
 	}
-}
-
-func collectionsFor(manifest Manifest) []source.Collection {
-	out := make([]source.Collection, 0, len(manifest.Capabilities.Collections))
-	for _, c := range manifest.Capabilities.Collections {
-		out = append(out, source.Collection{Kind: c.Kind, ID: c.ID, Name: c.Name, PlaylistKind: music.PlaylistKind(c.PlaylistKind)})
+	if expectedID != "" && runtime.ID != expectedID {
+		return source.Descriptor{}, fmt.Errorf("initialize: id %q does not match %q", runtime.ID, expectedID)
 	}
-	return out
-}
-
-// mergeDescriptor validates the runtime descriptor against the manifest: the id
-// must match and runtime capabilities may only shrink.
-func mergeDescriptor(manifest Manifest, runtime source.Descriptor) (source.Descriptor, error) {
+	if manifest.ID != "" && string(runtime.ID) != manifest.ID {
+		return source.Descriptor{}, fmt.Errorf("initialize: id %q does not match manifest %q", runtime.ID, manifest.ID)
+	}
+	if strings.TrimSpace(runtime.Name) == "" {
+		return source.Descriptor{}, errors.New("initialize: plugin did not report a name")
+	}
 	if runtime.SchemaVersion == 0 {
 		runtime.SchemaVersion = manifest.SchemaVersion
 	}
-	if runtime.ID == "" {
-		runtime.ID = music.SourceID(manifest.ID)
-	}
-	if music.SourceID(manifest.ID) != runtime.ID {
-		return source.Descriptor{}, fmt.Errorf("descriptor id %q does not match manifest id %q", runtime.ID, manifest.ID)
-	}
-	if runtime.Name == "" {
-		runtime.Name = manifest.Name
-	}
-	if runtime.ShortName == "" {
-		runtime.ShortName = manifest.ShortName
-	}
-	if runtime.Accent == "" {
-		runtime.Accent = manifest.Accent
-	}
-	base := descriptorFor(manifest)
-	cap := runtime.Capabilities
-	cap.Import = cap.Import && base.Capabilities.Import
-	cap.Resolve = cap.Resolve && base.Capabilities.Resolve
-	cap.Search = cap.Search && base.Capabilities.Search
-	cap.Lyrics = cap.Lyrics && base.Capabilities.Lyrics
-	cap.Playlist = cap.Playlist && base.Capabilities.Playlist
-	if cap.MaxPageSize == 0 || (base.Capabilities.MaxPageSize > 0 && cap.MaxPageSize > base.Capabilities.MaxPageSize) {
-		cap.MaxPageSize = base.Capabilities.MaxPageSize
-	}
-	if len(cap.Collections) == 0 {
-		cap.Collections = base.Capabilities.Collections
-	}
-	runtime.Capabilities = cap
-	if len(runtime.ResourceDomains) == 0 {
-		runtime.ResourceDomains = manifest.ResourceDomains
-	}
-	if !domainsWithin(runtime.ResourceDomains, manifest.ResourceDomains) {
-		return source.Descriptor{}, errors.New("runtime resourceDomains exceed the manifest")
-	}
 	return runtime, nil
-}
-
-// domainsWithin reports whether every runtime domain is allowed by the manifest.
-func domainsWithin(runtime, allowed []string) bool {
-	if len(allowed) == 0 {
-		return len(runtime) == 0
-	}
-	for _, want := range runtime {
-		found := false
-		for _, have := range allowed {
-			if domainMatch(have, want) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
-func domainMatch(allowed, want string) bool {
-	if allowed == want {
-		return true
-	}
-	if len(allowed) > 2 && allowed[:2] == "*." {
-		suffix := allowed[1:]
-		return len(want) > len(suffix) && want[len(want)-len(suffix):] == suffix
-	}
-	return false
 }
 
 // ID returns the stable source identifier.

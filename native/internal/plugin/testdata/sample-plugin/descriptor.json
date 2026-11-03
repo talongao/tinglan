@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "sample",
+  "name": "示例音源",
+  "shortName": "示例",
+  "accent": "#2F6FEB",
+  "capabilities": {
+    "search": true,
+    "playlist": true,
+    "import": true,
+    "resolve": true,
+    "maxPageSize": 20,
+    "loginKinds": [
+      "webview"
+    ],
+    "collections": [
+      {
+        "kind": "favorites",
+        "name": "示例收藏"
+      }
+    ]
+  },
+  "resourceDomains": [
+    "*.example.com"
+  ]
+}

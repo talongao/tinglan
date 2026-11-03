@@ -46,8 +46,12 @@ func (a *SourceAdapter) ensureWriter() *Writer {
 func (a *SourceAdapter) Capabilities() source.Capabilities {
 	return source.Capabilities{
 		Import: true, Resolve: true, Search: true, Lyrics: true, Playlist: true,
-		Collections: []source.Collection{{Kind: "favorites", Name: "我的收藏"}},
+		Collections: []source.Collection{
+			{Kind: "favorites", Name: "收藏"},
+			{Kind: "playlist", Name: "歌单"},
+		},
 		MaxPageSize: 50,
+		LoginKinds:  []source.LoginKind{source.LoginWebView},
 	}
 }
 

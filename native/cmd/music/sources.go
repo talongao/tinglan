@@ -481,7 +481,7 @@ func (m *model) isPluginSource(id music.SourceID) bool {
 // plugins are not labelled by their machine id.
 func (m *model) sourceDisplayName(id music.SourceID) string {
 	if entry, ok := m.pluginEntry(id); ok {
-		return entry.Manifest.Name
+		return entry.Name()
 	}
 	if m.registry != nil {
 		if src, ok := m.registry.Source(id); ok {
@@ -698,7 +698,7 @@ func (m *model) trackAvailable(t music.Track) bool {
 // sourceLoginable reports whether a source can start an interactive login.
 func (m *model) sourceLoginable(id music.SourceID) bool {
 	if entry, ok := m.pluginEntry(id); ok {
-		return len(entry.Manifest.Capabilities.LoginKinds) > 0
+		return len(entry.LoginKinds()) > 0
 	}
 	return m.devSource != nil && id == music.SourceHuawei
 }
@@ -890,6 +890,15 @@ func (m *model) loadPlugins() {
 	m.refreshAllSourceAuth()
 }
 
+// refreshPlugins re-reads the plugin directories after an install/removal.
+func (m *model) refreshPlugins() {
+	if m.plugins == nil {
+		return
+	}
+	m.pluginEntries = m.plugins.List()
+	m.refreshAllSourceAuth()
+}
+
 // refreshAllSourceAuth primes the cached login state for the settings page.
 func (m *model) refreshAllSourceAuth() {
 	for _, row := range m.sourceRows() {
@@ -901,7 +910,7 @@ func (m *model) refreshAllSourceAuth() {
 
 func (m *model) pluginEntry(id music.SourceID) (plugin.Entry, bool) {
 	for _, entry := range m.pluginEntries {
-		if entry.Manifest.ID == string(id) {
+		if string(entry.ID()) == string(id) {
 			return entry, true
 		}
 	}
@@ -947,7 +956,7 @@ func (m *model) enablePlugin(id music.SourceID) {
 		m.pluginEntries = m.plugins.List()
 		m.mu.Unlock()
 		m.setSourceEnabled(id, true)
-		m.notify("已启用 " + entry.Manifest.Name)
+		m.notify("已启用 " + entry.Name())
 		m.refreshSourceAuth(id)
 		m.invalidator.Invalidate()
 	}()
@@ -968,7 +977,7 @@ func (m *model) disablePlugin(id music.SourceID) {
 		m.mu.Unlock()
 		m.setSourceEnabled(id, false)
 		if ok {
-			m.notify("已停用 " + entry.Manifest.Name)
+			m.notify("已停用 " + entry.Name())
 		}
 		m.invalidator.Invalidate()
 	}()

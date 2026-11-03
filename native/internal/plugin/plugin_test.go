@@ -48,14 +48,23 @@ func serveFakePlugin() {
 		var result any
 		switch msg.Method {
 		case "initialize":
+			var handshake struct {
+				AssignedID string `json:"assignedId"`
+			}
+			_ = json.Unmarshal(msg.Params, &handshake)
+			id := "fake"
+			if handshake.AssignedID != "" {
+				id = handshake.AssignedID
+			}
 			result = map[string]any{
 				"protocolVersion":      1,
 				"requiredHostServices": []string{},
 				"descriptor": map[string]any{
 					"schemaVersion": 1,
-					"id":            "fake",
+					"id":            id,
 					"name":          "测试音源",
 					"shortName":     "测",
+					"accent":        "#336699",
 					"capabilities": map[string]any{
 						"search": true, "import": true, "collections": []any{
 							map[string]any{"kind": "favorites", "name": "我喜欢的音乐"},
@@ -126,18 +135,7 @@ func writeFakePlugin(t *testing.T, root string) Manifest {
 	manifest := Manifest{
 		SchemaVersion: 1,
 		ID:            "fake",
-		Name:          "测试音源",
-		ShortName:     "测",
-		Accent:        "#336699",
 		Entry:         map[string]string{PlatformKey(): "bin/plugin"},
-		Protocol:      ProtocolRange{Min: 1, Max: 1},
-		Capabilities: Capabilities{
-			Search: true, Import: true, Resolve: true,
-			Collections: []Collection{{Kind: "favorites", Name: "我喜欢的音乐"}},
-			MaxPageSize: 20,
-		},
-		HostServices:    []string{"session", "log"},
-		ResourceDomains: []string{"*.example.test"},
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -373,4 +371,34 @@ func TestManageMethodsForwardToPlugin(t *testing.T) {
 			t.Fatalf("plugin log missing %q:\n%s", want, text)
 		}
 	}
+}
+
+func TestManagerInstallsPluginWithAssignedID(t *testing.T) {
+	ctx := context.Background()
+	src := t.TempDir()
+	writeFakePlugin(t, src)
+	src = filepath.Join(src, "fake")
+	root := t.TempDir()
+	manager := NewManager(root, storage.New(t.TempDir()), nil)
+	entry, err := manager.Install(ctx, src)
+	if err != nil {
+		t.Fatalf("install: %v", err)
+	}
+	if entry.ID() == "" || entry.ID() == "fake" {
+		t.Fatalf("assigned id = %q", entry.ID())
+	}
+	if entry.Name() != "测试音源" {
+		t.Fatalf("name = %q", entry.Name())
+	}
+	if _, err := LoadDescriptor(entry.Dir); err != nil {
+		t.Fatalf("descriptor not cached: %v", err)
+	}
+	registry := source.NewRegistry()
+	if err := manager.Enable(ctx, registry, entry.ID()); err != nil {
+		t.Fatalf("enable after install: %v", err)
+	}
+	if _, ok := registry.Source(entry.ID()); !ok {
+		t.Fatal("installed plugin not registered")
+	}
+	manager.Disable(registry, entry.ID())
 }

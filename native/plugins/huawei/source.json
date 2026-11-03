@@ -2,35 +2,10 @@
   "schemaVersion": 1,
   "builtin": true,
   "id": "huawei",
-  "name": "华为音乐",
-  "shortName": "华",
-  "accent": "#C7000B",
   "entry": {
     "darwin-arm64": "bin/huawei-source",
     "darwin-x64": "bin/huawei-source",
     "windows-x64": "bin/huawei-source.exe",
     "linux-x64": "bin/huawei-source"
-  },
-  "protocol": {"min": 1, "max": 1},
-  "capabilities": {
-    "search": true,
-    "playlists": true,
-    "playlistDetail": true,
-    "albumDetail": true,
-    "artistDetail": true,
-    "history": true,
-    "lyrics": false,
-    "import": true,
-    "resolve": true,
-    "loginKinds": ["webview"],
-    "loginRequired": [],
-    "collections": [
-      {"kind": "favorites", "name": "收藏"},
-      {"kind": "playlist", "name": "歌单"}
-    ],
-    "maxPageSize": 50,
-    "qualities": ["standard", "lossless"]
-  },
-  "hostServices": ["session", "webview", "log"],
-  "resourceDomains": [".dbankcdn.cn", ".tingmall.com", ".kuke.com"]
+  }
 }

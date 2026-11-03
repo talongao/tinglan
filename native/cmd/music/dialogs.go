@@ -27,6 +27,10 @@ var (
 	newPlaylistScope       = tree.ID(shell, "new-playlist-scope")
 	importRemoteID         = tree.Sub(shell, tree.Name("import-remote-playlist"))
 	newPlaylistID          = tree.ID(shell, "new-playlist")
+	importPluginFieldID    = tree.ID(shell, "import-plugin-field")
+	importPluginCancelID   = tree.ID(shell, "import-plugin-cancel")
+	importPluginConfirmID  = tree.ID(shell, "import-plugin-confirm")
+	importPluginScope      = tree.ID(shell, "import-plugin")
 	browseRemoteID         = tree.ID(shell, "browse-remote-playlists")
 	remoteLoginID          = tree.ID(shell, "remote-login")
 	refreshPlaylistsID     = tree.ID(shell, "refresh-playlists")
@@ -61,6 +65,8 @@ type libraryUIState struct {
 	importStates          map[string]librarydb.ImportRecord
 	newPlaylist           flex.Field
 	newPlaylistView       flex.View
+	pluginPath            flex.Field
+	pluginPathView        flex.View
 	addTrack              music.Track
 	addPlaylists          []librarydb.Playlist
 	pendingPlaylistUpdate string
@@ -467,6 +473,60 @@ func (m *model) paintNewPlaylistDialog(c *ui.Canvas, size ui.Size) {
 	}
 }
 
+// installPlugin copies a plugin directory into the app's sources folder,
+// assigns it a unique id and asks the user to enable it.
+func (m *model) installPlugin() {
+	path := strings.TrimSpace(m.pluginPath.Text())
+	if path == "" {
+		m.notify("请填写插件目录")
+		return
+	}
+	if m.plugins == nil {
+		m.notify("插件管理器未就绪")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	entry, err := m.plugins.Install(ctx, path)
+	if err != nil {
+		m.notify("导入失败：" + err.Error())
+		return
+	}
+	m.dialog = ""
+	m.pluginPath.SetText("")
+	m.refreshPlugins()
+	m.notify("已导入 " + entry.Name() + "（ID " + string(entry.ID()) + "）")
+	m.askEnablePlugin(entry.ID())
+}
+
+func (m *model) paintImportPluginDialog(c *ui.Canvas, size ui.Size) {
+	modalFocus(c, importPluginScope, importPluginFieldID, importPluginCancelID)
+	defer c.PopFocusScope()
+	c.PushLayer(3)
+	defer c.PopLayer()
+	c.Fill(rect(0, 0, size.Width, size.Height), color(0x16181c, .35))
+	c.Block(rect(0, 0, size.Width, size.Height))
+	b := rect(size.Width/2-250, size.Height/2-140, 500, 280)
+	m.glass(c, b, 18, .92)
+	c.PushLayer(4)
+	defer c.PopLayer()
+	m.text(c, "导入外置音源", rect(b.X+24, b.Y+22, 420, 30), 20, 600, m.ink())
+	m.text(c, "填写插件所在目录（包含 source.json 与入口程序）。\n导入后会读取插件自报的能力，并分配本机唯一 ID。", rect(b.X+24, b.Y+58, 452, 44), 12, 400, m.secondary())
+	submitted := false
+	m.pluginPathView.Draw(c, m.fieldTheme(), rect(b.X+24, b.Y+120, 452, 38), func(f *flex.Frame) {
+		submitted = f.Field(&m.pluginPath, importPluginFieldID, "插件目录", "例如：~/Downloads/my-source").Fill().Submitted()
+	})
+	if submitted {
+		m.installPlugin()
+	}
+	if m.pill(c, importPluginCancelID, rect(b.X+263, b.Y+212, 100, 34), "取消", false) {
+		m.dialog = ""
+	}
+	if m.pill(c, importPluginConfirmID, rect(b.X+375, b.Y+212, 100, 34), "导入", true) {
+		m.installPlugin()
+	}
+}
+
 func (m *model) paintAddToPlaylistDialog(c *ui.Canvas, size ui.Size) {
 	modalFocus(c, addToPlaylistScope, addToPlaylistCancelID, addToPlaylistCancelID)
 	defer c.PopFocusScope()
@@ -676,7 +736,7 @@ func (m *model) paintAccountSwitchDialog(c *ui.Canvas, size ui.Size) {
 	defer c.PopLayer()
 	c.Fill(rect(0, 0, size.Width, size.Height), color(0x16181c, .35))
 	c.Block(rect(0, 0, size.Width, size.Height))
-	b := rect(size.Width/2-250, size.Height/2-130, 500, 260)
+	b := rect(size.Width/2-250, size.Height/2-140, 500, 280)
 	m.glass(c, b, 18, .92)
 	c.PushLayer(4)
 	defer c.PopLayer()

@@ -34,6 +34,7 @@ var sourceLoginID = tree.Sub(shell, tree.Name("source-login"))
 var sourceLogoutID = tree.Sub(shell, tree.Name("source-logout"))
 var pluginSettings = tree.Sub(shell, tree.Name("plugin-settings"))
 var openPluginsID = tree.ID(shell, "open-plugins")
+var importPluginID = tree.ID(shell, "import-plugin")
 
 func (m *model) settingsHeight() float32 {
 	if m.settingsTab == 0 {
@@ -348,15 +349,15 @@ func (m *model) sourceRows() []sourceRow {
 	// Disabled plugins are not registered, but they still need a row so they
 	// can be enabled again from this page.
 	for _, entry := range m.pluginEntries {
-		id := music.SourceID(entry.Manifest.ID)
+		id := music.SourceID(string(entry.ID()))
 		if seen[id] {
 			continue
 		}
 		rows = append(rows, sourceRow{
 			id:        id,
-			name:      entry.Manifest.Name,
+			name:      entry.Name(),
 			enabled:   false,
-			loginable: len(entry.Manifest.Capabilities.LoginKinds) > 0,
+			loginable: len(entry.LoginKinds()) > 0,
 		})
 	}
 	return rows
@@ -493,6 +494,10 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 		} else {
 			m.openImportDialog("favorites")
 		}
+	}
+	if m.pill(c, importPluginID, rect(x+200, rowY+12, 108, 34), "导入插件", false) {
+		m.pluginPath.SetText("")
+		m.dialog = "import-plugin"
 	}
 	if m.pill(c, openPluginsID, rect(x+w-132, rowY+12, 132, 34), "打开插件文件夹", false) {
 		m.openPluginFolder()

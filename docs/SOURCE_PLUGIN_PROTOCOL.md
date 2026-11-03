@@ -221,42 +221,32 @@ Playback {
 - 长调用取消后仍不响应的插件按挂起处理：终止实例，其它在途调用返回 `unavailable`。
   普通网络超时不得立即当成进程崩溃。
 
-## 10. 清单（source.json）
+## 10. 清单（source.json）与能力发现
+
+清单只描述「怎么启动」和插件身份，能力与展示信息由插件在 `initialize` 时自己上报，
+宿主缓存到插件目录旁的 `descriptor.json`（宿主写入，插件升级不得覆盖）：
 
 ```json
 {
   "schemaVersion": 1,
-  "id": "netease",
-  "name": "网易云音乐",
-  "shortName": "网易",
-  "accent": "#C20C0C",
-  "icon": "assets/icon.svg",
-  "entry": { "darwin-arm64": "bin/netease-darwin-arm64", "windows-x64": "bin/netease.exe" },
-  "protocol": { "min": 1, "max": 1 },
-  "capabilities": {
-    "search": true, "playlists": true, "playlistDetail": true,
-    "albumDetail": true, "artistDetail": true, "history": true,
-    "lyrics": true, "import": true, "resolve": true,
-    "loginKinds": ["qr"], "loginRequired": ["import", "resolve", "history"],
-    "collections": [{ "kind": "favorites", "name": "我喜欢的音乐" }],
-    "maxPageSize": 100, "qualities": ["standard", "lossless"]
-  },
-  "hostServices": ["session", "webview", "auth.present", "log"],
-  "resourceDomains": ["*.music.163.com", "*.126.net"],
-  "digest": { "algorithm": "sha256", "files": { "bin/netease-darwin-arm64": "…" } }
+  "entry": { "darwin-arm64": "bin/netease", "windows-x64": "bin/netease.exe" }
 }
 ```
 
-- `manifest` 提供未启动时的展示信息；`initialize` 返回的运行时 `Descriptor` 按下列规则与之一致：
+- 内置插件可在清单里固定身份：`"id": "huawei"`、`"builtin": true`；随应用分发，
+  首次运行自动启用（用户显式停用后保持停用）。
+- **导入的插件由宿主分配 ID**：`系统设置 → 音源 → 导入插件` 选择插件目录后，宿主启动一次
+  插件读取 `initialize` 返回的 `Descriptor`，以 `名称` 生成 `slug-随机十六进制`（例如 `netease-3f9a`），
+  把目录复制到 `<数据目录>/sources/<id>/`，重写清单里的 `id` 并写入 `descriptor.json`。
+  这样两个同名插件不会互相覆盖，插件也无法通过改名冒充其它源。
+- 握手新增 `assignedId`：宿主在 `initialize` 请求里带上分配到的 ID，SDK 会用它覆盖
+  `Descriptor.id`，插件按宿主给的身份工作（内置插件可忽略）。
+- 运行时 `Descriptor` 是唯一的展示与能力来源：`name` / `shortName` / `icon` / `accent` /
+  `capabilities` / `resourceDomains` 全部以插件上报为准，宿主只要求 `id` 与分配值一致、
+  `name` 非空；`hostServices` 需求必须是 initialize 所提供服务的子集。
+- `descriptor.json` 是宿主缓存：插件停用时设置页仍能显示名称、图标与开关；
+  插件被删除后缓存目录一并删除。插件不能读取或修改它。
 
-  | 字段 | 规则 |
-  | --- | --- |
-  | `id` | 必须相等，否则拒绝启用 |
-  | `name` / `shortName` / `icon` / `accent` | 允许本地化与更精确的运行时值，但不得指向插件目录外的资源 |
-  | `capabilities.*` | 运行时只能是 manifest 的子集，不能新增能力 |
-  | `hostServices` / `requiredHostServices` | 运行时必须是 initialize 请求中所提供服务的子集 |
-  | `resourceDomains` | 运行时不得超出 manifest 声明 |
-  | `protocol` | 由版本协商决定，不能单方面放宽 |
 - 图标是插件目录内的受限本地资源：SVG 需去除 `<script>`、`<foreignObject>`、事件属性与外部 href，
   上限 64 KiB；PNG ≤128 KiB。缺图回退 shortName 文本 + 中性色。
 - `resourceDomains` 是宿主媒体请求的域名策略（逐次校验重定向），不约束插件自身联网。

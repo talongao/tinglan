@@ -11,72 +11,33 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"tinglan/native/internal/source"
 )
 
-// Manifest is the on-disk source.json. It also carries the display metadata
-// used before the process starts, so a disabled or broken plugin still renders.
+// Manifest is the on-disk source.json. It stays deliberately small: the host
+// discovers display metadata and capabilities from the plugin during the
+// initialize handshake, then caches them in descriptor.json so a disabled
+// plugin still renders in settings.
 type Manifest struct {
-	SchemaVersion   int               `json:"schemaVersion"`
-	ID              string            `json:"id"`
-	Name            string            `json:"name"`
-	ShortName       string            `json:"shortName"`
-	Accent          string            `json:"accent"`
-	Icon            string            `json:"icon"`
-	Entry           map[string]string `json:"entry"`
-	Protocol        ProtocolRange     `json:"protocol"`
-	Capabilities    Capabilities      `json:"capabilities"`
-	HostServices    []string          `json:"hostServices"`
-	ResourceDomains []string          `json:"resourceDomains"`
-	Digest          Digest            `json:"digest,omitempty"`
-	// Builtin marks a source shipped with the app. The host enables it on first
-	// run; the user may still disable it afterwards.
-	Builtin bool `json:"builtin,omitempty"`
+	SchemaVersion int               `json:"schemaVersion"`
+	Entry         map[string]string `json:"entry"`
+	// ID is only honoured for plugins shipped inside the app bundle, where the
+	// identity must stay stable across upgrades. Imported plugins get an id
+	// assigned by the host, so user-supplied manifests cannot collide.
+	ID      string `json:"id,omitempty"`
+	Builtin bool   `json:"builtin,omitempty"`
 }
 
-// ProtocolRange is the wire protocol range the plugin supports.
-type ProtocolRange struct {
-	Min int `json:"min"`
-	Max int `json:"max"`
-}
+// DescriptorFile is the host-written cache of the plugin descriptor.
+const DescriptorFile = "descriptor.json"
 
-// Digest records expected file hashes. It is verification input, not trust.
-type Digest struct {
-	Algorithm string            `json:"algorithm"`
-	Files     map[string]string `json:"files"`
-}
-
-// Hashes returns the declared file digests.
-func (d Digest) Hashes() map[string]string { return d.Files }
-
-// Capabilities mirrors the contract. Runtime values must be a subset.
-type Capabilities struct {
-	Search         bool         `json:"search"`
-	Playlists      bool         `json:"playlists"`
-	PlaylistDetail bool         `json:"playlistDetail"`
-	AlbumDetail    bool         `json:"albumDetail"`
-	ArtistDetail   bool         `json:"artistDetail"`
-	History        bool         `json:"history"`
-	Lyrics         bool         `json:"lyrics"`
-	Import         bool         `json:"import"`
-	Resolve        bool         `json:"resolve"`
-	LoginKinds     []string     `json:"loginKinds,omitempty"`
-	LoginRequired  []string     `json:"loginRequired,omitempty"`
-	Collections    []Collection `json:"collections,omitempty"`
-	MaxPageSize    int          `json:"maxPageSize,omitempty"`
-	Qualities      []string     `json:"qualities,omitempty"`
-}
-
-// Collection is one importable list declared by the plugin.
-type Collection struct {
-	Kind         string `json:"kind"`
-	ID           string `json:"id,omitempty"`
-	Name         string `json:"name,omitempty"`
-	PlaylistKind string `json:"playlistKind,omitempty"`
-}
+// ManifestFile is the plugin manifest shipped inside the plugin directory.
+const ManifestFile = "source.json"
 
 // LoadManifest reads and validates source.json from dir.
 func LoadManifest(dir string) (Manifest, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, "source.json"))
+	raw, err := os.ReadFile(filepath.Join(dir, ManifestFile))
 	if err != nil {
 		return Manifest{}, err
 	}
@@ -95,14 +56,8 @@ func (m Manifest) Validate() error {
 	if m.SchemaVersion != 1 {
 		return fmt.Errorf("unsupported schemaVersion %d", m.SchemaVersion)
 	}
-	if !validID(m.ID) {
+	if m.ID != "" && !validID(m.ID) {
 		return fmt.Errorf("invalid plugin id %q", m.ID)
-	}
-	if strings.TrimSpace(m.Name) == "" {
-		return errors.New("missing name")
-	}
-	if m.Protocol.Min <= 0 || m.Protocol.Max < m.Protocol.Min {
-		return fmt.Errorf("invalid protocol range %d-%d", m.Protocol.Min, m.Protocol.Max)
 	}
 	if len(m.Entry) == 0 {
 		return errors.New("missing entry")
@@ -112,17 +67,41 @@ func (m Manifest) Validate() error {
 			return fmt.Errorf("entry %q escapes the plugin directory", path)
 		}
 	}
-	if icon := m.Icon; icon != "" && !insideDir(icon) {
-		return fmt.Errorf("icon %q escapes the plugin directory", icon)
-	}
 	return nil
+}
+
+// LoadDescriptor reads the host-written descriptor cache. A missing cache is
+// not an error: it only means the plugin has not run on this machine yet.
+func LoadDescriptor(dir string) (source.Descriptor, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, DescriptorFile))
+	if err != nil {
+		return source.Descriptor{}, err
+	}
+	var descriptor source.Descriptor
+	if err := json.Unmarshal(raw, &descriptor); err != nil {
+		return source.Descriptor{}, fmt.Errorf("descriptor.json: %w", err)
+	}
+	return descriptor, nil
+}
+
+// SaveDescriptor writes the descriptor cache. It is host-owned: plugins never
+// write here, so a stopped plugin cannot impersonate another one.
+func SaveDescriptor(dir string, descriptor source.Descriptor) error {
+	raw, err := json.MarshalIndent(descriptor, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp := filepath.Join(dir, DescriptorFile+".tmp")
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, filepath.Join(dir, DescriptorFile))
 }
 
 // EntryPath resolves the executable for the current platform. macOS arm64 and
 // amd64 map to darwin-arm64/darwin-x64; Windows uses windows-x64.
 func (m Manifest) EntryPath() (string, bool) {
-	key := PlatformKey()
-	path, ok := m.Entry[key]
+	path, ok := m.Entry[PlatformKey()]
 	if !ok {
 		return "", false
 	}
@@ -160,4 +139,13 @@ func insideDir(path string) bool {
 	}
 	clean := filepath.Clean(path)
 	return clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
+}
+
+// SaveManifest writes the host-owned copy of a plugin manifest.
+func SaveManifest(dir string, manifest Manifest) error {
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, ManifestFile), append(raw, '\n'), 0o600)
 }

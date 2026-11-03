@@ -233,7 +233,7 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 		m.text(c, "导入「"+name+"」为本机的只读副本。不会修改平台上的歌单，之后可随时删除。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
 	} else if m.dialog == "plugin-enable" {
 		entry, _ := m.pluginEntry(music.SourceID(m.dialogID))
-		detail := entry.Manifest.Name
+		detail := entry.Name()
 		if entry.Dir != "" {
 			detail += "\n" + entry.Dir
 		}
