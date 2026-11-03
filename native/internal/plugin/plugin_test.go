@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -89,6 +90,14 @@ func serveFakePlugin() {
 			}
 		case "host.session.set", "host.session.get":
 			result = map[string]any{"revision": 1, "exists": false}
+		case "source.manage.reportHistory", "source.manage.updatePlaylistDescription", "source.manage.deletePlaylist":
+			if path := os.Getenv("TINGLAN_TEST_PLUGIN_LOG"); path != "" {
+				if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+					fmt.Fprintf(f, "%s %s\n", msg.Method, string(msg.Params))
+					f.Close()
+				}
+			}
+			result = map[string]any{}
 		default:
 			result = map[string]any{}
 		}
@@ -318,4 +327,50 @@ func mustJSON(t *testing.T, value any) json.RawMessage {
 		t.Fatal(err)
 	}
 	return raw
+}
+
+// TestManageMethodsForwardToPlugin proves the write path (history report,
+// playlist description, playlist delete) reaches the plugin process unchanged.
+func TestManageMethodsForwardToPlugin(t *testing.T) {
+	manager, registry := newTestManager(t)
+	defer manager.Close()
+	logPath := filepath.Join(t.TempDir(), "manage.log")
+	t.Setenv("TINGLAN_TEST_PLUGIN_LOG", logPath)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if err := manager.Enable(ctx, registry, "fake"); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	src, ok := registry.Source("fake")
+	if !ok {
+		t.Fatal("source not registered")
+	}
+	manage := src.Manage()
+	track := music.Track{Source: "fake", ID: "t1", Title: "第一首"}
+	if err := manage.ReportHistory(ctx, track, 42); err != nil {
+		t.Fatalf("report history: %v", err)
+	}
+	ref := source.EntityRef{Source: "fake", Kind: "playlist", ID: "pl-9"}
+	if err := manage.UpdatePlaylistDescription(ctx, ref, "新的简介"); err != nil {
+		t.Fatalf("update description: %v", err)
+	}
+	if err := manage.DeletePlaylist(ctx, ref); err != nil {
+		t.Fatalf("delete playlist: %v", err)
+	}
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read plugin log: %v", err)
+	}
+	text := string(raw)
+	for _, want := range []string{
+		"source.manage.reportHistory",
+		`"listenedSeconds":42`,
+		"source.manage.updatePlaylistDescription",
+		"新的简介",
+		"source.manage.deletePlaylist",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("plugin log missing %q:\n%s", want, text)
+		}
+	}
 }
