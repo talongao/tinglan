@@ -324,6 +324,8 @@ func (m *Manager) saveEnabled() {
 // SeedSession writes one value into a plugin's credential namespace. It exists
 // only for the built-in source upgrade path, where a session saved by an older
 // build has to move into the plugin's namespace before its first start.
+// The value uses the same base64 form as host.session.set, because plugins
+// decode whatever host.session.get returns.
 func (m *Manager) SeedSession(id music.SourceID, key, value string) error {
 	if m.store == nil {
 		return errors.New("plugin session storage unavailable")

@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,13 +14,10 @@ import (
 	"tinglan/native/internal/storage"
 )
 
-// TestHuaweiSourcePluginRunsOutOfProcess builds the preinstalled source plugin
-// and verifies the host can enable it and talk to it over the protocol.
-func TestHuaweiSourcePluginRunsOutOfProcess(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds the plugin binary")
-	}
-	root := t.TempDir()
+// buildHuaweiPlugin compiles cmd/huawei-source into a plugin directory under
+// root so tests can exercise the real binary over the protocol.
+func buildHuaweiPlugin(t *testing.T, root string) string {
+	t.Helper()
 	dir := filepath.Join(root, "huawei")
 	bin := filepath.Join(dir, "bin", "huawei-source")
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
@@ -56,6 +54,17 @@ func TestHuaweiSourcePluginRunsOutOfProcess(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "source.json"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return filepath.Join(root, "huawei")
+}
+
+// TestHuaweiSourcePluginRunsOutOfProcess builds the preinstalled source plugin
+// and verifies the host can enable it and talk to it over the protocol.
+func TestHuaweiSourcePluginRunsOutOfProcess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the plugin binary")
+	}
+	root := t.TempDir()
+	buildHuaweiPlugin(t, root)
 	manager := NewManager(root, storage.New(t.TempDir()), nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -83,6 +92,44 @@ func TestHuaweiSourcePluginRunsOutOfProcess(t *testing.T) {
 	}
 	if _, err := src.Catalog().Search(ctx, source.SearchRequest{Query: "测试", Limit: 5}); err != nil {
 		t.Fatalf("anonymous search: %v", err)
+	}
+}
+
+// TestHuaweiPluginReadsSeededSession covers the read half of the login path:
+// a session that landed in the host namespace (fresh login or legacy migration)
+// must be visible to the plugin and reported as signed-in without network.
+func TestHuaweiPluginReadsSeededSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds the plugin binary")
+	}
+	root := t.TempDir()
+	buildHuaweiPlugin(t, root)
+	store := storage.New(t.TempDir())
+	manager := NewManager(root, store, nil)
+	seeded := base64.StdEncoding.EncodeToString([]byte(`{"token":"t1","userID":"42"}`))
+	if err := manager.SeedSession("huawei", "session", seeded); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	registry := source.NewRegistry()
+	if err := manager.Enable(ctx, registry, "huawei"); err != nil {
+		t.Fatalf("enable: %v", err)
+	}
+	defer manager.Close()
+	src, ok := registry.Source("huawei")
+	if !ok {
+		t.Fatal("huawei source not registered")
+	}
+	status, err := src.Auth().Status(ctx)
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if status.State != source.AuthSignedIn {
+		t.Fatalf("status = %+v, want signedIn", status)
+	}
+	if status.AccountKey == "" {
+		t.Fatal("empty account key for seeded session")
 	}
 }
 
