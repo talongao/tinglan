@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"tinglan/native/internal/audio"
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
 	"tinglan/native/internal/storage"
@@ -71,6 +72,13 @@ func TestLiveHuaweiPlugin(t *testing.T) {
 		t.Fatal("empty playback url")
 	}
 	t.Logf("resolve host=%s access=%s", playback.URL[:min(len(playback.URL), 40)], playback.Access)
+	if probe, err := audio.ProbeRemote(ctx, playback.URL); err != nil {
+		t.Fatalf("probe resolved stream: %v", err)
+	} else if player, err := probe.Open(); err != nil {
+		t.Fatalf("open resolved stream: %v", err)
+	} else {
+		player.Close()
+	}
 	if len(playlists.Items) > 0 {
 		detail, err := src.Catalog().PlaylistDetail(ctx, source.EntityRequest{Ref: source.EntityRef{Source: music.SourceHuawei, Kind: "playlist", ID: playlists.Items[0].ID}, Limit: 5})
 		if err != nil {
