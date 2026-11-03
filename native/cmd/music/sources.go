@@ -696,6 +696,9 @@ func (m *model) loadPlugins() {
 	}
 	m.plugins = plugin.NewManager(filepath.Join(m.store.Dir(), "sources"), m.store, pluginLogger{})
 	m.plugins.AddRoot(bundledPluginRoot())
+	if dir := os.Getenv("TINGLAN_PLUGIN_ROOT"); dir != "" {
+		m.plugins.AddRoot(dir)
+	}
 	m.pluginEntries = m.plugins.List()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
