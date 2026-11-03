@@ -295,7 +295,7 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   会话迁移把 `AccountKey` 误当 `userID` 导致二次 sha256（改为 `session.UserID`）。
 - 验证：`go build/vet/test ./...` 全绿；`tinglan-tool ui-check` 0 问题；`GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build ./...` 通过；
   实机应用启动后插件进程运行、设置页显示「华为音乐 · 已启用」与已登录按钮、收藏 942 首；搜索「周杰伦」经插件返回结果并带来源徽标。
-  `internal/plugin/live_huawei_test.go`（真实数据目录）验证 搜索/歌单详情/历史/播放解析/歌词；
+  `internal/plugin/live_huawei_test.go`（真实数据目录）验证 搜索/歌单详情/历史/播放解析/歌词/收藏导入分页；
   `TestPlaybackStartLatency` 设 `TINGLAN_PLUGIN_ROOT` 后经插件真实播放（AUDIO_STARTED 1.76s）。
   插件根目录额外支持 `TINGLAN_PLUGIN_ROOT` 环境变量，便于 `go test`/`go run` 使用应用包内插件。
   登录窗口经插件 `Auth.Login` → `host.webview.open` 弹出并可取消，取消后原会话保持；窗口内扫码未验证。

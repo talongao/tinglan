@@ -353,7 +353,7 @@ Playback {
   `internal/plugin/live_huawei_test.go`（`TINGLAN_LIVE_PROFILE` 指向真实数据目录，验证搜索/歌单详情/历史/播放解析/歌词）；
   `internal/plugin/host_test.go` 校验 WebView 登录窗口的回调规则与域名白名单，并拒绝 `requireSessionExport` 与 http 地址。
 - 实机验证（2026-11-03 晚）：应用启动后插件进程运行，音源页显示「华为音乐 · 已启用」与已登录按钮，
-  收藏 942 首；搜索「周杰伦」经插件返回结果并带来源徽标；`TestPlaybackStartLatency` 经
+  收藏 942 首；搜索「周杰伦」经插件返回结果并带来源徽标；收藏导入分页经插件读取成功（前两页 100 首，只读）；`TestPlaybackStartLatency` 经
   `TINGLAN_PLUGIN_ROOT` 指向应用包插件目录，真实账号下 `AUDIO_STARTED after 1.76s`（位置推进、时长 270s），
   即插件解析 + 远程解码 + 播放全链路可用；live 测试另验证歌单详情、历史 200 条、歌词地址。
   登录窗口（2026-11-03 晚）：设置→音源→重新登录 经插件 `Auth.Login` → `host.webview.open` 弹出

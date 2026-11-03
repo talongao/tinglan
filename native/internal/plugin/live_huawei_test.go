@@ -95,4 +95,29 @@ func TestLiveHuaweiPlugin(t *testing.T) {
 		t.Fatalf("history: %v", err)
 	}
 	t.Logf("history=%d", len(history.Items))
+
+	// Import reads the remote collection through the plugin. Only the first two
+	// pages are requested so the live check stays cheap and read-only.
+	imported := 0
+	cursor := ""
+	for page := 0; page < 2; page++ {
+		result, err := src.Library().Import(ctx, source.ImportRequest{
+			Collection: source.Collection{Kind: "favorites"},
+			Cursor:     cursor,
+			Limit:      50,
+			RunID:      "live-import",
+		})
+		if err != nil {
+			t.Fatalf("import page %d: %v", page, err)
+		}
+		imported += len(result.Tracks)
+		if result.Next == "" {
+			break
+		}
+		cursor = result.Next
+	}
+	if imported == 0 {
+		t.Fatal("import returned no tracks")
+	}
+	t.Logf("import pages reached: %d tracks", imported)
 }
