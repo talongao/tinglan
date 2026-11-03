@@ -103,12 +103,21 @@ func (m *model) openLocalLibrary() {
 // registerDevFallback keeps `go run ./cmd/music` and the test suite usable when
 // the bundled plugin is absent. The shipped app always has the plugin, so this
 // adapter is never registered in a release build.
+// registerDevFallback keeps `go run` and the test binary usable without a
+// packaged plugin. A shipped app always carries the plugin, so silently
+// falling back to the in-process adapter there would hide a packaging bug and
+// put provider code back inside the shell.
 func (m *model) registerDevFallback() {
 	if m.registry == nil {
 		return
 	}
 	if _, ok := m.registry.Source(music.SourceHuawei); ok {
 		return
+	}
+	if os.Getenv("TINGLAN_DEV_SOURCE") != "1" {
+		if info, err := os.Stat(bundledPluginRoot()); err == nil && info.IsDir() {
+			return
+		}
 	}
 	fallback := builtin.Huawei(func() *source.Session { return m.session })
 	if err := m.registry.RegisterSource(fallback); err == nil {
