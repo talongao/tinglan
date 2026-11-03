@@ -7,7 +7,6 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,8 +14,48 @@ import (
 
 	"github.com/zzl/go-win32api/v2/win32"
 	"golang.org/x/sys/windows"
-	"tinglan/native/internal/huawei"
 )
+
+// testFlow is a neutral authorization flow for the WebView tests.
+type testFlow struct {
+	address  string
+	allowed  func(string) bool
+	callback func(string) bool
+	accepted bool
+}
+
+func (f *testFlow) AuthorizeURL() string { return f.address }
+func (f *testFlow) Accept(raw string, _ time.Time) error {
+	if f.callback != nil && !f.callback(raw) {
+		return errors.New("unexpected callback")
+	}
+	if f.accepted {
+		return errors.New("callback accepted twice")
+	}
+	f.accepted = true
+	return nil
+}
+func (f *testFlow) Cancel() {}
+func (f *testFlow) IsCallback(raw string) bool {
+	if f.callback != nil {
+		return f.callback(raw)
+	}
+	return false
+}
+func (f *testFlow) AllowedURL(raw string) bool {
+	if f.allowed != nil {
+		return f.allowed(raw)
+	}
+	return false
+}
+
+func hmsFlow(address string) *testFlow {
+	return &testFlow{
+		address:  address,
+		allowed:  func(raw string) bool { return raw == address || raw == address+"/" },
+		callback: func(raw string) bool { return len(raw) > 6 && raw[:6] == "hms://" },
+	}
+}
 
 func TestWebViewProfileCleanupRetriesLockedFile(t *testing.T) {
 	dir := t.TempDir()
@@ -54,20 +93,20 @@ func TestWebViewCancelledBeforeLaunch(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := Authorize(ctx, huawei.NewAttempt(time.Now())); !errors.Is(err, context.Canceled) {
+	if _, err := Authorize(ctx, hmsFlow("https://login.example/authorize")); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancel must prevent window creation")
 	}
 }
 
 func TestWebViewNavigationPolicy(t *testing.T) {
 	for _, raw := range []string{"https://evil.invalid", "file:///C:/private", "hms://redirect_uri.evil?code=x", "tinglan://callback"} {
-		w := &authWindow{allowed: huawei.AllowedLoginURL}
+		w := &authWindow{flow: hmsFlow("https://login.example/authorize")}
 		if w.inspect(raw) || w.settled {
 			t.Fatal("untrusted navigation accepted")
 		}
 	}
-	w := &authWindow{allowed: huawei.AllowedLoginURL}
-	if !w.inspect(huawei.NewAttempt(time.Now()).AuthorizeURL()) {
+	w := &authWindow{flow: hmsFlow("https://login.example/authorize")}
+	if !w.inspect("https://login.example/authorize") {
 		t.Fatal("authorization endpoint rejected")
 	}
 	if w.inspect("hms://redirect_uri?code=synthetic&state=test") || !w.settled {
@@ -87,9 +126,8 @@ func TestSyntheticWebViewAuthorization(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
-			attempt := huawei.NewAttempt(time.Now())
-			u, _ := url.Parse(attempt.AuthorizeURL())
-			callback := "hms://redirect_uri?code=synthetic&state=" + u.Query().Get("state")
+			flow := hmsFlow("") // address filled after the server starts
+			callback := "hms://redirect_uri?code=synthetic&state=synthetic"
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch mode {
 				case "cancel":
@@ -111,10 +149,12 @@ func TestSyntheticWebViewAuthorization(t *testing.T) {
 			}))
 			defer server.Close()
 			address := server.URL
+			flow.address = address
+			flow.allowed = func(raw string) bool { return raw == address || raw == address+"/" }
 			if mode == "failed" {
 				server.Close()
 			}
-			got, err := webViewAuthorize(ctx, address, func(raw string) bool { return raw == address || raw == address+"/" })
+			got, err := webViewAuthorize(ctx, flow)
 			switch mode {
 			case "cancel", "close":
 				if !errors.Is(err, context.Canceled) {
@@ -128,7 +168,7 @@ func TestSyntheticWebViewAuthorization(t *testing.T) {
 				if err != nil || got != callback {
 					t.Fatalf("automatic callback failed: %v", err)
 				}
-				if attempt.Accept(got, time.Now()) != nil || attempt.Accept(got, time.Now()) == nil {
+				if flow.Accept(got, time.Now()) != nil || flow.Accept(got, time.Now()) == nil {
 					t.Fatal("callback must pass state validation exactly once")
 				}
 			}

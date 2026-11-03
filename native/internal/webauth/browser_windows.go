@@ -21,7 +21,7 @@ import (
 func NeedsManualCallback() bool { return false }
 
 func Authorize(ctx context.Context, flow Flow) (string, error) {
-	return webViewAuthorize(ctx, flow.AuthorizeURL(), huawei.AllowedLoginURL)
+	return webViewAuthorize(ctx, flow)
 }
 
 type authWindow struct {
@@ -29,7 +29,7 @@ type authWindow struct {
 	controller *wv2.ICoreWebView2Controller
 	view       *wv2.ICoreWebView2
 	ctx        context.Context
-	allowed    func(string) bool
+	flow       Flow
 	result     string
 	err        error
 	settled    bool
@@ -87,7 +87,8 @@ func (e *authEnvironment) EnvironmentCompleted(hr webviewloader.HRESULT, env *we
 
 // The STA owns all window/COM objects. Cancellation is polled by its timer so
 // no worker can call COM or destroy the window during a navigation callback.
-func webViewAuthorize(ctx context.Context, address string, allowed func(string) bool) (result string, resultErr error) {
+func webViewAuthorize(ctx context.Context, flow Flow) (result string, resultErr error) {
+	address := flow.AuthorizeURL()
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -141,7 +142,7 @@ func webViewAuthorize(ctx context.Context, address string, allowed func(string) 
 	if hwnd == 0 {
 		return "", errors.New("authorization window initialization failed")
 	}
-	w := &authWindow{hwnd: hwnd, ctx: ctx, allowed: allowed, pending: true}
+	w := &authWindow{hwnd: hwnd, ctx: ctx, flow: flow, pending: true}
 	authWindows.Store(hwnd, w)
 	defer authWindows.Delete(hwnd)
 	defer win32.DestroyWindow(hwnd)
@@ -237,11 +238,14 @@ func cleanupAuthProfile(dir string) {
 }
 
 func (w *authWindow) inspect(raw string) bool {
-	if flow.IsCallback(raw) {
+	if w.flow == nil {
+		return false
+	}
+	if w.flow.IsCallback(raw) {
 		w.finish(raw, nil)
 		return false
 	}
-	return !w.settled && w.allowed(raw)
+	return !w.settled && w.flow.AllowedURL(raw)
 }
 
 func (w *authWindow) configure() bool {

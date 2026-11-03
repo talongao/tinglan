@@ -529,7 +529,7 @@ func (m *model) paintSearchTabs(c *ui.Canvas, b ui.Rect) {
 		id := src.ID()
 		active := id == m.searchSource
 		x := b.X + float32(i)*104
-		if m.pill(c, searchTabs.At(i), rect(x, b.Y, 96, 32), sourceLabel(id.String()), active) {
+		if m.pill(c, searchTabs.At(i), rect(x, b.Y, 96, 32), m.sourceDisplayName(id), active) {
 			if m.searchSource != id {
 				m.searchSource = id
 				m.filtered = nil

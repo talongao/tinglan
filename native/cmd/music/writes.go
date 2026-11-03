@@ -128,6 +128,11 @@ func (m *model) confirmWrite() {
 		m.deleteLocalPlaylist(id)
 		return
 	}
+	if kind == "plugin-enable" {
+		m.dialog = ""
+		m.enablePlugin(music.SourceID(id))
+		return
+	}
 	if kind == "import-remote" {
 		m.dialog = ""
 		if m.remotePendingOK {
@@ -204,7 +209,7 @@ func (m *model) confirmWrite() {
 }
 func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	initial := writeFieldID
-	if m.dialog == "delete" || m.dialog == "delete-local" || m.dialog == "clear-local-lyrics" || m.dialog == "clear-queue" || m.dialog == "import-remote" {
+	if m.dialog == "delete" || m.dialog == "delete-local" || m.dialog == "clear-local-lyrics" || m.dialog == "clear-queue" || m.dialog == "import-remote" || m.dialog == "plugin-enable" {
 		initial = cancelWriteID
 	}
 	modalFocus(c, writeDialogScope, initial, cancelWriteID)
@@ -217,7 +222,7 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	m.glass(c, b, 18, .92)
 	c.PushLayer(4)
 	defer c.PopLayer()
-	title := map[string]string{"description": "修改歌单简介", "delete": "确认删除自建歌单", "delete-local": "删除本地歌单", "clear-local-lyrics": "清除全部本地导入歌词", "clear-queue": "确认清空播放队列", "import-remote": "导入歌单"}[m.dialog]
+	title := map[string]string{"description": "修改歌单简介", "delete": "确认删除自建歌单", "delete-local": "删除本地歌单", "clear-local-lyrics": "清除全部本地导入歌词", "clear-queue": "确认清空播放队列", "import-remote": "导入歌单", "plugin-enable": "启用外置音源"}[m.dialog]
 	m.text(c, title, rect(b.X+24, b.Y+24, 410, 34), 22, 600, m.ink())
 	if m.dialog == "clear-local-lyrics" {
 		m.text(c, "清除应用内导入副本，原始歌词文件不受影响。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
@@ -226,6 +231,14 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	} else if m.dialog == "import-remote" {
 		name := m.remotePending.Name
 		m.text(c, "导入「"+name+"」为本机的只读副本。不会修改平台上的歌单，之后可随时删除。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
+	} else if m.dialog == "plugin-enable" {
+		entry, _ := m.pluginEntry(music.SourceID(m.dialogID))
+		detail := entry.Manifest.Name
+		if entry.Dir != "" {
+			detail += "\n" + entry.Dir
+		}
+		m.text(c, detail, rect(b.X+24, b.Y+60, 410, 40), 11, 400, m.muted())
+		m.text(c, "外置音源是第三方程序，以你的用户权限运行。启用前请确认来源可信；它会申请自己的登录会话，本机曲库与其它音源的绑定不会共享给它。", rect(b.X+24, b.Y+96, 410, 70), 12, 400, m.secondary())
 	} else if m.dialog == "delete" {
 		m.text(c, "删除后无法撤销。仅删除当前选中的自建歌单。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
 	} else if m.dialog == "delete-local" {
@@ -246,6 +259,9 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	confirmLabel := "确认"
 	if m.dialog == "import-remote" {
 		confirmLabel = "导入"
+	}
+	if m.dialog == "plugin-enable" {
+		confirmLabel = "启用"
 	}
 	if m.pill(c, confirmWriteID, rect(b.X+339, b.Y+200, 90, 34), confirmLabel, true) {
 		m.confirmWrite()

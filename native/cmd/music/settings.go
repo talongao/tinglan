@@ -8,6 +8,7 @@ import (
 	"tinglan/native/internal/appmeta"
 	"tinglan/native/internal/icons"
 	"tinglan/native/internal/jev"
+	"tinglan/native/internal/music"
 	"tinglan/native/internal/storage"
 	"tinglan/native/internal/typography"
 	"tinglan/native/internal/visual"
@@ -27,6 +28,8 @@ var jevModelInputID = tree.ID(shell, "jev-model-input")
 var jevModelChoices = tree.Sub(shell, tree.Name("jev-model-choices"))
 var jevThresholdChoices = tree.Sub(shell, tree.Name("jev-threshold-choices"))
 var sourceSettings = tree.Sub(shell, tree.Name("source-settings"))
+var pluginSettings = tree.Sub(shell, tree.Name("plugin-settings"))
+var openPluginsID = tree.ID(shell, "open-plugins")
 
 func (m *model) settingsHeight() float32 {
 	if m.settingsTab == 0 {
@@ -36,7 +39,11 @@ func (m *model) settingsHeight() float32 {
 		return 640
 	}
 	if m.settingsTab == 3 {
-		return 360
+		extra := float32(0)
+		if n := len(m.pluginEntries); n > 0 {
+			extra = float32(n)*36 + 72
+		}
+		return 360 + extra
 	}
 	if m.settingsTab == 4 {
 		return 720
@@ -341,7 +348,7 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 	m.text(c, fmt.Sprintf("%d 首 · 来自本机规范化曲库，不随账号退出删除", count), rect(x+2, y+104, w-4, 22), 11, 400, m.muted())
 	if m.registry != nil {
 		for i, src := range m.registry.SourceList() {
-			if src == nil {
+			if src == nil || m.isPluginSource(src.ID()) {
 				continue
 			}
 			on := m.sourceEnabled(src.ID())
@@ -349,10 +356,39 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 			if on {
 				state = "已启用"
 			}
-			label := sourceLabel(src.ID().String()) + " 音源 · " + state
+			label := m.sourceDisplayName(src.ID()) + " 音源 · " + state
 			if m.pill(c, sourceSettings.At(i), rect(x+2, y+126+float32(i)*34, 210, 28), label, on) {
 				m.toggleSource(src.ID())
 			}
+		}
+	}
+	pluginsTop := y + 126 + float32(len(m.registry.SourceList()))*34 + 26
+	m.text(c, "外置音源", rect(x+2, pluginsTop, w-4, 22), 13, 600, m.ink())
+	if m.plugins == nil || len(m.pluginEntries) == 0 {
+		m.text(c, "把插件目录放进本机 sources 文件夹后重启应用即可在这里启用。", rect(x+2, pluginsTop+24, w-140, 20), 11, 400, m.muted())
+		if m.pill(c, openPluginsID, rect(x+w-132, pluginsTop+18, 132, 28), "打开插件文件夹", false) {
+			m.openPluginFolder()
+		}
+	} else {
+		for i, entry := range m.pluginEntries {
+			state := "未启用"
+			if entry.Running {
+				state = "已启用"
+			} else if m.sourceEnabled(music.SourceID(entry.Manifest.ID)) {
+				state = "启用中…"
+			}
+			label := entry.Manifest.Name + " · " + state
+			activeStyle := entry.Running
+			if m.pill(c, pluginSettings.At(i), rect(x+2, pluginsTop+24+float32(i)*36, w-150, 28), label, activeStyle) {
+				if entry.Running {
+					m.disablePlugin(music.SourceID(entry.Manifest.ID))
+				} else {
+					m.askEnablePlugin(music.SourceID(entry.Manifest.ID))
+				}
+			}
+		}
+		if m.pill(c, openPluginsID, rect(x+w-132, pluginsTop+18, 132, 28), "打开插件文件夹", false) {
+			m.openPluginFolder()
 		}
 	}
 	importLabel := "从音源导入收藏"

@@ -184,6 +184,19 @@ func (r *Registry) RegisterSource(src Source) error {
 	return nil
 }
 
+// UnregisterSource removes a source and its probe-order slot.
+func (r *Registry) UnregisterSource(id music.SourceID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.sources, id)
+	for i, registered := range r.order {
+		if registered == id {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+}
+
 // Source returns the full-contract source for id.
 func (r *Registry) Source(id music.SourceID) (Source, bool) {
 	r.mu.RLock()

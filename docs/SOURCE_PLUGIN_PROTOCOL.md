@@ -318,3 +318,30 @@ Playback {
 
 注意方向：宿主先调 `source.auth.login`，插件在**这次调用内部**再嵌套调 `host.webview.open`；
 不是宿主先开窗口再等插件返回。
+
+## 16. 实现现状（2026-11-03）
+
+已落地于 `native/internal/plugin/`：
+
+- `manifest.go`：`source.json` 读取与校验（schemaVersion、id、protocol.min、entry 不得逃逸插件目录），
+  `PlatformKey()` 把 `darwin-arm64`/`windows-x64` 映射到当前平台。
+- `transport.go`：Content-Length 帧、请求 ID 关联、宿主方法在独立 goroutine 中处理以支持重入、
+  `$/cancelRequest`、stderr 环形缓冲、单帧 16 MiB 上限、默认 60 秒调用超时。
+- `source.go`：插件侧 `source.Source` 适配器，`mergeDescriptor` 校验运行时描述不得扩大 manifest 能力，
+  错误码映射到契约的 `source.Kind*`，写令牌由适配器在 `Login` 前向宿主申请并随 `source.auth.login` 下传。
+- `host.go`：`host.session.*`（加密命名空间、revision、写令牌）、`host.webview.open`、`host.log`。
+- `manager.go`：扫描 `<数据目录>/sources/<id>/source.json`，启用/停用与进程生命周期，
+  `LoadEnabled` 在启动时恢复上次启用集合，启用状态存在 `storage` 的 `plugin.enabled`。
+- Shell：设置 → 音源 → 「外置音源」列出插件；首次启用弹出授权对话框（名称、目录、权限说明），
+  启用后进入同一 `Registry`，搜索页签、导入对话框与设置列表都自动出现该源。
+
+尚未实现：
+
+- `host.auth.present`（纯 HTTP 扫码需要在宿主窗口渲染二维码）当前返回 `-32004`；
+  依赖它的源只能走 `host.webview.open`。
+- 升级重新授权、签名校验、插件市场/下载、自动更新、多实例与热重载。
+- `host.webview.open` 目前复用 macOS 内嵌 WKWebView 与 Windows WebView2 的登录窗口路径，
+  `RequireSessionExport` 明确拒绝；Windows 侧未实机验证。
+
+验证：`go test ./internal/plugin/` 覆盖发现、启用/停用、恢复、写令牌、命名空间隔离、路径逃逸；
+`native/internal/plugin/testdata/sample-plugin/` 提供可重复安装的最小外置源，用于本机端到端验证。

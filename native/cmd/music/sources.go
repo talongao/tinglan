@@ -5,15 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"path/filepath"
 
 	"github.com/vivaui/viva/flex"
 	"tinglan/native/internal/canonical"
 	"tinglan/native/internal/jev"
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/playback"
+	"tinglan/native/internal/plugin"
 	"tinglan/native/internal/source"
 	"tinglan/native/internal/sources/builtin"
 	"tinglan/native/internal/storage"
@@ -39,14 +44,18 @@ type sourceState struct {
 	resolveCache map[string]cachedResolve
 	resolveMu    sync.Mutex
 
-	jevActive        *jev.Client
-	jevIdentity      jev.Identity
-	jevModels        []jev.Model
-	jevFetching      bool
-	jevTesting       bool
-	jevError         string
-	jevTestStatus    string
-	jevCache         *jev.ModelCache
+	jevActive     *jev.Client
+	jevIdentity   jev.Identity
+	jevModels     []jev.Model
+	jevFetching   bool
+	jevTesting    bool
+	jevError      string
+	jevTestStatus string
+	jevCache      *jev.ModelCache
+	plugins       *plugin.Manager
+	pluginEntries []plugin.Entry
+	pluginBusy    bool
+
 	jevModelField    flex.Field
 	jevEndpointField flex.Field
 	jevKeyField      flex.Field
@@ -78,6 +87,7 @@ func (m *model) openLocalLibrary() {
 	m.builtinSource = builtin.Huawei(func() *source.Session { return m.session })
 	m.initResourceClient()
 	_ = m.registry.RegisterSource(m.builtinSource)
+	m.loadPlugins()
 	m.resolver = playback.New(m.registry)
 	m.rowIndex = make(map[string]int)
 	m.jevCache = jev.NewModelCache()
@@ -405,7 +415,31 @@ func (m *model) toggleSource(id music.SourceID) {
 	m.saveSettings()
 }
 
+func (m *model) isPluginSource(id music.SourceID) bool {
+	_, ok := m.pluginEntry(id)
+	return ok
+}
+
+// sourceDisplayName prefers the descriptor of a registered source so external
+// plugins are not labelled by their machine id.
+func (m *model) sourceDisplayName(id music.SourceID) string {
+	if entry, ok := m.pluginEntry(id); ok {
+		return entry.Manifest.Name
+	}
+	if m.registry != nil {
+		if src, ok := m.registry.Source(id); ok {
+			if name := src.Describe().Name; name != "" {
+				return name
+			}
+		}
+	}
+	return sourceLabel(id.String())
+}
+
 func (m *model) sourceEnabled(id music.SourceID) bool {
+	if entry, ok := m.pluginEntry(id); ok {
+		return entry.Enabled
+	}
 	for _, setting := range m.settings.Sources {
 		if setting.ID == id.String() {
 			return setting.Enabled
@@ -610,4 +644,122 @@ func (m *model) checkSession(ctx context.Context, session *source.Session) error
 	}
 	_, err := m.builtinSource.CheckSession(ctx, session)
 	return err
+}
+
+// loadPlugins discovers installed plugins and restarts the ones the user
+// previously enabled. Failures are reported but never block the app.
+func (m *model) loadPlugins() {
+	if m.store == nil {
+		return
+	}
+	m.plugins = plugin.NewManager(filepath.Join(m.store.Dir(), "sources"), m.store, pluginLogger{})
+	m.pluginEntries = m.plugins.List()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	if failures := m.plugins.LoadEnabled(ctx, m.registry); len(failures) > 0 {
+		m.setStatus("部分外置音源未能启用：" + strings.Join(failures, "；"))
+	}
+	m.pluginEntries = m.plugins.List()
+}
+
+func (m *model) pluginEntry(id music.SourceID) (plugin.Entry, bool) {
+	for _, entry := range m.pluginEntries {
+		if entry.Manifest.ID == string(id) {
+			return entry, true
+		}
+	}
+	return plugin.Entry{}, false
+}
+
+// askEnablePlugin opens the consent dialog. Enabling a plugin is an explicit
+// user decision because the process runs with the user's privileges.
+func (m *model) askEnablePlugin(id music.SourceID) {
+	if _, ok := m.pluginEntry(id); !ok {
+		return
+	}
+	m.dialog = "plugin-enable"
+	m.dialogID = string(id)
+}
+
+func (m *model) enablePlugin(id music.SourceID) {
+	if m.plugins == nil || m.pluginBusy {
+		return
+	}
+	m.pluginBusy = true
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+		defer cancel()
+		entry, ok := m.pluginEntry(id)
+		if !ok {
+			m.mu.Lock()
+			m.pluginBusy = false
+			m.mu.Unlock()
+			return
+		}
+		err := m.plugins.Enable(ctx, m.registry, id)
+		if err != nil {
+			m.mu.Lock()
+			m.pluginBusy = false
+			m.pluginEntries = m.plugins.List()
+			m.mu.Unlock()
+			m.notify("外置音源启动失败：" + err.Error())
+			return
+		}
+		m.mu.Lock()
+		m.pluginBusy = false
+		m.pluginEntries = m.plugins.List()
+		m.mu.Unlock()
+		m.notify("已启用 " + entry.Manifest.Name)
+		m.invalidator.Invalidate()
+	}()
+}
+
+func (m *model) disablePlugin(id music.SourceID) {
+	if m.plugins == nil || m.pluginBusy {
+		return
+	}
+	m.pluginBusy = true
+	entry, ok := m.pluginEntry(id)
+	go func() {
+		_ = m.plugins.Disable(m.registry, id)
+		m.mu.Lock()
+		m.pluginBusy = false
+		m.pluginEntries = m.plugins.List()
+		m.mu.Unlock()
+		if ok {
+			m.notify("已停用 " + entry.Manifest.Name)
+		}
+		m.invalidator.Invalidate()
+	}()
+}
+
+// openPluginFolder reveals the plugin install directory. It only opens the
+// system file manager; it never launches a browser or a plugin itself.
+func (m *model) openPluginFolder() {
+	if m.plugins == nil {
+		return
+	}
+	dir := m.plugins.Root()
+	_ = os.MkdirAll(dir, 0o755)
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", dir)
+	case "windows":
+		cmd = exec.Command("explorer", dir)
+	default:
+		cmd = exec.Command("xdg-open", dir)
+	}
+	if err := cmd.Start(); err != nil {
+		m.notify("无法打开插件文件夹：" + err.Error())
+		return
+	}
+	m.notify("插件文件夹已打开")
+}
+
+// pluginLogger routes plugin diagnostics to stderr without touching user data.
+type pluginLogger struct{}
+
+func (pluginLogger) Printf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "plugin: "+format+"\n", args...)
 }

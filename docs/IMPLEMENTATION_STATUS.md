@@ -267,3 +267,17 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   与 `Registry` 的 `Adapter` 桥，`Registry` 只维护 `Source`；`ImportRequest.RunID`、`ImportPage.RemoteDeleted` 进入契约。
   门禁全绿（build/vet/test/ui-check），测试 fake 统一改用 `internal/source/sourcetest.Fake`。
 - 未完成：Windows 实机验证；外置插件 RPC 未实现。
+
+### 2026-11-03 外置音源插件运行时
+
+- 新增 `native/internal/plugin/`：`source.json` 清单、Content-Length JSON-RPC 传输（双向重入、取消、超时）、
+  插件侧 `source.Source` 适配器、宿主 `host.session.*`/`host.webview.open`/`host.log`、进程管理器
+  （发现、启用/停用、启动恢复、路径逃逸防护）与 5 个单元测试。
+- `Registry` 增加 `UnregisterSource`；设置 → 音源 新增「外置音源」区块与首次启用授权对话框；
+  启用后的插件与内置源共用同一 registry，搜索页签、导入对话框、设置列表自动生效。
+- 修复两个真实缺陷：启用对话框用 `defer cancel()` 导致初始化上下文被立刻取消；
+  库重新打开时新 registry 未重新登记已在运行的插件（导致插件源不出现在搜索页签）。
+- 本机端到端验证：安装 `native/internal/plugin/testdata/sample-plugin` 后，设置页显示「示例音源 · 已启用」，
+  搜索页出现「示例音源」页签，搜索返回示例条目并带来源徽标；重启应用后插件自动恢复运行。
+- 未实现：`host.auth.present` 返回 -32004（扫码登录需要宿主二维码窗口）、升级重新授权与签名校验、
+  Windows 实机验证。`docs/SOURCE_PLUGIN_PROTOCOL.md` §16 记录实现现状。
