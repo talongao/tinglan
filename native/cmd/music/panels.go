@@ -211,36 +211,23 @@ func (m *model) paintRemoteCollections(c *ui.Canvas, b ui.Rect) {
 }
 
 func (m *model) paintHistory(c *ui.Canvas, b ui.Rect) {
-	label := "查看" + m.accountSourceName() + "历史"
-	if m.remoteHistoryOpen {
-		label = "查看本机记录"
-	}
-	if m.pill(c, historySourceID, rect(b.X, b.Y, 140, 34), label, false) {
-		m.remoteHistoryOpen = !m.remoteHistoryOpen
-		if m.remoteHistoryOpen {
-			m.loadCollections("history")
-		}
-	}
+	// History is local-only: the provider's listening history is not surfaced
+	// because writing it back is optional and unverified on a real account.
+	m.remoteHistoryOpen = false
 	tracks := m.localHistory
-	if m.remoteHistoryOpen {
-		tracks = m.remoteHistory
-	}
 	if len(tracks) == 0 {
 		hint := "还没有播放记录。播放一首歌后会出现在这里。"
-		if m.remoteHistoryOpen {
-			hint = "这个账号下还没有播放历史。"
-		}
 		if m.collectionLoading {
 			hint = "正在读取播放历史…"
 		}
 		if m.collectionMessage != "" {
 			hint = m.collectionMessage
 		}
-		m.text(c, hint, rect(b.X+21, b.Y+64, b.Width-42, 22), 12, 400, m.muted())
+		m.text(c, hint, rect(b.X+21, b.Y+24, b.Width-42, 22), 12, 400, m.muted())
 		return
 	}
-	m.text(c, fmt.Sprintf("%d 条记录", len(tracks)), rect(b.X, b.Y+44, 240, 21), 13, 500, m.muted())
-	m.paintLibrary(c, rect(b.X, b.Y+72, b.Width, b.Height-72), tracks, true)
+	m.text(c, fmt.Sprintf("%d 条记录", len(tracks)), rect(b.X+21, b.Y+6, 240, 21), 12, 500, m.muted())
+	m.paintLibrary(c, rect(b.X, b.Y+34, b.Width, b.Height-34), tracks, true)
 }
 
 func (m *model) paintDock(c *ui.Canvas, size ui.Size) {

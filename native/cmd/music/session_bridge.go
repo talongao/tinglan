@@ -107,6 +107,13 @@ func mirrorSession(status source.AuthStatus) *source.Session {
 // loginSource is the source that owns the account UI. Every source is a plugin
 // now, so the shell does not keep a provider adapter of its own.
 func (m *model) loginSource() (source.Source, bool) {
+	if id := m.loginTarget; id != "" {
+		if m.registry != nil {
+			if src, ok := m.registry.Source(id); ok {
+				return src, true
+			}
+		}
+	}
 	return m.primarySource()
 }
 
@@ -139,8 +146,12 @@ func (m *model) runSourceLogin(ctx context.Context) (*source.Session, error) {
 	if !result.Succeeded || result.Status.AccountKey == "" {
 		return nil, source.NewError(music.SourceHuawei, "login", source.KindCanceled, fmt.Errorf("登录已取消"))
 	}
+	target := m.loginTarget
+	if target == "" {
+		target = m.accountSourceID()
+	}
 	return &source.Session{
-		Source:     music.SourceHuawei,
+		Source:     target,
 		AccountKey: result.Status.AccountKey,
 		ExpiresAt:  result.Status.ExpiresAt,
 	}, nil

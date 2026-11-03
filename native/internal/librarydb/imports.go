@@ -25,11 +25,11 @@ const (
 
 // Run states mirror import_runs.state.
 const (
-	RunFetching  = "fetching"
-	RunReady     = "ready"
-	RunCommitted = "committed"
-	RunFailed    = "failed"
-	RunCancelled = "cancelled"
+	RunFetching   = "fetching"
+	RunReady      = "ready"
+	RunCommitted  = "committed"
+	RunFailed     = "failed"
+	RunCancelled  = "cancelled"
 	RunSuperseded = "superseded"
 )
 

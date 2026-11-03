@@ -369,9 +369,6 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 	}
 	if m.view == 3 {
 		subtitle = "本机最近播放记录"
-		if m.remoteHistoryOpen {
-			subtitle = m.accountSourceName() + "账号的播放历史"
-		}
 	}
 	if m.entity == nil {
 		m.text(c, subtitle, rect(left, subtitleY, 350, 18), 12, 400, m.muted())
@@ -821,9 +818,6 @@ func (m *model) scrollEvent(e ui.ScrollEvent) ui.EventResult {
 	}
 	if m.view == 3 {
 		tracks = m.localHistory
-		if m.remoteHistoryOpen {
-			tracks = m.remoteHistory
-		}
 	}
 	if m.entity != nil {
 		tracks = m.entity.Tracks

@@ -429,6 +429,7 @@ func (m *model) applySourceResults() {
 
 func (m *model) toggleSource(id music.SourceID) {
 	defer m.clampSearchSource()
+	defer m.refreshSourceAuth(id)
 	for i := range m.settings.Sources {
 		if m.settings.Sources[i].ID == id.String() {
 			m.settings.Sources[i].Enabled = !m.settings.Sources[i].Enabled
@@ -664,6 +665,83 @@ func (m *model) trackAvailable(t music.Track) bool {
 	return true
 }
 
+// sourceLoginable reports whether a source can start an interactive login.
+func (m *model) sourceLoginable(id music.SourceID) bool {
+	if entry, ok := m.pluginEntry(id); ok {
+		return len(entry.Manifest.Capabilities.LoginKinds) > 0
+	}
+	return m.devSource != nil && id == music.SourceHuawei
+}
+
+func (m *model) registrySource(id music.SourceID) (source.Source, bool) {
+	if m.registry == nil {
+		return nil, false
+	}
+	return m.registry.Source(id)
+}
+
+// sourceSignedIn reports the cached login state of one source. The account
+// source also mirrors the shell session so the header stays in sync.
+func (m *model) sourceSignedIn(id music.SourceID) bool {
+	if session := m.sourceSession(id); session != nil && session.AccountKey != "" {
+		return true
+	}
+	status, ok := m.sourceAuth[id]
+	return ok && status.State == source.AuthSignedIn
+}
+
+func (m *model) sourceSession(id music.SourceID) *source.Session {
+	if m.session != nil && (m.session.Source == id || (m.session.Source == "" && id == m.accountSourceID())) {
+		return m.session
+	}
+	return m.sourceSessions[id]
+}
+
+// refreshSourceAuth caches the async auth status so painting never blocks on an
+// RPC to a plugin process.
+func (m *model) refreshSourceAuth(id music.SourceID) {
+	src, ok := m.registrySource(id)
+	if !ok {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		status, err := src.Auth().Status(ctx)
+		if err != nil {
+			return
+		}
+		m.mu.Lock()
+		if m.sourceAuth == nil {
+			m.sourceAuth = make(map[music.SourceID]source.AuthStatus)
+		}
+		m.sourceAuth[id] = status
+		m.mu.Unlock()
+		m.requestUpdate()
+	}()
+}
+
+// logoutSource signs out one source without wiping the local library unless it
+// is the account source.
+func (m *model) logoutSource(id music.SourceID) {
+	if id == m.accountSourceID() {
+		m.logout()
+		return
+	}
+	if src, ok := m.registrySource(id); ok {
+		_ = src.Auth().Logout(context.Background())
+	}
+	if m.plugins != nil {
+		_ = m.plugins.ClearSession(id)
+	}
+	m.mu.Lock()
+	delete(m.sourceSessions, id)
+	delete(m.sourceAuth, id)
+	m.mu.Unlock()
+	m.refreshSourceAuth(id)
+	m.notify("已退出" + m.sourceDisplayName(id))
+}
+
 // clampSearchSource keeps the search tab on an enabled source: disabling the
 // selected plugin must not leave the page querying a source that is gone.
 func (m *model) clampSearchSource() {
@@ -779,6 +857,16 @@ func (m *model) loadPlugins() {
 		m.setStatus("部分外置音源未能启用：" + strings.Join(failures, "；"))
 	}
 	m.pluginEntries = m.plugins.List()
+	m.refreshAllSourceAuth()
+}
+
+// refreshAllSourceAuth primes the cached login state for the settings page.
+func (m *model) refreshAllSourceAuth() {
+	for _, row := range m.sourceRows() {
+		if row.enabled && row.loginable {
+			m.refreshSourceAuth(row.id)
+		}
+	}
 }
 
 func (m *model) pluginEntry(id music.SourceID) (plugin.Entry, bool) {
@@ -829,6 +917,7 @@ func (m *model) enablePlugin(id music.SourceID) {
 		m.pluginEntries = m.plugins.List()
 		m.mu.Unlock()
 		m.notify("已启用 " + entry.Manifest.Name)
+		m.refreshSourceAuth(id)
 		m.invalidator.Invalidate()
 	}()
 }

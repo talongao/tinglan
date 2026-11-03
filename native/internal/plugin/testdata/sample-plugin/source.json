@@ -11,7 +11,7 @@
     "search": true, "playlists": true, "playlistDetail": true,
     "albumDetail": true, "artistDetail": true, "history": true,
     "lyrics": false, "import": true, "resolve": true,
-    "loginKinds": [], "loginRequired": [],
+    "loginKinds": ["webview"], "loginRequired": [],
     "collections": [{ "kind": "favorites", "name": "示例收藏" }],
     "maxPageSize": 20, "qualities": ["standard"]
   },

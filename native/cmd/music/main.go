@@ -15,6 +15,7 @@ import (
 
 	"tinglan/native/internal/appmeta"
 	"tinglan/native/internal/audio"
+	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
 	"tinglan/native/internal/webauth"
 )
@@ -58,8 +59,11 @@ type model struct {
 	restoring          bool
 	status             string
 	session            *source.Session
+	sourceSessions     map[music.SourceID]*source.Session
+	sourceAuth         map[music.SourceID]source.AuthStatus
 	loginSaved         bool
 	signIn             func(context.Context) (*source.Session, error)
+	loginTarget        music.SourceID
 	player             *audio.Player
 	audioState         audio.State
 	playbackGeneration uint64
@@ -100,7 +104,10 @@ func (m *model) startLogin() {
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	m.cancel, m.busy = cancel, true
-	m.setStatus("请在授权窗口完成华为登录，完成后会自动返回听澜")
+	if m.loginTarget == "" {
+		m.loginTarget = m.accountSourceID()
+	}
+	m.setStatus("请在授权窗口完成" + m.sourceDisplayName(m.loginTarget) + "登录，完成后会自动返回听澜")
 	go func() {
 		defer cancel()
 		var session *source.Session
@@ -170,6 +177,17 @@ func (m *model) wake() {
 			if result.restored {
 				m.setStatus("未登录华为音乐；可在 设置 → 音源 登录并导入。")
 			}
+			continue
+		}
+		if result.session != nil && result.session.Source != "" && result.session.Source != m.accountSourceID() {
+			m.mu.Lock()
+			if m.sourceSessions == nil {
+				m.sourceSessions = make(map[music.SourceID]*source.Session)
+			}
+			m.sourceSessions[result.session.Source] = result.session
+			m.mu.Unlock()
+			m.refreshSourceAuth(result.session.Source)
+			m.setStatus("已登录" + m.sourceDisplayName(result.session.Source))
 			continue
 		}
 		m.session = result.session

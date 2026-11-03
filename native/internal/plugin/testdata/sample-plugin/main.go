@@ -7,6 +7,8 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"os"
 
 	"tinglan/native/internal/music"
@@ -46,8 +48,57 @@ func main() {
 			},
 		}},
 	}
-	plugin := &sdk.Plugin{Source: fake, HostServices: []string{"log"}}
+	auth := &demoAuth{source: fake}
+	plugin := &sdk.Plugin{Source: fake, Auth: auth, HostServices: []string{"session", "log"}}
+	plugin.OnReady = func(host *sdk.Host) { auth.host = host }
 	if err := plugin.Serve(context.Background(), os.Stdin, os.Stdout); err != nil {
 		os.Exit(1)
 	}
+}
+
+// demoAuth keeps a fake login state in the host session namespace so the shell
+// can exercise the per-source login UI without a real account.
+type demoAuth struct {
+	source *sourcetest.Fake
+	host   *sdk.Host
+}
+
+func (a *demoAuth) Status(ctx context.Context) (source.AuthStatus, error) {
+	if a.host == nil {
+		return source.AuthStatus{State: source.AuthSignedOut}, nil
+	}
+	value, _, err := a.host.SessionGet(ctx, "session")
+	if err != nil || value == "" {
+		return source.AuthStatus{State: source.AuthSignedOut}, nil
+	}
+	return source.AuthStatus{State: source.AuthSignedIn, AccountKey: "sample-account", DisplayName: "示例账号"}, nil
+}
+
+func (a *demoAuth) Verify(ctx context.Context) (source.AuthStatus, error) { return a.Status(ctx) }
+
+func (a *demoAuth) Login(ctx context.Context, request source.LoginRequest) (source.AuthResult, error) {
+	value := base64.StdEncoding.EncodeToString([]byte("sample-session"))
+	_, err := a.host.SessionSet(ctx, "session", value, 0, request.WriteToken)
+	if err != nil {
+		return source.AuthResult{}, err
+	}
+	return source.AuthResult{
+		Succeeded: true,
+		Persisted: true,
+		Status:    source.AuthStatus{State: source.AuthSignedIn, AccountKey: "sample-account", DisplayName: "示例账号"},
+	}, nil
+}
+
+func (a *demoAuth) PersistSession(context.Context, source.PersistRequest) (bool, error) {
+	return true, nil
+}
+
+func (a *demoAuth) Logout(ctx context.Context) error {
+	if a.host == nil {
+		return nil
+	}
+	if err := a.host.SessionDelete(ctx, "session", ""); err != nil {
+		return fmt.Errorf("logout: %w", err)
+	}
+	return nil
 }

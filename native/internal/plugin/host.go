@@ -22,8 +22,8 @@ import (
 
 // sessionDoc is the encrypted per-plugin credential namespace.
 type sessionDoc struct {
-	Version int                      `json:"version"`
-	Entries map[string]sessionEntry  `json:"entries"`
+	Version int                     `json:"version"`
+	Entries map[string]sessionEntry `json:"entries"`
 }
 
 type sessionEntry struct {
@@ -243,10 +243,10 @@ func (h *Host) logCall(params json.RawMessage) (any, error) {
 
 func (h *Host) webviewOpen(ctx context.Context, params json.RawMessage) (any, error) {
 	var in struct {
-		AttemptID            string   `json:"attemptId"`
-		URL                  string   `json:"url"`
-		AllowedDomains       []string `json:"allowedDomains"`
-		Callback             struct {
+		AttemptID      string   `json:"attemptId"`
+		URL            string   `json:"url"`
+		AllowedDomains []string `json:"allowedDomains"`
+		Callback       struct {
 			Scheme string `json:"scheme"`
 			Host   string `json:"host"`
 			Path   string `json:"path"`

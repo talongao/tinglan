@@ -721,19 +721,6 @@ func (m *model) pollAudio() {
 	}
 	m.lastPoll = now
 	m.lastPosition = m.audioState.Position
-	if !m.demo && m.settings.SyncHistory && m.listened >= 30 && !m.historyReported && m.manageSource() != nil && m.queue.Current() != nil && m.playedLink.Source == music.SourceHuawei {
-		m.historyReported = true
-		track, listened := *m.queue.Current(), int(m.listened)
-		track.ID = m.playedLink.TrackID
-		manage := m.manageSource()
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-			defer cancel()
-			if manage != nil {
-				_ = manage.ReportHistory(ctx, track, listened)
-			}
-		}()
-	}
 	if m.audioState.Ready && m.pendingSeek > 0 {
 		m.seekPlayback(m.pendingSeek)
 		m.pendingSeek = 0
