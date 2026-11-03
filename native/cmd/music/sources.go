@@ -11,11 +11,11 @@ import (
 
 	"github.com/vivaui/viva/flex"
 	"tinglan/native/internal/canonical"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/jev"
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/playback"
 	"tinglan/native/internal/source"
+	"tinglan/native/internal/sources/builtin"
 	"tinglan/native/internal/storage"
 )
 
@@ -24,7 +24,7 @@ import (
 type sourceState struct {
 	local         *canonical.Library
 	registry      *source.Registry
-	huaweiSource  *huawei.SourceAdapter
+	builtinSource builtin.Interactive
 	resolver      *playback.Resolver
 	rows          []music.CanonicalTrack
 	rowIndex      map[string]int
@@ -75,8 +75,9 @@ func (m *model) openLocalLibrary() {
 	}
 	m.local = library
 	m.registry = source.NewRegistry()
-	m.huaweiSource = huawei.NewSourceAdapter(huawei.NewClient(), func() *huawei.Session { return m.session })
-	_ = m.registry.Register(m.huaweiSource)
+	m.builtinSource = builtin.Huawei(func() *source.Session { return m.session })
+	m.initResourceClient()
+	_ = m.registry.RegisterSource(m.builtinSource)
 	m.resolver = playback.New(m.registry)
 	m.rowIndex = make(map[string]int)
 	m.jevCache = jev.NewModelCache()
@@ -96,7 +97,7 @@ func (m *model) installLocalLibrary() {
 	rows := m.local.Snapshot()
 	m.rows = rows
 	m.rowIndex = make(map[string]int, len(rows))
-	projected := make([]huawei.Track, 0, len(rows))
+	projected := make([]music.Track, 0, len(rows))
 	m.rowSources = make(map[string][]music.SourceID, len(rows))
 	for i, row := range rows {
 		m.rowIndex[row.ID] = i
@@ -123,16 +124,16 @@ func (m *model) installLocalLibrary() {
 	}
 }
 
-func (m *model) projectRow(row music.CanonicalTrack) huawei.Track {
-	artists := make([]huawei.Artist, 0, len(row.Artists))
+func (m *model) projectRow(row music.CanonicalTrack) music.Track {
+	artists := make([]music.Artist, 0, len(row.Artists))
 	for _, artist := range row.Artists {
-		artists = append(artists, huawei.Artist{ID: artist.ID, Name: artist.Name})
+		artists = append(artists, music.Artist{ID: artist.ID, Name: artist.Name})
 	}
-	var album *huawei.Album
+	var album *music.Album
 	if row.Album != nil {
-		album = &huawei.Album{ID: row.Album.ID, Title: row.Album.Title}
+		album = &music.Album{ID: row.Album.ID, Title: row.Album.Title}
 	}
-	return huawei.Track{
+	return music.Track{
 		ID: row.ID, Title: row.Title, Artists: artists, Album: album,
 		CoverURL: row.CoverURL, CoverURLs: row.CoverCandidates(), Duration: row.Duration,
 		Collected: true,
@@ -149,11 +150,16 @@ func (m *model) canonicalRow(id string) (music.CanonicalTrack, bool) {
 // canonicalFor returns a canonical row for any playable queue item. Favorite
 // rows come from the local library; search/playlist items become a transient
 // single-link row so every stream goes through the same resolver.
-func (m *model) canonicalFor(track huawei.Track) (music.CanonicalTrack, bool) {
+func (m *model) canonicalFor(track music.Track) (music.CanonicalTrack, bool) {
 	if row, ok := m.canonicalRow(track.ID); ok {
-		return restrictToSource(row, track.OnlySource), true
+		return restrictToSource(row, string(track.OnlySource)), true
 	}
-	neutral := huawei.MusicTrack(track)
+	neutral := track
+	if neutral.Source == "" {
+		// Rows reaching the shell without a source come from the built-in
+		// adapter; transient search results already carry one.
+		neutral.Source = music.SourceHuawei
+	}
 	if !neutral.Valid() {
 		return music.CanonicalTrack{}, false
 	}
@@ -409,10 +415,10 @@ func (m *model) sourceEnabled(id music.SourceID) bool {
 }
 
 func sourceLabel(source string) string {
-	switch source {
-	case "huawei":
+	switch music.SourceID(source) {
+	case music.SourceHuawei:
 		return "华为音乐"
-	case "netease":
+	case music.SourceNetEase:
 		return "网易云音乐"
 	}
 	return source
@@ -445,24 +451,24 @@ func manualModels(values []string) []jev.Model {
 	return out
 }
 
-func (m *model) trackLyricsKey(track huawei.Track) string {
+func (m *model) trackLyricsKey(track music.Track) string {
 	if row, ok := m.canonicalFor(track); ok {
 		if links := row.SortedLinks(); len(links) > 0 {
 			return lyricsCacheKey(links[0])
 		}
 	}
-	return "huawei:" + track.ID
+	return string(music.SourceHuawei) + ":" + track.ID
 }
 
 // trackOffsetKey identifies one queue row, not one source binding. Lyrics text
 // may be shared per link, but the user's offset belongs to the canonical row.
-func (m *model) trackOffsetKey(track huawei.Track) string {
+func (m *model) trackOffsetKey(track music.Track) string {
 	if m.local != nil {
 		if row, ok := m.local.Row(track.ID); ok {
 			return row.ID
 		}
 	}
-	return "huawei:" + track.ID
+	return string(music.SourceHuawei) + ":" + track.ID
 }
 
 func (m *model) removeLocalFavorite(id string) {
@@ -572,4 +578,36 @@ func (m *model) selectJevModel(name string) {
 	m.jevModelField.SetText(name)
 	m.jevTestStatus = ""
 	m.setStatus("已选择模型 " + name)
+}
+
+// providerTracks converts neutral rows back to the provider wire shape. It is
+// a migration seam: every call disappears once the shell speaks music.*.
+
+// catalogSource returns the full-contract catalog for the built-in Huawei
+// source. Shell code must go through the Source contract rather than a provider client so the
+// adapter stays the only place that knows provider endpoints.
+func (m *model) catalogSource() source.CatalogSource {
+	if m.builtinSource == nil {
+		return nil
+	}
+	return m.builtinSource.Catalog()
+}
+
+var errNoSource = errors.New("音源未注册")
+
+// manageSource returns the provider write surface for the built-in source.
+func (m *model) manageSource() source.ManageSource {
+	if m.builtinSource == nil {
+		return nil
+	}
+	return m.builtinSource.Manage()
+}
+
+// checkSession validates a stored session before it is installed.
+func (m *model) checkSession(ctx context.Context, session *source.Session) error {
+	if m.builtinSource == nil {
+		return errors.New("音源未初始化")
+	}
+	_, err := m.builtinSource.CheckSession(ctx, session)
+	return err
 }

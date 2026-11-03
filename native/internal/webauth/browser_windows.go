@@ -16,13 +16,12 @@ import (
 	"github.com/zzl/go-com/com"
 	"github.com/zzl/go-webview2/wv2"
 	"github.com/zzl/go-win32api/v2/win32"
-	"tinglan/native/internal/huawei"
 )
 
 func NeedsManualCallback() bool { return false }
 
-func Authorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {
-	return webViewAuthorize(ctx, attempt.AuthorizeURL(), huawei.AllowedLoginURL)
+func Authorize(ctx context.Context, flow Flow) (string, error) {
+	return webViewAuthorize(ctx, flow.AuthorizeURL(), huawei.AllowedLoginURL)
 }
 
 type authWindow struct {
@@ -238,7 +237,7 @@ func cleanupAuthProfile(dir string) {
 }
 
 func (w *authWindow) inspect(raw string) bool {
-	if huawei.IsCallback(raw) {
+	if flow.IsCallback(raw) {
 		w.finish(raw, nil)
 		return false
 	}

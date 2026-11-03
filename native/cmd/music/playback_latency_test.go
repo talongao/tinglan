@@ -31,7 +31,6 @@ func TestPlaybackStartLatency(t *testing.T) {
 			m.session = r.session
 			m.installCatalog()
 			m.attachAccount()
-			m.initWriter()
 		}
 		m.mu.Lock()
 		sess := m.session

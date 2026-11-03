@@ -15,7 +15,7 @@ import (
 
 	"tinglan/native/internal/appmeta"
 	"tinglan/native/internal/audio"
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/source"
 	"tinglan/native/internal/webauth"
 )
 
@@ -33,7 +33,7 @@ var (
 
 type completion struct {
 	generation uint64
-	session    *huawei.Session
+	session    *source.Session
 	err        error
 	restored   bool
 }
@@ -57,10 +57,8 @@ type model struct {
 	busy               bool
 	restoring          bool
 	status             string
-	session            *huawei.Session
-	authorize          func(context.Context, *huawei.Attempt) (string, error)
-	exchange           func(context.Context, *huawei.Attempt) (*huawei.Session, error)
-	validate           func(context.Context, *huawei.Session) error
+	session            *source.Session
+	signIn             func(context.Context) (*source.Session, error)
 	player             *audio.Player
 	audioState         audio.State
 	playbackGeneration uint64
@@ -83,9 +81,9 @@ type model struct {
 }
 
 func newModel() *model {
-	client := huawei.NewClient()
-	m := &model{status: "本地收藏为空；在 设置 → 音源 登录并导入。", authorize: webauth.Authorize, exchange: client.Exchange, validate: client.ValidateSession}
+	m := &model{status: "本地收藏为空；在 设置 → 音源 登录并导入。"}
 	m.initDesktop()
+	m.initResourceClient()
 	return m
 }
 
@@ -103,19 +101,9 @@ func (m *model) startLogin() {
 	m.setStatus("请在授权窗口完成华为登录，完成后会自动返回听澜")
 	go func() {
 		defer cancel()
-		attempt := huawei.NewAttempt(time.Now())
-		defer attempt.Cancel()
-		var session *huawei.Session
-		raw, err := m.authorize(ctx, attempt)
-		if err == nil {
-			err = attempt.Accept(raw, time.Now())
-		}
-		if err == nil {
-			session, err = m.exchange(ctx, attempt)
-		}
-		if err == nil {
-			err = m.validate(ctx, session)
-		}
+		var session *source.Session
+		var err error
+		session, err = m.runSignIn(ctx)
 		m.mu.Lock()
 		if !m.closed {
 			m.pending = append(m.pending, completion{generation: generation, session: session, err: err})
@@ -185,7 +173,6 @@ func (m *model) wake() {
 		}
 		m.installCatalog()
 		m.attachAccount()
-		m.initWriter()
 		m.scheduleSessionCheck()
 		if !result.restored && m.store != nil {
 			m.persistSession()
@@ -297,4 +284,29 @@ func main() {
 	if err := runMusic(m); err != nil {
 		log.Fatal("native application failed")
 	}
+}
+
+// sessionExpired reports whether a validation failure means the account needs to
+// sign in again, without exposing provider error types to the shell.
+func sessionExpired(err error) bool {
+	if err == nil {
+		return false
+	}
+	var failure *source.Error
+	if errors.As(err, &failure) {
+		return failure.Kind == source.KindLogin || failure.Kind == source.KindPermission
+	}
+	return false
+}
+
+// runSignIn drives the interactive sign-in. Tests replace signIn to exercise
+// supersede/cancel behavior without opening a browser.
+func (m *model) runSignIn(ctx context.Context) (*source.Session, error) {
+	if m.signIn != nil {
+		return m.signIn(ctx)
+	}
+	if m.builtinSource == nil {
+		return nil, errors.New("音源未初始化")
+	}
+	return m.builtinSource.SignIn(ctx)
 }

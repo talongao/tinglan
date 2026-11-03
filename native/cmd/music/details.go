@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/vivaui/viva/ui"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/icons"
-	"tinglan/native/internal/library"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 	"tinglan/native/internal/visual"
 )
 
@@ -21,7 +21,7 @@ var entityAlbumsNext = tree.ID(shell, "artist-albums-next")
 
 type entityResult struct {
 	generation uint64
-	detail     huawei.Detail
+	detail     music.Detail
 	err        error
 }
 
@@ -31,7 +31,7 @@ func (m *model) openEntity(kind, id, title string) {
 	}
 	m.entityGeneration++
 	gen := m.entityGeneration
-	m.entity = &huawei.Detail{ID: id, Title: title}
+	m.entity = &music.Detail{ID: id, Title: title}
 	m.entityKind = kind
 	m.entityScroll = 0
 	m.entityAlbumPage = 0
@@ -43,20 +43,35 @@ func (m *model) openEntity(kind, id, title string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		client := huawei.NewClient()
+		catalog := m.catalogSource()
 		r := entityResult{generation: gen}
-		if kind == "artist" {
-			r.detail, r.err = client.ArtistDetail(ctx, id)
-		} else {
-			catalog := library.New(func(ctx context.Context, start, limit int) (huawei.Page, error) {
-				d, err := client.AlbumDetail(ctx, id, start, limit)
-				if start == 0 {
-					r.detail = d
+		switch {
+		case catalog == nil:
+			r.err = fmt.Errorf("音源未注册")
+		case kind == "artist":
+			ref := source.EntityRef{Source: music.SourceHuawei, Kind: "artist", ID: id}
+			artist, err := catalog.ArtistDetail(ctx, source.EntityRequest{Ref: ref, Limit: 50})
+			r.err = err
+			r.detail = music.Detail{ID: artist.Artist.ID, Title: artist.Artist.Name, CoverURL: artist.Artist.CoverURL, Tracks: artist.Tracks, Albums: artist.Albums, More: artist.HasMoreTracks}
+		default:
+			ref := source.EntityRef{Source: music.SourceHuawei, Kind: "album", ID: id}
+			cursor := ""
+			for {
+				page, err := catalog.AlbumDetail(ctx, source.EntityRequest{Ref: ref, Cursor: cursor, Limit: 50})
+				if err != nil {
+					r.err = err
+					break
 				}
-				return huawei.Page{Tracks: d.Tracks, More: d.More, Next: d.Next, RawCount: d.Next - start}, err
-			})
-			r.err = catalog.LoadAll(ctx)
-			r.detail.Tracks, _ = catalog.Snapshot()
+				if r.detail.ID == "" {
+					r.detail = music.Detail{ID: page.Album.ID, Title: page.Album.Title, CoverURL: page.Album.CoverURL}
+				}
+				r.detail.Tracks = append(r.detail.Tracks, page.Tracks...)
+				r.detail.More = page.HasMore
+				if !page.HasMore || page.Next == "" || page.Next == cursor {
+					break
+				}
+				cursor = page.Next
+			}
 		}
 		m.mu.Lock()
 		if !m.closed {
@@ -160,7 +175,7 @@ func entityContentHeight(w, h float32, albums, tracks int) float32 {
 	return total
 }
 
-func (m *model) detailHero(c *ui.Canvas, b ui.Rect, kind, title, cover, meta string, tracks []huawei.Track) float32 {
+func (m *model) detailHero(c *ui.Canvas, b ui.Rect, kind, title, cover, meta string, tracks []music.Track) float32 {
 	side, gap := float32(150), float32(24)
 	if b.Width < 800 {
 		side = 112

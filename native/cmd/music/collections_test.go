@@ -3,18 +3,19 @@ package main
 import (
 	"testing"
 	"time"
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 	"tinglan/native/internal/storage"
 )
 
 func TestCollectionCacheIncludesEmptyResults(t *testing.T) {
 	for _, empty := range []bool{false, true} {
 		m := newModel()
-		m.session = &huawei.Session{}
+		m.session = &source.Session{}
 		m.accountStore = storage.New(t.TempDir())
 		value := storage.Collection{}
 		if !empty {
-			value.Playlists = []huawei.Playlist{{ID: "synthetic", Title: "cached"}}
+			value.Playlists = []music.Playlist{{ID: "synthetic", Name: "cached"}}
 		}
 		if err := m.accountStore.SaveCollection("playlists", "", value); err != nil {
 			t.Fatal(err)
@@ -52,12 +53,12 @@ func TestCollectionFreshnessAndLateResults(t *testing.T) {
 	}
 	m := newModel()
 	m.collectionGeneration = 3
-	m.results = []libraryResult{{kind: "playlists", epoch: 2, playlists: []huawei.Playlist{{ID: "old"}}}, {kind: "playlists", epoch: 3, cached: true, refreshing: true, playlists: []huawei.Playlist{{ID: "cache"}}}}
+	m.results = []libraryResult{{kind: "playlists", epoch: 2, playlists: []music.Playlist{{ID: "old"}}}, {kind: "playlists", epoch: 3, cached: true, refreshing: true, playlists: []music.Playlist{{ID: "cache"}}}}
 	m.applyLibraryResults()
 	if !m.collectionLoading || len(m.playlists) != 1 || m.playlists[0].ID != "cache" {
 		t.Fatal("cache refresh or generation handling failed")
 	}
-	m.results = []libraryResult{{kind: "playlists", epoch: 3, playlists: []huawei.Playlist{{ID: "fresh"}}}}
+	m.results = []libraryResult{{kind: "playlists", epoch: 3, playlists: []music.Playlist{{ID: "fresh"}}}}
 	m.applyLibraryResults()
 	if m.collectionLoading || m.playlists[0].ID != "fresh" {
 		t.Fatal("network refresh not applied")

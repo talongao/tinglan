@@ -11,25 +11,25 @@ import (
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 	"tinglan/native/internal/audio"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/library"
 	"tinglan/native/internal/librarydb"
 	"tinglan/native/internal/lyrics"
 	"tinglan/native/internal/music"
 	queuepkg "tinglan/native/internal/player"
+	"tinglan/native/internal/source"
 	"tinglan/native/internal/storage"
 	"tinglan/native/internal/visual"
 )
 
 type libraryResult struct {
 	epoch      uint64
-	tracks     []huawei.Track
+	tracks     []music.Track
 	complete   bool
 	err        error
 	search     bool
 	query      string
 	kind       string
-	playlists  []huawei.Playlist
+	playlists  []music.Playlist
 	detailID   string
 	searchNext int
 	cached     bool
@@ -49,8 +49,8 @@ type desktopState struct {
 	accountStore         *storage.Store
 	queue                queuepkg.Queue
 	catalog              *library.Catalog
-	tracks               []huawei.Track
-	filtered             []huawei.Track
+	tracks               []music.Track
+	filtered             []music.Track
 	complete             bool
 	loading              bool
 	loadError            bool
@@ -84,7 +84,7 @@ type desktopState struct {
 
 	// remotePending is the playlist the user clicked in the remote browser;
 	// importing runs only after the confirmation dialog.
-	remotePending     huawei.Playlist
+	remotePending     music.Playlist
 	remotePendingOK   bool
 	settingsSelect    string
 	lyricStats        storage.LyricStats
@@ -105,11 +105,11 @@ type desktopState struct {
 	backgroundSize    ui.Size
 	favoriteOff       map[string]bool
 	favoriteKnown     map[string]bool
-	playlists         []huawei.Playlist
-	detail            *huawei.Playlist
-	detailTracks      []huawei.Track
-	remoteHistory     []huawei.Track
-	localHistory      []huawei.Track
+	playlists         []music.Playlist
+	detail            *music.Playlist
+	detailTracks      []music.Track
+	remoteHistory     []music.Track
+	localHistory      []music.Track
 	remoteHistoryOpen bool
 	lyricLines        []lyrics.Line
 	stageOpen         bool
@@ -151,16 +151,16 @@ func (m *model) openProfile(dir string) {
 	}
 }
 
-func syntheticTracks(count int) []huawei.Track {
-	tracks := make([]huawei.Track, count)
+func syntheticTracks(count int) []music.Track {
+	tracks := make([]music.Track, count)
 	for i := range tracks {
 		duration := float64(180 + i%180)
-		tracks[i] = huawei.Track{ID: fmt.Sprintf("synthetic-%04d", i), Title: fmt.Sprintf("合成歌曲 %03d", i+1), Artists: []huawei.Artist{{Name: "离线测试艺人"}}, Album: &huawei.Album{ID: "synthetic-album", Title: "合成测试专辑"}, Duration: &duration}
+		tracks[i] = music.Track{ID: fmt.Sprintf("synthetic-%04d", i), Title: fmt.Sprintf("合成歌曲 %03d", i+1), Artists: []music.Artist{{Name: "离线测试艺人"}}, Album: &music.Album{ID: "synthetic-album", Title: "合成测试专辑"}, Duration: &duration}
 	}
 	if count == 2 {
 		duration := 4.0
-		tracks[0] = huawei.Track{ID: "synthetic-0000", Title: "Smoke MP3", Artists: []huawei.Artist{{ID: "synthetic-artist", Name: "Local fixture"}}, Album: &huawei.Album{ID: "synthetic-album", Title: "Fixture Album"}, Duration: &duration}
-		tracks[1] = huawei.Track{ID: "synthetic-0001", Title: "Smoke FLAC", Artists: []huawei.Artist{{ID: "synthetic-artist", Name: "Local fixture"}}, Duration: &duration}
+		tracks[0] = music.Track{ID: "synthetic-0000", Title: "Smoke MP3", Artists: []music.Artist{{ID: "synthetic-artist", Name: "Local fixture"}}, Album: &music.Album{ID: "synthetic-album", Title: "Fixture Album"}, Duration: &duration}
+		tracks[1] = music.Track{ID: "synthetic-0001", Title: "Smoke FLAC", Artists: []music.Artist{{ID: "synthetic-artist", Name: "Local fixture"}}, Duration: &duration}
 	}
 	for i := range tracks {
 		tracks[i].CoverURL = "https://fixture.dbankcdn.cn/synthetic-cover"
@@ -185,15 +185,15 @@ func (m *model) enableDemo(count int) {
 	m.setStatus("离线合成测试数据 · 不是本人音乐库")
 	all := syntheticTracks(count)
 	m.covers["https://fixture.dbankcdn.cn/synthetic-cover"] = visual.Round(m.covers["https://fixture.dbankcdn.cn/synthetic-cover"], 22)
-	m.catalog = library.New(func(ctx context.Context, start, limit int) (huawei.Page, error) {
+	m.catalog = library.New(func(ctx context.Context, start, limit int) (music.Page, error) {
 		if err := ctx.Err(); err != nil {
-			return huawei.Page{}, err
+			return music.Page{}, err
 		}
 		end := min(start+limit, len(all))
 		if start > len(all) {
-			return huawei.Page{}, errors.New("invalid fixture page")
+			return music.Page{}, errors.New("invalid fixture page")
 		}
-		return huawei.Page{Tracks: all[start:end], Next: end, More: end < len(all), RawCount: end - start}, nil
+		return music.Page{Items: all[start:end], Next: end, More: end < len(all)}, nil
 	})
 	// Test data is generated locally; the first page requires no worker or I/O.
 	_ = m.catalog.LoadNext(context.Background())
@@ -201,7 +201,7 @@ func (m *model) enableDemo(count int) {
 	for _, track := range m.tracks {
 		m.favoriteKnown[track.ID] = true
 	}
-	m.playlists = []huawei.Playlist{{ID: "synthetic-playlist", Title: "离线测试歌单", Kind: "owned", Description: "合成歌单，不会修改真实账号"}}
+	m.playlists = []music.Playlist{{Source: music.SourceHuawei, ID: "synthetic-playlist", Name: "离线测试歌单", Kind: music.PlaylistOwned, Description: "合成歌单，不会修改真实账号"}}
 	m.localPlaylists = []librarydb.Playlist{{ID: "synthetic-local", Kind: "local", Name: "离线测试歌单", Description: "合成歌单，不会修改真实账号", TrackCount: min(2, len(m.tracks))}}
 }
 
@@ -259,7 +259,6 @@ func (m *model) clearLibrary() {
 	m.collectionFailed = false
 	m.libraryRefreshing = false
 	m.accountEpoch++
-	m.writer = nil
 	if m.writeCancel != nil {
 		m.writeCancel()
 		m.writeCancel = nil
@@ -511,7 +510,7 @@ func (m *model) saveQueue() {
 	}
 }
 
-func (m *model) startTracks(tracks []huawei.Track, index int) {
+func (m *model) startTracks(tracks []music.Track, index int) {
 	if len(tracks) == 0 {
 		return
 	}
@@ -532,7 +531,7 @@ func (m *model) rememberResume(position float64) {
 	}
 }
 
-func (m *model) playListTrack(tracks []huawei.Track, index int) {
+func (m *model) playListTrack(tracks []music.Track, index int) {
 	if index < 0 || index >= len(tracks) {
 		return
 	}
@@ -629,13 +628,13 @@ func (m *model) loadCollections(kind string, force ...bool) {
 	ctx, cancel := context.WithCancel(context.Background())
 	m.collectionCancel = cancel
 	m.collectionLoading = true
-	epoch, session, store := m.collectionGeneration, m.session, m.accountStore
-	var playlist huawei.Playlist
+	epoch, store := m.collectionGeneration, m.accountStore
+	var playlist music.Playlist
 	if m.detail != nil {
 		playlist = *m.detail
 	}
 	if kind != "detail" {
-		playlist = huawei.Playlist{}
+		playlist = music.Playlist{}
 	}
 	refresh := len(force) > 0 && force[0]
 	go func() {
@@ -657,19 +656,38 @@ func (m *model) loadCollections(kind string, force ...bool) {
 				}
 			}
 		}
-		client := huawei.NewClient()
+		catalog := m.catalogSource()
 		r := libraryResult{epoch: epoch, kind: kind, detailID: playlist.ID}
+		if catalog == nil {
+			r.err = errNoSource
+			publish(r)
+			return
+		}
 		switch kind {
 		case "playlists":
-			r.playlists, r.err = client.Playlists(ctx, session)
+			page, err := catalog.Playlists(ctx, source.PlaylistRequest{Limit: 50})
+			r.playlists, r.err = page.Items, err
 		case "history":
-			r.tracks, r.err = client.History(ctx, session)
+			page, err := catalog.History(ctx, source.PageRequest{Limit: 50})
+			r.tracks, r.err = page.Items, err
 		case "detail":
-			catalog := library.New(func(ctx context.Context, start, limit int) (huawei.Page, error) {
-				return client.PlaylistDetail(ctx, session, playlist, start, limit)
-			})
-			r.err = catalog.LoadAll(ctx)
-			r.tracks, _ = catalog.Snapshot()
+			ref := source.EntityRef{Source: playlist.Source, Kind: "playlist", ID: playlist.ID, PlaylistKind: playlist.Kind}
+			if ref.Source == "" {
+				ref.Source = music.SourceHuawei
+			}
+			cursor := ""
+			for {
+				page, err := catalog.PlaylistDetail(ctx, source.EntityRequest{Ref: ref, Cursor: cursor, Limit: 50})
+				if err != nil {
+					r.err = err
+					break
+				}
+				r.tracks = append(r.tracks, page.Tracks...)
+				if !page.HasMore || page.Next == "" || page.Next == cursor {
+					break
+				}
+				cursor = page.Next
+			}
 		}
 		publish(r)
 	}()
@@ -702,14 +720,17 @@ func (m *model) pollAudio() {
 	}
 	m.lastPoll = now
 	m.lastPosition = m.audioState.Position
-	if !m.demo && m.settings.SyncHistory && m.listened >= 30 && !m.historyReported && m.writer != nil && m.queue.Current() != nil && m.playedLink.Source == music.SourceHuawei {
+	if !m.demo && m.settings.SyncHistory && m.listened >= 30 && !m.historyReported && m.manageSource() != nil && m.queue.Current() != nil && m.playedLink.Source == music.SourceHuawei {
 		m.historyReported = true
-		writer, track, listened := m.writer, *m.queue.Current(), int(m.listened)
+		track, listened := *m.queue.Current(), int(m.listened)
 		track.ID = m.playedLink.TrackID
+		manage := m.manageSource()
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 			defer cancel()
-			_ = writer.ReportHistory(ctx, track, listened)
+			if manage != nil {
+				_ = manage.ReportHistory(ctx, track, listened)
+			}
 		}()
 	}
 	if m.audioState.Ready && m.pendingSeek > 0 {
@@ -719,7 +740,7 @@ func (m *model) pollAudio() {
 	if m.audioState.Playing && m.queue.Current() != nil && m.lyricTrack != m.queue.Current().ID {
 		track := *m.queue.Current()
 		m.lyricTrack = track.ID
-		items := []huawei.Track{track}
+		items := []music.Track{track}
 		for _, old := range m.localHistory {
 			if old.ID != track.ID {
 				items = append(items, old)
@@ -765,13 +786,12 @@ func collectionFresh(saved, now time.Time) bool {
 
 func collectionError(kind string, err error) string {
 	name := map[string]string{"playlists": "歌单", "detail": "歌单详情", "history": "播放历史"}[kind]
-	var provider *huawei.ProviderError
-	if errors.As(err, &provider) {
-		detail := fmt.Sprintf("HTTP %d", provider.Status)
-		if provider.Code != "" && len(provider.Code) <= 16 && strings.IndexFunc(provider.Code, func(r rune) bool { return r < '0' || r > '9' }) < 0 {
-			detail += " / " + provider.Code
+	var failure *source.Error
+	if errors.As(err, &failure) {
+		if failure.Kind == source.KindLogin || failure.Kind == source.KindPermission {
+			return name + "更新失败（需要重新登录），保留已有内容。"
 		}
-		return name + "更新失败（" + detail + "），保留已有内容，请刷新重试。"
+		return name + "更新失败（" + string(failure.Kind) + "），保留已有内容，请刷新重试。"
 	}
 	return name + "更新失败，请检查网络后刷新；已有内容保留。"
 }

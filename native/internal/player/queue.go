@@ -1,24 +1,24 @@
 package player
 
 import (
-	"tinglan/native/internal/huawei"
 	"math/rand/v2"
+	"tinglan/native/internal/music"
 )
 
 type Queue struct {
-	Tracks     []huawei.Track `json:"tracks"`
-	Index      int            `json:"index"`
-	Position   float64        `json:"positionSeconds"`
-	Mode       string         `json:"repeatMode"`
-	Shuffle    bool           `json:"shuffle"`
+	Tracks     []music.Track `json:"tracks"`
+	Index      int           `json:"index"`
+	Position   float64       `json:"positionSeconds"`
+	Mode       string        `json:"repeatMode"`
+	Shuffle    bool          `json:"shuffle"`
 	order      []int
 	cursor     int
 	history    []int
 	Generation uint64 `json:"-"`
 }
 
-func (q *Queue) Replace(tracks []huawei.Track, index int) {
-	q.Tracks = append([]huawei.Track(nil), tracks...)
+func (q *Queue) Replace(tracks []music.Track, index int) {
+	q.Tracks = append([]music.Track(nil), tracks...)
 	q.Index = max(0, min(index, len(tracks)-1))
 	q.Position = 0
 	q.history = nil
@@ -49,7 +49,7 @@ func (q *Queue) reorder() {
 func (q *Queue) SetShuffle(value bool) { q.Shuffle = value; q.history = nil; q.reorder() }
 
 // Enqueue selects an existing entry or inserts a new song after the current one.
-func (q *Queue) Enqueue(track huawei.Track) {
+func (q *Queue) Enqueue(track music.Track) {
 	for i, existing := range q.Tracks {
 		if existing.ID == track.ID {
 			q.Select(i)
@@ -57,7 +57,7 @@ func (q *Queue) Enqueue(track huawei.Track) {
 		}
 	}
 	index := min(max(0, q.Index+1), len(q.Tracks))
-	q.Tracks = append(q.Tracks, huawei.Track{})
+	q.Tracks = append(q.Tracks, music.Track{})
 	copy(q.Tracks[index+1:], q.Tracks[index:])
 	q.Tracks[index] = track
 	for i, entry := range q.order {
@@ -95,7 +95,7 @@ func (q *Queue) Remove(index int) bool {
 	q.Generation++
 	return current
 }
-func (q *Queue) Current() *huawei.Track {
+func (q *Queue) Current() *music.Track {
 	if q.Index < 0 || q.Index >= len(q.Tracks) {
 		return nil
 	}

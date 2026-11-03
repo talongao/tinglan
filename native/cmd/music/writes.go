@@ -6,8 +6,8 @@ import (
 
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 )
 
 var editPlaylistID = tree.ID(shell, "edit-description")
@@ -23,7 +23,6 @@ type writeResult struct {
 	err      error
 }
 type writeState struct {
-	writer       *huawei.Writer
 	writeBusy    bool
 	writeCancel  context.CancelFunc
 	writeResults []writeResult
@@ -33,22 +32,10 @@ type writeState struct {
 	writeView    flex.View
 }
 
-func (m *model) initWriter() {
-	if m.session == nil {
-		return
+func (m *model) toggleFavorite(track music.Track) {
+	if track.Source == "" {
+		track.Source = music.SourceHuawei
 	}
-	var save func(bool) error
-	var load func() (bool, error)
-	if m.accountStore != nil {
-		save = m.accountStore.SetCreationPending
-		load = m.accountStore.CreationPending
-	}
-	m.writer = huawei.NewWriter(huawei.NewClient(), m.session, save, load)
-	if m.accountStore != nil {
-		m.writer.WithCreationJournal(m.accountStore.LoadCreationIntent, m.accountStore.SaveCreationIntent)
-	}
-}
-func (m *model) toggleFavorite(track huawei.Track) {
 	if m.demo {
 		m.favoriteKnown[track.ID] = true
 		m.favoriteOff[track.ID] = !m.favoriteOff[track.ID]
@@ -71,7 +58,7 @@ func (m *model) toggleFavorite(track huawei.Track) {
 		return
 	}
 	judge, policy := m.matchJudge()
-	added, err := m.local.Add(context.Background(), huawei.MusicTrack(track), judge, policy)
+	added, err := m.local.Add(context.Background(), track, judge, policy)
 	if err != nil {
 		m.setStatus("加入本地收藏失败")
 		return
@@ -195,10 +182,11 @@ func (m *model) confirmWrite() {
 		}
 		return
 	}
-	if m.writer == nil {
+	manage := m.manageSource()
+	if manage == nil {
 		return
 	}
-	writer, epoch := m.writer, m.accountEpoch
+	epoch := m.accountEpoch
 	m.writeBusy = true
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	m.writeCancel = cancel
@@ -207,9 +195,9 @@ func (m *model) confirmWrite() {
 		var err error
 		switch kind {
 		case "description":
-			err = writer.UpdateDescription(ctx, id, text)
+			err = manage.UpdatePlaylistDescription(ctx, source.EntityRef{Source: music.SourceHuawei, Kind: "playlist", ID: id}, text)
 		case "delete":
-			err = writer.DeletePlaylist(ctx, id)
+			err = manage.DeletePlaylist(ctx, source.EntityRef{Source: music.SourceHuawei, Kind: "playlist", ID: id})
 		}
 		m.postWrite(writeResult{epoch: epoch, id: id, kind: kind, err: err})
 	}()
@@ -236,7 +224,7 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	} else if m.dialog == "clear-queue" {
 		m.text(c, "清空后当前播放会停止，播放历史与收藏不受影响。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
 	} else if m.dialog == "import-remote" {
-		name := m.remotePending.Title
+		name := m.remotePending.Name
 		m.text(c, "导入「"+name+"」为本机的只读副本。不会修改平台上的歌单，之后可随时删除。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
 	} else if m.dialog == "delete" {
 		m.text(c, "删除后无法撤销。仅删除当前选中的自建歌单。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())

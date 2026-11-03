@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
 // pollAudio keeps queue.Position at the live playhead, so when a new track is
@@ -47,7 +47,7 @@ func TestPlayCurrentResumesRestoredTrackOnly(t *testing.T) {
 
 	// Starting a different track afterwards must not inherit the offset.
 	other := m.tracks[2]
-	m.queue.Replace([]huawei.Track{other}, 0)
+	m.queue.Replace([]music.Track{other}, 0)
 	m.queue.Position = 42
 	m.playCurrent()
 	if m.pendingSeek != 0 {

@@ -20,9 +20,8 @@ import (
 	"errors"
 	"os"
 	"runtime/cgo"
+	"sync/atomic"
 	"unsafe"
-
-	"tinglan/native/internal/huawei"
 )
 
 type result struct {
@@ -39,24 +38,26 @@ type result struct {
 //
 // Never launch an external browser here: doing so can attach to the user's
 // running browser and close their tabs when the disposable session ends.
-func Authorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {
+func Authorize(ctx context.Context, flow Flow) (string, error) {
 	if os.Getenv("TINGLAN_AUTH_SYSTEM") == "" {
-		if raw, err, handled := webAuthorize(ctx, attempt); handled {
+		if raw, err, handled := webAuthorize(ctx, flow); handled {
 			return raw, err
 		}
 	}
-	return systemAuthorize(ctx, attempt)
+	return systemAuthorize(ctx, flow)
 }
 
 // webAuthorize returns handled=false when the embedded window cannot start, so
 // the caller falls back to the system sheet instead of failing the login.
-func webAuthorize(ctx context.Context, attempt *huawei.Attempt) (string, error, bool) {
+func webAuthorize(ctx context.Context, flow Flow) (string, error, bool) {
 	if err := ctx.Err(); err != nil {
 		return "", errors.New("authorization cancelled"), true
 	}
 	ch := make(chan result, 1)
 	handle := cgo.NewHandle(ch)
-	raw := C.CString(attempt.AuthorizeURL())
+	authFlow.Store(flowHolder{flow})
+	defer authFlow.Store(flowHolder{})
+	raw := C.CString(flow.AuthorizeURL())
 	session := C.hm_web_auth_start(raw, C.uintptr_t(handle))
 	C.free(unsafe.Pointer(raw))
 	if session == nil {
@@ -69,7 +70,7 @@ func webAuthorize(ctx context.Context, attempt *huawei.Attempt) (string, error, 
 		if r.status != 0 {
 			return "", errors.New("authorization cancelled"), true
 		}
-		if !huawei.IsCallback(r.url) {
+		if !flow.IsCallback(r.url) {
 			return "", errors.New("authorization callback rejected"), true
 		}
 		return r.url, nil, true
@@ -78,13 +79,15 @@ func webAuthorize(ctx context.Context, attempt *huawei.Attempt) (string, error, 
 	}
 }
 
-func systemAuthorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {
+func systemAuthorize(ctx context.Context, flow Flow) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", errors.New("authorization cancelled")
 	}
 	ch := make(chan result, 1)
 	handle := cgo.NewHandle(ch)
-	raw := C.CString(attempt.AuthorizeURL())
+	authFlow.Store(flowHolder{flow})
+	defer authFlow.Store(flowHolder{})
+	raw := C.CString(flow.AuthorizeURL())
 	session := C.hm_auth_start(raw, C.uintptr_t(handle))
 	C.free(unsafe.Pointer(raw))
 	defer C.hm_auth_close(session)
@@ -93,7 +96,7 @@ func systemAuthorize(ctx context.Context, attempt *huawei.Attempt) (string, erro
 		if r.status != 0 {
 			return "", errors.New("system browser authorization cancelled or unavailable")
 		}
-		if !huawei.IsCallback(r.url) {
+		if !flow.IsCallback(r.url) {
 			return "", errors.New("system browser callback rejected")
 		}
 		return r.url, nil
@@ -114,12 +117,21 @@ func hm_auth_complete(handle C.uintptr_t, raw *C.char, status C.int) {
 	h.Delete()
 }
 
+// flowHolder wraps the active flow so atomic.Value never stores a bare nil.
+type flowHolder struct{ flow Flow }
+
+// authFlow lets the Objective-C window ask the active flow whether a
+// navigation is still part of the login.
+var authFlow atomic.Value // always stores flowHolder
+
 //export hm_auth_allowed
 func hm_auth_allowed(raw *C.char) C.int {
-	if raw == nil {
+	holder, _ := authFlow.Load().(flowHolder)
+	if raw == nil || holder.flow == nil {
 		return 0
 	}
-	if huawei.AllowedLoginURL(C.GoString(raw)) {
+	active := holder.flow
+	if active.AllowedURL(C.GoString(raw)) {
 		return 1
 	}
 	return 0

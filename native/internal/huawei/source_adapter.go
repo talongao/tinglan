@@ -19,10 +19,11 @@ type SessionFunc func() *Session
 // contract. It is the only place where Huawei payloads become music.Track.
 type SourceAdapter struct {
 	client  *Client
-	session SessionFunc
+	session func() *source.Session
+	writer  *Writer
 }
 
-func NewSourceAdapter(client *Client, session SessionFunc) *SourceAdapter {
+func NewSourceAdapter(client *Client, session func() *source.Session) *SourceAdapter {
 	if client == nil {
 		client = NewClient()
 	}
@@ -30,6 +31,17 @@ func NewSourceAdapter(client *Client, session SessionFunc) *SourceAdapter {
 }
 
 func (a *SourceAdapter) ID() music.SourceID { return music.SourceHuawei }
+
+// ensureWriter lazily builds the provider writer. Listening reports and remote
+// playlist edits only need the session captured at call time.
+func (a *SourceAdapter) ensureWriter() *Writer {
+	if a.writer == nil {
+		if session := ProviderSession(a.sessionOrNil()); session != nil {
+			a.writer = NewWriter(a.client, session, nil, nil)
+		}
+	}
+	return a.writer
+}
 
 func (a *SourceAdapter) Capabilities() source.Capabilities {
 	return source.Capabilities{
@@ -39,27 +51,17 @@ func (a *SourceAdapter) Capabilities() source.Capabilities {
 	}
 }
 
-// Login is intentionally local and cheap: it reports whether a session is
-// present. Definitive expiry is discovered by Import/Resolve and surfaced with
-// source.KindLogin.
-func (a *SourceAdapter) Login(context.Context) (source.LoginState, error) {
-	session := a.currentSession()
-	if session == nil || session.token == "" || session.snsUserID == "" {
-		return source.LoginState{}, nil
-	}
-	return source.LoginState{LoggedIn: true, Account: "华为音乐账号"}, nil
-}
-
-// AccountKey is the stable, non-secret identity of the signed-in account.
-func (a *SourceAdapter) AccountKey() string {
-	session := a.currentSession()
-	if session == nil {
-		return ""
-	}
-	return session.AccountKey()
-}
-
+// currentSession converts the shell's neutral session into the provider form.
+// The adapter is the only place allowed to hold that conversion.
 func (a *SourceAdapter) currentSession() *Session {
+	if a == nil {
+		return nil
+	}
+	return ProviderSession(a.sessionOrNil())
+}
+
+// sessionOrNil returns the shell's neutral session, tolerating a nil getter.
+func (a *SourceAdapter) sessionOrNil() *source.Session {
 	if a == nil || a.session == nil {
 		return nil
 	}
@@ -228,33 +230,6 @@ func classify(op string, err error) error {
 
 // Search runs one page of the Huawei catalogue search and converts the rows to
 // the neutral track type. Search results have no canonical ID until collected.
-func (a *SourceAdapter) Search(ctx context.Context, request source.SearchRequest) (source.SearchPage, error) {
-	start := 0
-	if request.Cursor != "" {
-		value, err := strconv.Atoi(request.Cursor)
-		if err != nil || value < 0 {
-			return source.SearchPage{}, source.NewError(a.ID(), "search", source.KindProtocol, errors.New("invalid search cursor"))
-		}
-		start = value
-	}
-	limit := request.Limit
-	if limit <= 0 || limit > 50 {
-		limit = 20
-	}
-	page, err := a.client.Search(ctx, request.Query, start, limit)
-	if err != nil {
-		return source.SearchPage{}, classify("search", err)
-	}
-	out := make([]music.Track, 0, len(page.Tracks))
-	for _, track := range page.Tracks {
-		out = append(out, MusicTrack(track))
-	}
-	next := ""
-	if page.More && page.Next > start {
-		next = strconv.Itoa(page.Next)
-	}
-	return source.SearchPage{Tracks: out, Next: next}, nil
-}
 
 // TrackFromMusic converts a neutral Huawei-sourced track back into the legacy
 // Huawei entity used by the existing queue, list and playback code.

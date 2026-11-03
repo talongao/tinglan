@@ -242,3 +242,28 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 采用 Viva WindowCustomTitlebar，自绘背景与顶部拖动区，双击行为交框架；macOS 保留左侧系统红黄绿控件，Windows/Linux 使用 Viva 右侧最小化/最大化/还原/关闭控件。关闭仍遵守关闭到托盘设置。17 项 headless 布局覆盖歌单卡片、沉浸菜单与小窗；macOS 真实窗口操作及 Windows/Linux 桌面行为待验，合成图不等同实机验收。
 
 2026-11-03 第三轮 UX 修复与插件调研：移除收藏列表的列标题行（歌曲/专辑/交互提示）；专辑、歌手与歌单详情页改为整页滚动（此前只滚动固定高度的小列表区，歌单页还会被网格滚动分支拦截，表现为“点进去没法滚动”），新增 3 个到达末行的滚动回归测试；设置新增“高级”二级页，决策模型配置从“音源”迁出，音源页高度相应收缩；搜索结果增加“搜索范围：<已启用音源>”；播放器未知总时长显示 `--:--`，解码器报出时长后写回队列。插件化调研见 [SOURCE_PLUGIN_RESEARCH.md](SOURCE_PLUGIN_RESEARCH.md)：结论是 Go `plugin` 包不可用、当前阶段仍用进程内注册，外置进程适配器需等第二个真实音源落地后再评估。验证：`go build`、`go vet`、`go test ./...`、`tinglan-tool ui-check` 通过；macOS 真机抽查收藏页、专辑页滚动与“高级”设置页。Windows 未实机验证；未提交、未推送。
+
+2026-11-03 音源契约与插件方向定稿：用户确认“契约优先”，并同意外置音源走 JSON-RPC（登录由适配器实现、宿主提供受控 WebView 与不透明会话存储）。新增 [SOURCE_CONTRACT.md](SOURCE_CONTRACT.md) 与 [SOURCE_PLUGIN_PROTOCOL.md](SOURCE_PLUGIN_PROTOCOL.md)：统一 Source（Auth/Library/Catalog/Lyrics）、中立 `music.*` 类型与 `TrackRef`、不透明 cursor、终页 `complete`、稳定 `AccountKey` 与账号代次、错误分类扩展、宿主三种状态拆分；插件协议含帧格式、双向重入、`host.session/webview/auth.present`、manifest 与首次授权、故障与回收。前一段“外置进程适配器需等第二个真实音源落地后再评估”的结论已被本节取代。Astra 评审指出的现有硬约束（`dialogs.go` 搜索转回 `huawei.Track`、`source_adapter.go` 固定 `owned`、`library.go` 隐式账号标识、`resource.go` 华为域名白名单、`playback.go` 五分钟地址缓存）列入契约实施清单。本轮只写文档，未改代码；契约本身未提交、未推送。
+
+2026-11-03 契约冻结与第一步骨架：与 Astra 对等评审六轮后契约冻结（可冻结），关闭的争议包括 unknown 不映射为 expired、LoginRequired 只作入口提示、Succeeded/Persisted 拆分但保留「仅本次运行有效」状态机、`artistDetail` 需要 section 游标、详情 DTO 需 `Truncated`、写令牌改为宿主唯一签发并随 `source.auth.login` / `source.auth.persistSession` 下传、退出由宿主清空会话命名空间、播放解析三条顺序（绑定 import_seq → 单源 `TrackRef` → 无源身份报错）。代码第一步：`native/internal/source/contract.go` 新增完整 `Source`（Auth/Library/Catalog/Lyrics）、`Descriptor`/`Host`/`SessionStore`/`LoginUI`、`EntityRef`/详情 DTO/分页与错误类型；`music` 增加中立 `Playlist`、`PlaylistKind` 与 `Album`/`Artist` 封面字段；`native/internal/huawei/catalog.go` 让 `SourceAdapter` 实现完整 `Source`（`Describe`、`Auth` 的 Status/Verify、Catalog 六个方法、Lyrics 暂返回 unsupported），`var _ source.Source = (*SourceAdapter)(nil)` 编译期断言。`cmd/music` 尚未迁移，仍有 83 处 `huawei.` 直连，下一步按文件逐步替换为 Registry/Source，行为不变。验证：`go build ./...`、`go vet ./...`、`go test ./...`（22 个包）通过；未实机验证；未提交、未推送。
+
+2026-11-03 华为源功能迁移（第一大步）：模型、存储与读取链路改说中立类型。`music.Track` 增加 `CoverURLs`/`OnlySource`/`Collected` 与 `CoverCandidates`，新增中立 `music.Page`、`music.Detail`；`internal/storage/queue.go`、`internal/storage/collections.go`、`internal/storage/vault.go`、`internal/player/queue.go`、`internal/library/catalog.go` 改用 `music.*`，队列 v2 文件格式不变。`cmd/music` 的收藏、歌单、专辑/歌手详情、搜索、历史、封面与播放队列全部走 `source.Source`：详情经 `Catalog().AlbumDetail/ArtistDetail` 分页拉全，歌单与历史经 `Catalog()`，封面经 `Descriptor().ResourceDomains` 构造的 `resource.NewFor` 白名单，写操作（听歌上报、歌单简介/删除）经新增 `ManageSource`，错误按 `source.Error` 分类，不再直接引用 `huawei.ProviderError`。`source.Registry` 增加 `RegisterSource`/`Source`，与旧 Adapter 共用 id 空间。剩余 17 处 `huawei.` 全在登录链路（Session/Attempt/NewClient/ValidateSession）与 Writer 字段，是下一步。验证：`go build ./...`、`go vet ./...`、`go test ./...`、`tinglan-tool ui-check` 通过；`mac-app` 已重建。未实机验证；未提交、未推送。
+
+## 2026-11-03 华为源功能迁移（Source 契约收口）
+
+- `cmd/music` 已无 `internal/huawei` 引用：搜索、专辑/歌手详情、歌单、播放历史、封面、听歌上报、歌单简介/删除全部经 `source.Source`/`Registry`；
+  `grep -rn "internal/huawei" native/cmd/music` 为空（含测试）。
+- 登录链路收进适配器：`huawei.SourceAdapter.SignIn/CheckSession`（`internal/huawei/session_flow.go`）驱动 `webauth`，宿主只提供窗口与存储；
+  `webauth` 改为依赖中立的 `Flow` 接口，`internal/huawei/auth.go` 的 `*Attempt` 实现该接口。
+- 会话中立化：磁盘仍存平台格式（`huawei.SealSession/OpenSession`），运行时统一 `source.Session`；`storage/vault.go` 只在边界转换。
+- 新增 `internal/sources/builtin`：唯一装配 provider 实现的位置（`builtin.Huawei(func() *source.Session)`），shell 依赖 `builtin.Interactive`。
+- 新增契约测试 `internal/huawei/catalog_test.go`：搜索游标与分页、坏游标不发网络、专辑/歌手详情映射与 `Truncated`、
+  未登录三方法返回 `login`、`Manage` 无会话返回 `login`、`Verify` 401 → `expired`、`Status` 不发网络、歌词 `unsupported`、导入拒绝未知 collection。
+- 实机验证（macOS，1180×760，已登录账号）：我的收藏 944 首、搜索「周杰伦」返回结果、我的歌单与只读歌单详情、播放历史 6 条、
+  专辑「叶惠美」11 首、歌手「周杰伦」20 首、播放从 0:00 正常走到 4:29、设置→音源显示「华为音乐 音源 · 已启用 / 已登录」。
+- 门禁：`go build ./...`、`go vet ./...`、`go test ./...` 全绿；`tinglan-tool ui-check` exit 0、0 问题；`tinglan-tool mac-app` 重建并启动验证。
+- 第二轮迁移（2026-11-03 晚）：导入改为 `canonical.Library.Import(ctx, source.Source, collection, …)` + `Library().Import`，
+  播放解析改为 `Lookup.Source` + `Library().Resolve`；删除 `source.Adapter/Capabilities 旧接口/LoginState/SearchPage`
+  与 `Registry` 的 `Adapter` 桥，`Registry` 只维护 `Source`；`ImportRequest.RunID`、`ImportPage.RemoteDeleted` 进入契约。
+  门禁全绿（build/vet/test/ui-check），测试 fake 统一改用 `internal/source/sourcetest.Fake`。
+- 未完成：Windows 实机验证；外置插件 RPC 未实现。

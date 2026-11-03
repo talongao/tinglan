@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
 func readQueueDoc(t *testing.T, dir string) map[string]any {
@@ -26,9 +26,9 @@ func readQueueDoc(t *testing.T, dir string) map[string]any {
 func TestQueueWritesVersionTwoDocument(t *testing.T) {
 	dir := t.TempDir()
 	store := New(dir)
-	collected := huawei.Track{ID: strings.Repeat("a", 64), Title: "Collected", Collected: true}
-	transient := huawei.Track{ID: "song-42", Title: "Transient", OnlySource: "huawei"}
-	if err := store.SaveQueue(SavedQueue{Tracks: []huawei.Track{collected, transient}, Index: 1, Position: 12.5}); err != nil {
+	collected := music.Track{ID: strings.Repeat("a", 64), Title: "Collected", Collected: true}
+	transient := music.Track{ID: "song-42", Title: "Transient", OnlySource: "huawei"}
+	if err := store.SaveQueue(SavedQueue{Tracks: []music.Track{collected, transient}, Index: 1, Position: 12.5}); err != nil {
 		t.Fatal(err)
 	}
 	doc := readQueueDoc(t, dir)
@@ -58,7 +58,7 @@ func TestQueueWritesVersionTwoDocument(t *testing.T) {
 func TestQueueRoundTripsSourceRestrictionAndTransientRows(t *testing.T) {
 	dir := t.TempDir()
 	store := New(dir)
-	tracks := []huawei.Track{
+	tracks := []music.Track{
 		{ID: strings.Repeat("b", 64), Title: "Collected", Collected: true},
 		{ID: "song-7", Title: "Transient", OnlySource: "huawei"},
 	}
@@ -111,7 +111,7 @@ func TestLegacyQueueMigratesToVersionTwo(t *testing.T) {
 func TestNewFormatWinsOverStaleLegacyQueue(t *testing.T) {
 	dir := t.TempDir()
 	store := New(dir)
-	if err := store.SaveQueue(SavedQueue{Tracks: []huawei.Track{{ID: strings.Repeat("c", 64), Title: "Fresh", Collected: true}}}); err != nil {
+	if err := store.SaveQueue(SavedQueue{Tracks: []music.Track{{ID: strings.Repeat("c", 64), Title: "Fresh", Collected: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	stale := []byte(`{"tracks":[{"id":"old-1","title":"Stale"}],"index":0}`)
@@ -130,7 +130,7 @@ func TestNewFormatWinsOverStaleLegacyQueue(t *testing.T) {
 func TestClearQueueRemovesBothFormats(t *testing.T) {
 	dir := t.TempDir()
 	store := New(dir)
-	if err := store.SaveQueue(SavedQueue{Tracks: []huawei.Track{{ID: strings.Repeat("d", 64), Title: "Row", Collected: true}}}); err != nil {
+	if err := store.SaveQueue(SavedQueue{Tracks: []music.Track{{ID: strings.Repeat("d", 64), Title: "Row", Collected: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, legacyQueueFileName), []byte(`{"tracks":[]}`), 0o600); err != nil {

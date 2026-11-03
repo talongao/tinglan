@@ -27,6 +27,8 @@ type Collection struct {
 	ID string `json:"id,omitempty"`
 	// Name is a display label supplied by the provider.
 	Name string `json:"name,omitempty"`
+	// PlaylistKind classifies a "playlist" collection as owned|favorite|chart.
+	PlaylistKind music.PlaylistKind `json:"playlistKind,omitempty"`
 }
 
 // ImportRequest asks for one page of a collection.
@@ -36,6 +38,9 @@ type ImportRequest struct {
 	// from the beginning; callers must treat it as opaque.
 	Cursor string
 	Limit  int
+	// RunID identifies the whole snapshot attempt. Sources only use it for
+	// diagnostics; publishing is the caller's job.
+	RunID string
 }
 
 // ImportPage is one page of imported metadata.
@@ -46,6 +51,10 @@ type ImportPage struct {
 	// Partial reports that the page is usable but the provider signalled that
 	// more data exists and the caller should retry to get it.
 	Partial bool
+	// RemoteDeleted reports that the source verified the collection no longer
+	// exists. It is only valid on the last page of a normally completed run;
+	// a network error or an empty page must not set it.
+	RemoteDeleted bool
 }
 
 // Done reports whether the collection is exhausted.
@@ -57,25 +66,6 @@ type ResolveRequest struct {
 	// Quality is the user's preference ("standard", "lossless"). Sources may
 	// return a lower quality, but must report what they actually delivered.
 	Quality string
-}
-
-// Adapter is implemented once per music source.
-//
-// Implementations must be safe for concurrent use and must never persist or log
-// stream URLs, credentials or provider payloads.
-type Adapter interface {
-	// ID is the stable identifier persisted in the local library.
-	ID() music.SourceID
-	// Capabilities describes what this source supports right now. It must be
-	// static metadata: login state is reported by Login below, never here.
-	Capabilities() Capabilities
-	// Login reports whether the adapter currently holds a usable session. A
-	// source that needs no login returns true.
-	Login(ctx context.Context) (LoginState, error)
-	// Import returns one page of a collection.
-	Import(ctx context.Context, request ImportRequest) (ImportPage, error)
-	// Resolve returns a playable stream for one track.
-	Resolve(ctx context.Context, request ResolveRequest) (music.Playback, error)
 }
 
 // Capabilities is static: it describes what the adapter can do, not whether it
@@ -92,15 +82,6 @@ type Capabilities struct {
 	MaxPageSize int
 }
 
-// LoginState is the dynamic half of capability reporting.
-type LoginState struct {
-	LoggedIn bool
-	// Account is a display label only (never a credential).
-	Account string
-	// ExpiresAt is zero when the source does not expose expiry.
-	ExpiresAt string
-}
-
 // Kind classifies failures so the UI and resolver can react without inspecting
 // provider payloads.
 type Kind string
@@ -114,6 +95,11 @@ const (
 	KindUnsupported Kind = "unsupported"
 	KindCanceled    Kind = "canceled"
 	KindProtocol    Kind = "protocol"
+	// Contract v1 additions: the shell reacts to these without provider types.
+	KindAuthRequired Kind = "authRequired"
+	KindUnavailable  Kind = "unavailable"
+	KindInvalid      Kind = "invalid"
+	KindNetwork      Kind = "network"
 )
 
 // Error is the only error type adapters return. Err is kept for logs but must
@@ -167,40 +153,43 @@ func Retryable(err error) bool {
 // Registry holds the configured adapters in the order the user wants them
 // probed. It is safe for concurrent use.
 type Registry struct {
-	mu       sync.RWMutex
-	adapters map[music.SourceID]Adapter
-	order    []music.SourceID
+	mu      sync.RWMutex
+	sources map[music.SourceID]Source
+	order   []music.SourceID
 }
 
 func NewRegistry() *Registry {
-	return &Registry{adapters: make(map[music.SourceID]Adapter)}
+	return &Registry{sources: make(map[music.SourceID]Source)}
 }
 
-// Register adds an adapter. Registering the same id twice replaces the adapter
-// but keeps its position, so a settings change cannot reorder playback probes.
-func (r *Registry) Register(adapter Adapter) error {
-	if adapter == nil {
-		return errors.New("source: nil adapter")
+// RegisterSource adds a full-contract source. Legacy adapters and full sources
+// share one id space so the shell can migrate call sites incrementally.
+func (r *Registry) RegisterSource(src Source) error {
+	if src == nil {
+		return errors.New("source: nil source")
 	}
-	id := adapter.ID()
+	id := src.ID()
 	if !id.Valid() {
-		return fmt.Errorf("source: invalid adapter id %q", id)
+		return fmt.Errorf("source: invalid source id %q", id)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.adapters[id]; !exists {
+	if r.sources == nil {
+		r.sources = make(map[music.SourceID]Source)
+	}
+	if _, exists := r.sources[id]; !exists {
 		r.order = append(r.order, id)
 	}
-	r.adapters[id] = adapter
+	r.sources[id] = src
 	return nil
 }
 
-// Adapter returns the adapter for id.
-func (r *Registry) Adapter(id music.SourceID) (Adapter, bool) {
+// Source returns the full-contract source for id.
+func (r *Registry) Source(id music.SourceID) (Source, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	adapter, ok := r.adapters[id]
-	return adapter, ok
+	src, ok := r.sources[id]
+	return src, ok
 }
 
 // Order returns the registered source ids in probe order.
@@ -218,7 +207,7 @@ func (r *Registry) Reorder(order []music.SourceID) {
 	seen := make(map[music.SourceID]bool, len(order))
 	next := make([]music.SourceID, 0, len(r.order))
 	for _, id := range order {
-		if _, ok := r.adapters[id]; !ok || seen[id] {
+		if _, ok := r.sources[id]; !ok || seen[id] {
 			continue
 		}
 		seen[id] = true
@@ -232,13 +221,15 @@ func (r *Registry) Reorder(order []music.SourceID) {
 	r.order = next
 }
 
-// Adapters returns every registered adapter in probe order.
-func (r *Registry) Adapters() []Adapter {
+// SourceList returns registered contract sources in registration order.
+func (r *Registry) SourceList() []Source {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	out := make([]Adapter, 0, len(r.order))
+	out := make([]Source, 0, len(r.order))
 	for _, id := range r.order {
-		out = append(out, r.adapters[id])
+		if src, ok := r.sources[id]; ok {
+			out = append(out, src)
+		}
 	}
 	return out
 }
@@ -255,25 +246,4 @@ type SearchRequest struct {
 	Query  string
 	Cursor string
 	Limit  int
-}
-
-// SearchPage is one page of search results. Next is empty on the last page.
-type SearchPage struct {
-	Tracks []music.Track
-	Next   string
-}
-
-// Searcher is implemented by adapters that can search their own catalogue.
-// Search stays out of Adapter so a source can be import/resolve only.
-type Searcher interface {
-	Search(ctx context.Context, request SearchRequest) (SearchPage, error)
-}
-
-// Search runs one page against the adapter when it supports searching.
-func Search(ctx context.Context, adapter Adapter, request SearchRequest) (SearchPage, error) {
-	searcher, ok := adapter.(Searcher)
-	if !ok {
-		return SearchPage{}, NewError(adapter.ID(), "search", KindUnsupported, errors.New("source cannot search"))
-	}
-	return searcher.Search(ctx, request)
 }

@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/source"
 )
 
 func TestFailedAndStaleLoginPreserveCurrentSession(t *testing.T) {
-	old := &huawei.Session{}
+	old := &source.Session{}
 	m := &model{session: old, generation: 2, busy: true}
-	m.pending = []completion{{generation: 1, session: &huawei.Session{}}}
+	m.pending = []completion{{generation: 1, session: &source.Session{}}}
 	m.wake()
 	if m.session != old || !m.busy {
 		t.Fatal("stale login changed current state")
@@ -23,7 +23,7 @@ func TestFailedAndStaleLoginPreserveCurrentSession(t *testing.T) {
 		t.Fatal("failed login cleared current session")
 	}
 	m.generation++
-	m.pending = []completion{{generation: 3, session: &huawei.Session{}}}
+	m.pending = []completion{{generation: 3, session: &source.Session{}}}
 	m.wake()
 	if m.session == old {
 		t.Fatal("validated candidate was not installed")
@@ -33,17 +33,13 @@ func TestFailedAndStaleLoginPreserveCurrentSession(t *testing.T) {
 func TestCancelDoesNotExchangeOrReplaceSession(t *testing.T) {
 	started := make(chan struct{})
 	done := make(chan struct{})
-	old := &huawei.Session{}
+	old := &source.Session{}
 	m := &model{session: old,
-		authorize: func(ctx context.Context, _ *huawei.Attempt) (string, error) {
+		signIn: func(ctx context.Context) (*source.Session, error) {
 			close(started)
 			<-ctx.Done()
 			close(done)
-			return "", ctx.Err()
-		},
-		exchange: func(context.Context, *huawei.Attempt) (*huawei.Session, error) {
-			t.Error("exchanged cancelled attempt")
-			return nil, errors.New("unexpected exchange")
+			return nil, ctx.Err()
 		},
 	}
 	m.startLogin()
@@ -94,10 +90,10 @@ func TestExplicitLoginSupersedesSessionRestoration(t *testing.T) {
 	cancelled := false
 	m.cancel = func() { cancelled = true }
 	started := make(chan struct{})
-	m.authorize = func(ctx context.Context, _ *huawei.Attempt) (string, error) {
+	m.signIn = func(ctx context.Context) (*source.Session, error) {
 		close(started)
 		<-ctx.Done()
-		return "", ctx.Err()
+		return nil, ctx.Err()
 	}
 	m.startLogin()
 	<-started

@@ -16,9 +16,9 @@ import (
 	"tinglan/native/internal/source"
 )
 
-// Lookup resolves a source id to its adapter.
+// Lookup resolves a source id to its registered source.
 type Lookup interface {
-	Adapter(music.SourceID) (source.Adapter, bool)
+	Source(music.SourceID) (source.Source, bool)
 }
 
 // Attempt records one probe so the UI can explain why a source was skipped.
@@ -73,13 +73,13 @@ func (r *Resolver) Resolve(ctx context.Context, track music.CanonicalTrack, qual
 			lastErr = source.NewError(link.Source, "resolve", source.KindUnsupported, errors.New("source binding is disabled"))
 			continue
 		}
-		adapter, ok := r.lookup.Adapter(link.Source)
+		src, ok := r.lookup.Source(link.Source)
 		if !ok {
 			result.Attempts = append(result.Attempts, Attempt{Source: link.Source, ID: link.TrackID, Err: fmt.Errorf("source %q is not configured", link.Source)})
 			lastErr = source.NewError(link.Source, "resolve", source.KindUnsupported, errors.New("source is not configured"))
 			continue
 		}
-		playback, err := adapter.Resolve(ctx, source.ResolveRequest{Track: link.Track(), Quality: quality})
+		playback, err := src.Library().Resolve(ctx, source.ResolveRequest{Track: link.Track(), Quality: quality})
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return Result{}, ctxErr

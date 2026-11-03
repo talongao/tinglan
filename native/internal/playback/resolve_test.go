@@ -9,36 +9,43 @@ import (
 	"tinglan/native/internal/source"
 )
 
-type stubAdapter struct {
+type stubSource struct {
+	// Embedded contract is never called directly by the resolver; only the
+	// methods below are used.
+	source.Source
 	id      music.SourceID
 	results map[string]music.Playback
 	errs    map[string]error
 	calls   []string
 }
 
-func (s *stubAdapter) ID() music.SourceID { return s.id }
-func (s *stubAdapter) Capabilities() source.Capabilities {
-	return source.Capabilities{Resolve: true}
+func (s *stubSource) ID() music.SourceID { return s.id }
+
+func (s *stubSource) Describe() source.Descriptor {
+	return source.Descriptor{SchemaVersion: 1, ID: s.id, Capabilities: source.Capabilities{Resolve: true}}
 }
-func (s *stubAdapter) Login(context.Context) (source.LoginState, error) {
-	return source.LoginState{LoggedIn: true}, nil
-}
-func (s *stubAdapter) Import(context.Context, source.ImportRequest) (source.ImportPage, error) {
+
+func (s *stubSource) Library() source.LibrarySource { return stubLibrary{s} }
+
+type stubLibrary struct{ s *stubSource }
+
+func (l stubLibrary) Import(context.Context, source.ImportRequest) (source.ImportPage, error) {
 	return source.ImportPage{}, nil
 }
-func (s *stubAdapter) Resolve(_ context.Context, req source.ResolveRequest) (music.Playback, error) {
-	s.calls = append(s.calls, string(req.Track.Source)+":"+req.Track.ID)
-	if err := s.errs[req.Track.ID]; err != nil {
+
+func (l stubLibrary) Resolve(_ context.Context, req source.ResolveRequest) (music.Playback, error) {
+	l.s.calls = append(l.s.calls, string(req.Track.Source)+":"+req.Track.ID)
+	if err := l.s.errs[req.Track.ID]; err != nil {
 		return music.Playback{}, err
 	}
-	return s.results[req.Track.ID], nil
+	return l.s.results[req.Track.ID], nil
 }
 
-type lookup map[music.SourceID]source.Adapter
+type lookup map[music.SourceID]source.Source
 
-func (l lookup) Adapter(id music.SourceID) (source.Adapter, bool) {
-	adapter, ok := l[id]
-	return adapter, ok
+func (l lookup) Source(id music.SourceID) (source.Source, bool) {
+	src, ok := l[id]
+	return src, ok
 }
 
 func link(sourceID music.SourceID, id string, seq int64) music.SourceLink {
@@ -50,10 +57,10 @@ func row(links ...music.SourceLink) music.CanonicalTrack {
 }
 
 func TestFirstFullInImportOrderWins(t *testing.T) {
-	first := &stubAdapter{id: music.SourceHuawei, results: map[string]music.Playback{
+	first := &stubSource{id: music.SourceHuawei, results: map[string]music.Playback{
 		"h1": {URL: "https://a/1", Access: music.AccessFull, Quality: "lossless"},
 	}}
-	second := &stubAdapter{id: music.SourceNetEase, results: map[string]music.Playback{
+	second := &stubSource{id: music.SourceNetEase, results: map[string]music.Playback{
 		"n1": {URL: "https://b/1", Access: music.AccessFull, Quality: "standard"},
 	}}
 	resolver := New(lookup{music.SourceHuawei: first, music.SourceNetEase: second})
@@ -70,10 +77,10 @@ func TestFirstFullInImportOrderWins(t *testing.T) {
 }
 
 func TestPreviewSkippedForLaterFull(t *testing.T) {
-	first := &stubAdapter{id: music.SourceHuawei, results: map[string]music.Playback{
+	first := &stubSource{id: music.SourceHuawei, results: map[string]music.Playback{
 		"h1": {URL: "https://a/1", Access: music.AccessPreview, Quality: "standard"},
 	}}
-	second := &stubAdapter{id: music.SourceNetEase, results: map[string]music.Playback{
+	second := &stubSource{id: music.SourceNetEase, results: map[string]music.Playback{
 		"n1": {URL: "https://b/1", Access: music.AccessFull, Quality: "standard"},
 	}}
 	resolver := New(lookup{music.SourceHuawei: first, music.SourceNetEase: second})
@@ -90,10 +97,10 @@ func TestPreviewSkippedForLaterFull(t *testing.T) {
 }
 
 func TestAllPreviewPlaysEarliest(t *testing.T) {
-	first := &stubAdapter{id: music.SourceHuawei, results: map[string]music.Playback{
+	first := &stubSource{id: music.SourceHuawei, results: map[string]music.Playback{
 		"h1": {URL: "https://a/1", Access: music.AccessPreview},
 	}}
-	second := &stubAdapter{id: music.SourceNetEase, results: map[string]music.Playback{
+	second := &stubSource{id: music.SourceNetEase, results: map[string]music.Playback{
 		"n1": {URL: "https://b/1", Access: music.AccessPreview},
 	}}
 	resolver := New(lookup{music.SourceHuawei: first, music.SourceNetEase: second})
@@ -107,10 +114,10 @@ func TestAllPreviewPlaysEarliest(t *testing.T) {
 }
 
 func TestUnknownBeatsPreviewButNotFull(t *testing.T) {
-	first := &stubAdapter{id: music.SourceHuawei, results: map[string]music.Playback{
+	first := &stubSource{id: music.SourceHuawei, results: map[string]music.Playback{
 		"h1": {URL: "https://a/1", Access: music.AccessPreview},
 	}}
-	second := &stubAdapter{id: music.SourceNetEase, results: map[string]music.Playback{
+	second := &stubSource{id: music.SourceNetEase, results: map[string]music.Playback{
 		"n1": {URL: "https://b/1", Access: music.AccessUnknown},
 	}}
 	resolver := New(lookup{music.SourceHuawei: first, music.SourceNetEase: second})
@@ -124,8 +131,8 @@ func TestUnknownBeatsPreviewButNotFull(t *testing.T) {
 }
 
 func TestErrorsContinueAndAggregate(t *testing.T) {
-	first := &stubAdapter{id: music.SourceHuawei, errs: map[string]error{"h1": source.NewError(music.SourceHuawei, "resolve", source.KindRateLimit, errors.New("slow down"))}}
-	second := &stubAdapter{id: music.SourceNetEase, results: map[string]music.Playback{
+	first := &stubSource{id: music.SourceHuawei, errs: map[string]error{"h1": source.NewError(music.SourceHuawei, "resolve", source.KindRateLimit, errors.New("slow down"))}}
+	second := &stubSource{id: music.SourceNetEase, results: map[string]music.Playback{
 		"n1": {URL: "https://b/1", Access: music.AccessFull},
 	}}
 	resolver := New(lookup{music.SourceHuawei: first, music.SourceNetEase: second})
@@ -142,7 +149,7 @@ func TestErrorsContinueAndAggregate(t *testing.T) {
 }
 
 func TestAllFailReturnsError(t *testing.T) {
-	first := &stubAdapter{id: music.SourceHuawei, errs: map[string]error{"h1": errors.New("boom")}}
+	first := &stubSource{id: music.SourceHuawei, errs: map[string]error{"h1": errors.New("boom")}}
 	resolver := New(lookup{music.SourceHuawei: first})
 	_, err := resolver.Resolve(context.Background(), row(link(music.SourceHuawei, "h1", 1)), "standard")
 	if err == nil {
@@ -168,10 +175,10 @@ func TestEmptyRowIsNoSource(t *testing.T) {
 func TestImportOrderNotSourceOrder(t *testing.T) {
 	// NetEase was imported first, so it must be probed first even though
 	// Huawei is registered first in the lookup.
-	net := &stubAdapter{id: music.SourceNetEase, results: map[string]music.Playback{
+	net := &stubSource{id: music.SourceNetEase, results: map[string]music.Playback{
 		"n1": {URL: "https://b/1", Access: music.AccessFull},
 	}}
-	huawei := &stubAdapter{id: music.SourceHuawei, results: map[string]music.Playback{
+	huawei := &stubSource{id: music.SourceHuawei, results: map[string]music.Playback{
 		"h1": {URL: "https://a/1", Access: music.AccessFull},
 	}}
 	resolver := New(lookup{music.SourceHuawei: huawei, music.SourceNetEase: net})
@@ -187,14 +194,14 @@ func TestImportOrderNotSourceOrder(t *testing.T) {
 func TestCancelStopsProbing(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	resolver := New(lookup{music.SourceHuawei: &stubAdapter{id: music.SourceHuawei}})
+	resolver := New(lookup{music.SourceHuawei: &stubSource{id: music.SourceHuawei}})
 	if _, err := resolver.Resolve(ctx, row(link(music.SourceHuawei, "h1", 1)), "standard"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
 func TestDisabledBindingIsSkipped(t *testing.T) {
-	adapter := &stubAdapter{id: music.SourceHuawei, results: map[string]music.Playback{
+	adapter := &stubSource{id: music.SourceHuawei, results: map[string]music.Playback{
 		"h1": {URL: "https://a/1", Access: music.AccessFull},
 		"h2": {URL: "https://a/2", Access: music.AccessFull},
 	}}

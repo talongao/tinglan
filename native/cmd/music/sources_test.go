@@ -4,16 +4,15 @@ import (
 	"strings"
 	"testing"
 
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/music"
 )
 
 func TestFavoriteButtonAddsAndRemovesLocalRow(t *testing.T) {
 	m := newModel()
 	m.openProfile(t.TempDir())
-	track := huawei.Track{
+	track := music.Track{
 		ID: "hw-1", Title: "测试歌曲",
-		Artists: []huawei.Artist{{ID: "a1", Name: "测试歌手"}},
+		Artists: []music.Artist{{ID: "a1", Name: "测试歌手"}},
 	}
 	m.toggleFavorite(track)
 	if m.local == nil || m.local.Len() != 1 || len(m.tracks) != 1 {
@@ -34,7 +33,7 @@ func TestFavoriteButtonAddsAndRemovesLocalRow(t *testing.T) {
 func TestLogoutKeepsLocalFavorites(t *testing.T) {
 	m := newModel()
 	m.openProfile(t.TempDir())
-	m.toggleFavorite(huawei.Track{ID: "hw-keep", Title: "退出后仍在"})
+	m.toggleFavorite(music.Track{ID: "hw-keep", Title: "退出后仍在"})
 	if m.local.Len() != 1 {
 		t.Fatal("setup failed")
 	}

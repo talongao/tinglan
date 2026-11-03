@@ -4,8 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
 // Queue file names. The v2 document carries a stable track id plus the source
@@ -21,21 +22,21 @@ const (
 // SavedQueue is the in-memory queue. Callers keep using Tracks so the queue
 // stays a plain list of playable rows; the v2 document is built around them.
 type SavedQueue struct {
-	Tracks   []huawei.Track `json:"tracks"`
-	Index    int            `json:"index"`
-	Position float64        `json:"positionSeconds"`
+	Tracks   []music.Track `json:"tracks"`
+	Index    int           `json:"index"`
+	Position float64       `json:"positionSeconds"`
 }
 
 func (q *SavedQueue) Sanitize() {
 	if len(q.Tracks) > 10000 {
 		q.Tracks = q.Tracks[:10000]
 	}
-	filtered := make([]huawei.Track, 0, len(q.Tracks))
+	filtered := make([]music.Track, 0, len(q.Tracks))
 	for _, track := range q.Tracks {
 		if track.ID == "" || len(track.ID) > 200 || track.Title == "" {
 			continue
 		}
-		if !huawei.SafeResourceURL(track.CoverURL) {
+		if !strings.HasPrefix(track.CoverURL, "https://") {
 			track.CoverURL = ""
 		}
 		filtered = append(filtered, track)
@@ -48,7 +49,12 @@ func (q *SavedQueue) Sanitize() {
 // sourceForTrack reports the platform a transient queue entry came from. The
 // queue only ever holds Huawei tracks today; the helper keeps the field honest
 // if another adapter starts filling it.
-func sourceForTrack(huawei.Track) string { return "huawei" }
+func sourceForTrack(track music.Track) string {
+	if track.Source != "" {
+		return string(track.Source)
+	}
+	return "huawei"
+}
 
 // queueSourceRef names one platform binding of a queue entry.
 type queueSourceRef struct {
@@ -62,8 +68,8 @@ type queueSourceRef struct {
 type queueItem struct {
 	TrackID    string           `json:"trackId,omitempty"`
 	Title      string           `json:"title"`
-	Artists    []huawei.Artist  `json:"artists,omitempty"`
-	Album      *huawei.Album    `json:"album,omitempty"`
+	Artists    []music.Artist   `json:"artists,omitempty"`
+	Album      *music.Album     `json:"album,omitempty"`
 	CoverURL   string           `json:"coverUrl,omitempty"`
 	Duration   *float64         `json:"durationSeconds,omitempty"`
 	OnlySource string           `json:"onlySource,omitempty"`
@@ -123,12 +129,12 @@ func (s *Store) ClearQueue() error {
 	return firstErr
 }
 
-func itemsFromTracks(tracks []huawei.Track) []queueItem {
+func itemsFromTracks(tracks []music.Track) []queueItem {
 	items := make([]queueItem, 0, len(tracks))
 	for _, track := range tracks {
 		item := queueItem{
 			Title: track.Title, Artists: track.Artists, Album: track.Album,
-			CoverURL: track.CoverURL, Duration: track.Duration, OnlySource: track.OnlySource,
+			CoverURL: track.CoverURL, Duration: track.Duration, OnlySource: string(track.OnlySource),
 		}
 		// A collected row carries the stable local id; anything else keeps the
 		// platform id as its single source ref so it can still be re-resolved.
@@ -142,8 +148,8 @@ func itemsFromTracks(tracks []huawei.Track) []queueItem {
 	return items
 }
 
-func tracksFromItems(items []queueItem) []huawei.Track {
-	tracks := make([]huawei.Track, 0, len(items))
+func tracksFromItems(items []queueItem) []music.Track {
+	tracks := make([]music.Track, 0, len(items))
 	for _, item := range items {
 		id, collected := item.TrackID, true
 		if id == "" && len(item.Sources) == 1 {
@@ -152,10 +158,10 @@ func tracksFromItems(items []queueItem) []huawei.Track {
 		if id == "" {
 			continue
 		}
-		tracks = append(tracks, huawei.Track{
+		tracks = append(tracks, music.Track{
 			ID: id, Title: item.Title, Artists: item.Artists, Album: item.Album,
 			CoverURL: item.CoverURL, Duration: item.Duration,
-			OnlySource: item.OnlySource, Collected: collected,
+			OnlySource: music.SourceID(item.OnlySource), Collected: collected,
 		})
 	}
 	return tracks

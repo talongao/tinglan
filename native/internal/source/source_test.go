@@ -8,66 +8,56 @@ import (
 	"tinglan/native/internal/music"
 )
 
-type fakeAdapter struct {
+type fakeSource struct {
+	// Only ID is used by the registry tests; the rest is never called.
+	Source
 	id   music.SourceID
 	page ImportPage
 	err  error
 }
 
-func (f fakeAdapter) ID() music.SourceID { return f.id }
-func (f fakeAdapter) Capabilities() Capabilities {
-	return Capabilities{Import: true, Resolve: true}
-}
-func (f fakeAdapter) Login(context.Context) (LoginState, error) {
-	return LoginState{LoggedIn: true}, nil
-}
-func (f fakeAdapter) Import(context.Context, ImportRequest) (ImportPage, error) {
-	return f.page, f.err
-}
-func (f fakeAdapter) Resolve(context.Context, ResolveRequest) (music.Playback, error) {
-	return music.Playback{URL: "https://cdn.example/a"}, nil
-}
+func (f fakeSource) ID() music.SourceID { return f.id }
 
 func TestRegistryPreservesRegistrationOrder(t *testing.T) {
 	registry := NewRegistry()
-	if err := registry.Register(fakeAdapter{id: music.SourceHuawei}); err != nil {
+	if err := registry.RegisterSource(fakeSource{id: music.SourceHuawei}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.Register(fakeAdapter{id: music.SourceNetEase}); err != nil {
+	if err := registry.RegisterSource(fakeSource{id: music.SourceNetEase}); err != nil {
 		t.Fatal(err)
 	}
 	order := registry.Order()
 	if len(order) != 2 || order[0] != music.SourceHuawei || order[1] != music.SourceNetEase {
 		t.Fatalf("order = %v", order)
 	}
-	if _, ok := registry.Adapter(music.SourceNetEase); !ok {
-		t.Fatal("adapter missing")
+	if _, ok := registry.Source(music.SourceNetEase); !ok {
+		t.Fatal("source missing")
 	}
-	if adapters := registry.Adapters(); len(adapters) != 2 {
-		t.Fatalf("adapters = %d", len(adapters))
+	if sources := registry.SourceList(); len(sources) != 2 {
+		t.Fatalf("sources = %d", len(sources))
 	}
 }
 
 func TestRegistryReplaceKeepsPosition(t *testing.T) {
 	registry := NewRegistry()
-	registry.Register(fakeAdapter{id: music.SourceHuawei})
-	registry.Register(fakeAdapter{id: music.SourceNetEase})
-	registry.Register(fakeAdapter{id: music.SourceHuawei})
+	registry.RegisterSource(fakeSource{id: music.SourceHuawei})
+	registry.RegisterSource(fakeSource{id: music.SourceNetEase})
+	registry.RegisterSource(fakeSource{id: music.SourceHuawei})
 	order := registry.Order()
 	if len(order) != 2 || order[0] != music.SourceHuawei {
 		t.Fatalf("replace changed order: %v", order)
 	}
 }
 
-func TestRegistryRejectsInvalidAdapters(t *testing.T) {
+func TestRegistryRejectsInvalidSources(t *testing.T) {
 	registry := NewRegistry()
-	if err := registry.Register(nil); err == nil {
-		t.Fatal("nil adapter accepted")
+	if err := registry.RegisterSource(nil); err == nil {
+		t.Fatal("nil source accepted")
 	}
-	if err := registry.Register(fakeAdapter{id: ""}); err == nil {
+	if err := registry.RegisterSource(fakeSource{id: ""}); err == nil {
 		t.Fatal("empty id accepted")
 	}
-	if err := registry.Register(fakeAdapter{id: "bad/id"}); err == nil {
+	if err := registry.RegisterSource(fakeSource{id: "bad/id"}); err == nil {
 		t.Fatal("invalid id accepted")
 	}
 }
@@ -75,7 +65,7 @@ func TestRegistryRejectsInvalidAdapters(t *testing.T) {
 func TestRegistryReorderIgnoresUnknownAndKeepsRest(t *testing.T) {
 	registry := NewRegistry()
 	for _, id := range []music.SourceID{music.SourceHuawei, music.SourceNetEase, "third"} {
-		registry.Register(fakeAdapter{id: id})
+		registry.RegisterSource(fakeSource{id: id})
 	}
 	registry.Reorder([]music.SourceID{"third", "unknown", music.SourceHuawei, "third"})
 	order := registry.Order()

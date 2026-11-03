@@ -14,7 +14,7 @@ import (
 )
 
 func adapterWith(session *Session, transport func(*http.Request) (*http.Response, error)) *SourceAdapter {
-	return NewSourceAdapter(newClient(transportFunc(transport)), func() *Session { return session })
+	return NewSourceAdapter(newClient(transportFunc(transport)), func() *source.Session { return NeutralSession(session) })
 }
 
 func TestSourceAdapterIdentityAndCapabilities(t *testing.T) {
@@ -34,23 +34,23 @@ func TestSourceAdapterIdentityAndCapabilities(t *testing.T) {
 	}
 }
 
-func TestSourceAdapterLoginIsLocal(t *testing.T) {
+func TestSourceAdapterAuthStatusIsLocal(t *testing.T) {
 	adapter := adapterWith(nil, func(*http.Request) (*http.Response, error) {
-		t.Fatal("login must not perform network calls")
+		t.Fatal("status must not perform network calls")
 		return nil, nil
 	})
-	state, err := adapter.Login(context.Background())
-	if err != nil || state.LoggedIn {
-		t.Fatalf("signed-out login = %+v, %v", state, err)
+	status, err := adapter.Auth().Status(context.Background())
+	if err != nil || status.State != source.AuthSignedOut {
+		t.Fatalf("signed-out status = %+v, %v", status, err)
 	}
 
-	signedIn := adapterWith(&Session{token: "t", snsUserID: "u"}, func(*http.Request) (*http.Response, error) {
-		t.Fatal("login must not perform network calls")
+	signedIn := adapterWith(&Session{token: "t", snsUserID: "owner"}, func(*http.Request) (*http.Response, error) {
+		t.Fatal("status must not perform network calls")
 		return nil, nil
 	})
-	state, err = signedIn.Login(context.Background())
-	if err != nil || !state.LoggedIn || state.Account == "" {
-		t.Fatalf("signed-in login = %+v, %v", state, err)
+	status, err = signedIn.Auth().Status(context.Background())
+	if err != nil || status.State != source.AuthSignedIn || status.AccountKey == "" || status.DisplayName == "" {
+		t.Fatalf("signed-in status = %+v, %v", status, err)
 	}
 }
 

@@ -1,13 +1,13 @@
 package player
 
 import (
-	"tinglan/native/internal/huawei"
 	"testing"
+	"tinglan/native/internal/music"
 )
 
 func TestQueueModesAndDuplicates(t *testing.T) {
 	q := Queue{Mode: "off"}
-	q.Replace([]huawei.Track{{ID: "same"}, {ID: "same"}, {ID: "third"}}, 0)
+	q.Replace([]music.Track{{ID: "same"}, {ID: "same"}, {ID: "third"}}, 0)
 	if !q.Step(1, false) || q.Index != 1 {
 		t.Fatal("duplicate item collapsed")
 	}
@@ -30,7 +30,7 @@ func TestQueueModesAndDuplicates(t *testing.T) {
 }
 func TestShuffleRetainsActiveAndPrevious(t *testing.T) {
 	q := Queue{}
-	q.Replace([]huawei.Track{{ID: "a"}, {ID: "b"}, {ID: "c"}}, 1)
+	q.Replace([]music.Track{{ID: "a"}, {ID: "b"}, {ID: "c"}}, 1)
 	q.SetShuffle(true)
 	if q.Current().ID != "b" {
 		t.Fatal("shuffle replaced current")
@@ -53,21 +53,21 @@ func TestShuffleRetainsActiveAndPrevious(t *testing.T) {
 func TestEnqueuePreservesQueueAndTraversal(t *testing.T) {
 	for _, shuffle := range []bool{false, true} {
 		q := Queue{Mode: "all", Shuffle: shuffle}
-		q.Replace([]huawei.Track{{ID: "a"}, {ID: "b"}, {ID: "c"}}, 1)
-		q.Enqueue(huawei.Track{ID: "new"})
+		q.Replace([]music.Track{{ID: "a"}, {ID: "b"}, {ID: "c"}}, 1)
+		q.Enqueue(music.Track{ID: "new"})
 		if len(q.Tracks) != 4 || q.Current().ID != "new" || q.Tracks[0].ID != "a" || q.Tracks[1].ID != "b" || q.Tracks[3].ID != "c" {
 			t.Fatal("existing queue replaced", q.Tracks)
 		}
 		if !q.Step(-1, false) || q.Current().ID != "b" {
 			t.Fatal("previous song lost")
 		}
-		q.Enqueue(huawei.Track{ID: "new"})
+		q.Enqueue(music.Track{ID: "new"})
 		if len(q.Tracks) != 4 || q.Current().ID != "new" {
 			t.Fatal("duplicate enqueued")
 		}
 	}
 	q := Queue{}
-	q.Enqueue(huawei.Track{ID: "first"})
+	q.Enqueue(music.Track{ID: "first"})
 	if q.Current() == nil || q.Current().ID != "first" {
 		t.Fatal("empty queue not initialized")
 	}

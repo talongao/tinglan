@@ -14,27 +14,56 @@ import (
 )
 
 type pageAdapter struct {
+	// Only ID/Describe/Auth/Library are used by the import pipeline.
+	source.Source
 	id    music.SourceID
 	pages []source.ImportPage
 	calls int
 }
 
 func (a *pageAdapter) ID() music.SourceID { return a.id }
-func (a *pageAdapter) Capabilities() source.Capabilities {
-	return source.Capabilities{Import: true, MaxPageSize: 50, Collections: []source.Collection{{Kind: "favorites", Name: "我的收藏"}}}
+
+func (a *pageAdapter) Describe() source.Descriptor {
+	return source.Descriptor{
+		SchemaVersion: 1,
+		ID:            a.id,
+		Capabilities: source.Capabilities{
+			Import: true, MaxPageSize: 50,
+			Collections: []source.Collection{{Kind: "favorites", Name: "我的收藏"}},
+		},
+	}
 }
-func (a *pageAdapter) Login(context.Context) (source.LoginState, error) {
-	return source.LoginState{LoggedIn: true}, nil
+
+func (a *pageAdapter) Auth() source.AuthSource { return pageAuth{} }
+
+func (a *pageAdapter) Library() source.LibrarySource { return pageLibrary{a} }
+
+type pageAuth struct{}
+
+func (pageAuth) Status(context.Context) (source.AuthStatus, error) {
+	return source.AuthStatus{State: source.AuthSignedIn}, nil
 }
-func (a *pageAdapter) Import(context.Context, source.ImportRequest) (source.ImportPage, error) {
-	if a.calls >= len(a.pages) {
+func (a pageAuth) Verify(ctx context.Context) (source.AuthStatus, error) { return a.Status(ctx) }
+func (pageAuth) Login(context.Context, source.LoginRequest) (source.AuthResult, error) {
+	return source.AuthResult{Succeeded: true}, nil
+}
+func (pageAuth) PersistSession(context.Context, source.PersistRequest) (bool, error) {
+	return true, nil
+}
+func (pageAuth) Logout(context.Context) error { return nil }
+
+type pageLibrary struct{ a *pageAdapter }
+
+func (l pageLibrary) Import(context.Context, source.ImportRequest) (source.ImportPage, error) {
+	if l.a.calls >= len(l.a.pages) {
 		return source.ImportPage{}, errors.New("unexpected import call")
 	}
-	page := a.pages[a.calls]
-	a.calls++
+	page := l.a.pages[l.a.calls]
+	l.a.calls++
 	return page, nil
 }
-func (a *pageAdapter) Resolve(context.Context, source.ResolveRequest) (music.Playback, error) {
+
+func (l pageLibrary) Resolve(context.Context, source.ResolveRequest) (music.Playback, error) {
 	return music.Playback{}, errors.New("not used")
 }
 
@@ -79,13 +108,13 @@ func TestImportMergesAcrossSourcesAndPreservesOrder(t *testing.T) {
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		page(track("h1", "七里香", 299), track("h2", "晴天", 269)),
 	}}
-	if _, err := library.Import(context.Background(), first, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), first, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	second := &pageAdapter{id: music.SourceNetEase, pages: []source.ImportPage{
 		page(netTrack("n1", "七里香", 299), netTrack("n2", "以父之名", 342)),
 	}}
-	if _, err := library.Import(context.Background(), second, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), second, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	rows := library.Snapshot()
@@ -112,13 +141,13 @@ func TestReimportRefreshesMetadataWithoutNewSeq(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	before := library.ImportSeq()
 	updated := track("h1", "七里香 (Remastered)", 300)
 	adapter = &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(updated)}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if library.ImportSeq() != before {
@@ -143,14 +172,14 @@ func TestJevOnlyCalledForGrayZone(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	judge := &recordingJudge{score: 0.95}
 	gray := track("n1", "七里香 重新编曲", 299)
 	gray.Source = music.SourceNetEase
 	adapter = &pageAdapter{id: music.SourceNetEase, pages: []source.ImportPage{page(gray)}}
-	if _, err := library.Import(context.Background(), adapter, judge, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, judge, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if judge.calls != 1 {
@@ -167,14 +196,14 @@ func TestJudgeErrorKeepsRowsSeparate(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	judge := &recordingJudge{err: errors.New("offline")}
 	gray := track("n1", "七里香 重新编曲", 299)
 	gray.Source = music.SourceNetEase
 	adapter = &pageAdapter{id: music.SourceNetEase, pages: []source.ImportPage{page(gray)}}
-	if _, err := library.Import(context.Background(), adapter, judge, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, judge, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(library.Snapshot()) != 2 {
@@ -188,7 +217,7 @@ func TestUnfavoriteKeepsCanonicalRowAndBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	rows := library.Snapshot()
@@ -247,7 +276,7 @@ func TestFailedImportPublishesNothing(t *testing.T) {
 		{Tracks: []music.Track{track("h1", "七里香", 299)}, Next: "50"},
 		{Tracks: []music.Track{track("h2", "晴天", 269)}, Next: "100"},
 	}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err == nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err == nil {
 		t.Fatal("expected the exhausted adapter to fail the import")
 	}
 	reopened, err := Open(dir)
@@ -269,7 +298,7 @@ func TestImportSkipsInvalidTracks(t *testing.T) {
 	}
 	bad := music.Track{Source: music.SourceHuawei, Title: "no id"}
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(bad, track("h1", "七里香", 299))}}
-	result, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil)
+	result, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +314,7 @@ func TestSaveUsesRestrictedPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Join(dir, "library.sqlite3"))
@@ -307,7 +336,7 @@ func TestDocumentUpdatedAt(t *testing.T) {
 	}
 	library.now = func() time.Time { return time.Unix(100, 0) }
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if library.doc.UpdatedAt.Unix() != 100 {
@@ -349,7 +378,7 @@ func TestDisableSourceAndReimportReactivates(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("hw-1", "夜曲", 226))}}
-	if _, err := library.Import(context.Background(), first, nil, music.DefaultMatchPolicy(), nil); err != nil {
+	if _, err := library.Import(context.Background(), first, source.Collection{}, nil, music.DefaultMatchPolicy(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := library.DisableSource(music.SourceHuawei); err != nil {
@@ -360,7 +389,7 @@ func TestDisableSourceAndReimportReactivates(t *testing.T) {
 		t.Fatalf("row after disable = %+v", row)
 	}
 	second := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("hw-1", "夜曲", 226))}}
-	if _, err := library.Import(context.Background(), second, nil, music.DefaultMatchPolicy(), nil); err != nil {
+	if _, err := library.Import(context.Background(), second, source.Collection{}, nil, music.DefaultMatchPolicy(), nil); err != nil {
 		t.Fatal(err)
 	}
 	row, _ = library.RowForLink(music.SourceHuawei, "hw-1")
@@ -378,7 +407,7 @@ func TestFailedUpdateKeepsPublishedData(t *testing.T) {
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		{Tracks: []music.Track{track("h1", "七里香", 299), track("h2", "晴天", 269)}},
 	}}
-	if _, err := library.Import(context.Background(), first, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), first, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -386,7 +415,7 @@ func TestFailedUpdateKeepsPublishedData(t *testing.T) {
 	second := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		{Tracks: []music.Track{track("h1", "七里香", 299)}, Next: "50"},
 	}}
-	if _, err := library.Import(context.Background(), second, nil, music.MatchPolicy{}, nil); err == nil {
+	if _, err := library.Import(context.Background(), second, source.Collection{}, nil, music.MatchPolicy{}, nil); err == nil {
 		t.Fatal("expected the exhausted adapter to fail the update")
 	}
 	if library.Len() != 2 {
@@ -410,13 +439,13 @@ func TestReimportDropsRemovedBindingButKeepsFavorite(t *testing.T) {
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		{Tracks: []music.Track{track("h1", "七里香", 299), track("h2", "晴天", 269)}},
 	}}
-	if _, err := library.Import(context.Background(), first, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), first, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	second := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		{Tracks: []music.Track{track("h1", "七里香", 299)}},
 	}}
-	if _, err := library.Import(context.Background(), second, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), second, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if library.Len() != 2 {
@@ -466,7 +495,7 @@ func TestLegacyMigrationRaisesImportSeqHighWater(t *testing.T) {
 		t.Fatalf("import seq = %d, want 960", got)
 	}
 	adapter := &pageAdapter{id: music.SourceNetEase, pages: []source.ImportPage{page(netTrack("n1", "七里香", 299))}}
-	if _, err := library.Import(context.Background(), adapter, nil, music.MatchPolicy{}, nil); err != nil {
+	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if got := library.ImportSeq(); got != 961 {

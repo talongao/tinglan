@@ -2,13 +2,15 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 )
 
 func TestSpaceShortcutAndTextEntry(t *testing.T) {
@@ -103,10 +105,10 @@ func TestExpiryClearsAccountButNotOnNetworkFailure(t *testing.T) {
 	m := newModel()
 	m.enableDemo(2)
 	old := m.accountEpoch
-	if m.expireSession(&huawei.ProviderError{Authenticated: true, Status: 503}) {
+	if m.expireSession(source.NewError(music.SourceHuawei, "check", source.KindNetwork, errors.New("outage"))) {
 		t.Fatal("outage logs out")
 	}
-	if !m.expireSession(&huawei.ProviderError{Authenticated: true, Status: 401}) {
+	if !m.expireSession(source.NewError(music.SourceHuawei, "check", source.KindLogin, errors.New("expired"))) {
 		t.Fatal("expiry ignored")
 	}
 	if m.accountEpoch == old || len(m.queue.Tracks) != 0 || m.status != "音乐会话已过期，请重新登录。" {

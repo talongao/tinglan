@@ -69,7 +69,6 @@ type Library struct {
 	doc      Document
 	index    *music.Index
 	position map[string]int
-	adapter  source.Adapter
 	now      func() time.Time
 }
 
@@ -279,29 +278,30 @@ func (l *Library) ImportSeq() int64 {
 //
 // Only the code pass narrows candidates; judge (Jev) is consulted for gray-zone
 // pairs only, and a judge failure keeps rows separate.
-func (l *Library) Import(ctx context.Context, adapter source.Adapter, judge music.Judge, policy music.MatchPolicy, progress func(Progress)) (ImportResult, error) {
-	if adapter == nil {
-		return ImportResult{}, errors.New("canonical: nil adapter")
+func (l *Library) Import(ctx context.Context, src source.Source, collection source.Collection, judge music.Judge, policy music.MatchPolicy, progress func(Progress)) (ImportResult, error) {
+	if src == nil {
+		return ImportResult{}, errors.New("canonical: nil source")
 	}
 	if policy == (music.MatchPolicy{}) {
 		policy = music.DefaultMatchPolicy()
 	}
-	collection := source.Collection{Kind: "favorites"}
-	if capabilities := adapter.Capabilities(); len(capabilities.Collections) > 0 {
-		collection = capabilities.Collections[0]
+	if collection.Kind == "" {
+		collection = source.Collection{Kind: "favorites"}
+		if capabilities := src.Describe().Capabilities; len(capabilities.Collections) > 0 {
+			collection = capabilities.Collections[0]
+		}
 	}
-	limit := adapter.Capabilities().MaxPageSize
+	limit := src.Describe().Capabilities.MaxPageSize
 	if limit <= 0 {
 		limit = 50
 	}
 
-	l.adapter = adapter
-	account, err := l.ensureAccount(ctx, adapter.ID())
+	account, err := l.ensureAccount(ctx, src)
 	if err != nil {
 		return ImportResult{}, err
 	}
 	importRecord, err := l.db.EnsureImport(ctx, librarydb.DefaultProfile, account.ID,
-		adapter.ID().String(), "favorites", "", "")
+		src.ID().String(), collection.Kind, collection.ID, "")
 	if err != nil {
 		return ImportResult{}, err
 	}
@@ -318,7 +318,7 @@ func (l *Library) Import(ctx context.Context, adapter source.Adapter, judge musi
 			l.failRun(runID, importRecord.ID)
 			return result, err
 		}
-		page, err := adapter.Import(ctx, source.ImportRequest{Collection: collection, Cursor: cursor, Limit: limit})
+		page, err := src.Library().Import(ctx, source.ImportRequest{Collection: collection, Cursor: cursor, Limit: limit, RunID: runID})
 		if err != nil {
 			l.failRun(runID, importRecord.ID)
 			return result, err
@@ -377,7 +377,7 @@ func (l *Library) Import(ctx context.Context, adapter source.Adapter, judge musi
 		ImportID:  importRecord.ID,
 		RunID:     runID,
 		AccountID: account.ID,
-		Source:    adapter.ID().String(),
+		Source:    src.ID().String(),
 		Rows:      rows,
 		Seen:      seen,
 		Added:     result.Added + result.Merged,
@@ -399,25 +399,18 @@ func (l *Library) Import(ctx context.Context, adapter source.Adapter, judge musi
 	return result, nil
 }
 
-// ensureAccount records the adapter's current account so bindings can be scoped
-// to it. Adapters without a session fall back to a stable placeholder key.
-func (l *Library) ensureAccount(ctx context.Context, id music.SourceID) (librarydb.Account, error) {
+// ensureAccount records the source's current account so bindings can be scoped
+// to it. Sources without a session fall back to a stable placeholder key.
+func (l *Library) ensureAccount(ctx context.Context, src source.Source) (librarydb.Account, error) {
 	key, label := "default", "默认账号"
-	if keyer, ok := l.adapter.(accountKeyer); ok {
-		if value := keyer.AccountKey(); value != "" {
-			key = value
+	status, err := src.Auth().Status(ctx)
+	if err == nil && status.AccountKey != "" {
+		key = status.AccountKey
+		if status.DisplayName != "" {
+			label = status.DisplayName
 		}
 	}
-	if state, err := l.adapter.Login(ctx); err == nil && state.Account != "" {
-		label = state.Account
-	}
-	return l.db.EnsureAccount(ctx, id.String(), key, label)
-}
-
-// accountKeyer is implemented by adapters that expose a stable, non-secret
-// account identity. Adapters without it share one placeholder account.
-type accountKeyer interface {
-	AccountKey() string
+	return l.db.EnsureAccount(ctx, src.ID().String(), key, label)
 }
 
 func (l *Library) failRun(runID, importID string) {

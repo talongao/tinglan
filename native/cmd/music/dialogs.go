@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
 	"tinglan/native/internal/canonical"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/librarydb"
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
@@ -54,14 +54,14 @@ type libraryUIState struct {
 	searchSource          music.SourceID
 	localPlaylists        []librarydb.Playlist
 	localDetail           *librarydb.Playlist
-	localTracks           []huawei.Track
+	localTracks           []music.Track
 	browseRemote          bool
 	importSource          music.SourceID
 	importKind            string // "favorites" (default) or "playlist"
 	importStates          map[string]librarydb.ImportRecord
 	newPlaylist           flex.Field
 	newPlaylistView       flex.View
-	addTrack              huawei.Track
+	addTrack              music.Track
 	addPlaylists          []librarydb.Playlist
 	pendingPlaylistUpdate string
 }
@@ -124,11 +124,11 @@ func (m *model) openPlaylist(p librarydb.Playlist) {
 		m.notify("歌单曲目读取失败")
 		return
 	}
-	tracks := make([]huawei.Track, 0, len(rows))
+	tracks := make([]music.Track, 0, len(rows))
 	for _, row := range rows {
 		track := m.projectRow(row)
 		if !p.Local() {
-			track.OnlySource = p.Source
+			track.OnlySource = music.SourceID(p.Source)
 		}
 		tracks = append(tracks, track)
 	}
@@ -193,7 +193,7 @@ func (m *model) addToPlaylist(playlistID string) {
 	row, ok := m.canonicalRow(track.ID)
 	if !ok {
 		judge, policy := m.matchJudge()
-		added, err := m.local.Add(context.Background(), huawei.MusicTrack(track), judge, policy)
+		added, err := m.local.Add(context.Background(), track, judge, policy)
 		if err != nil {
 			m.notify("加入收录失败")
 			return
@@ -220,7 +220,7 @@ func (m *model) addToPlaylist(playlistID string) {
 	m.notify("已加入歌单")
 }
 
-func (m *model) openAddToPlaylist(track huawei.Track) {
+func (m *model) openAddToPlaylist(track music.Track) {
 	if m.local == nil {
 		return
 	}
@@ -269,15 +269,18 @@ func (m *model) importOne(id music.SourceID) {
 	if m.importing || m.local == nil || m.registry == nil {
 		return
 	}
-	adapter, ok := m.registry.Adapter(id)
+	src, ok := m.registry.Source(id)
 	if !ok {
 		m.notify("音源未注册")
 		return
 	}
-	state, err := adapter.Login(context.Background())
-	if err != nil || !state.LoggedIn {
+	if state, err := src.Auth().Status(context.Background()); err != nil || state.State != source.AuthSignedIn {
 		m.notify("请先登录" + sourceLabel(id.String()))
 		return
+	}
+	collection := source.Collection{Kind: "favorites", Name: "我的收藏"}
+	if caps := src.Describe().Capabilities; len(caps.Collections) > 0 {
+		collection = caps.Collections[0]
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.importCancel = cancel
@@ -287,7 +290,7 @@ func (m *model) importOne(id music.SourceID) {
 	judge, policy := m.matchJudge()
 	go func() {
 		defer cancel()
-		result, err := m.local.Import(ctx, adapter, judge, policy, func(progress canonical.Progress) {})
+		result, err := m.local.Import(ctx, src, collection, judge, policy, func(progress canonical.Progress) {})
 		m.postSource(sourceResult{kind: "import-done", result: result, err: err, message: id.String()})
 	}()
 }
@@ -312,8 +315,8 @@ func (m *model) paintImportDialog(c *ui.Canvas, size ui.Size) {
 	defer c.PopLayer()
 	c.Fill(rect(0, 0, size.Width, size.Height), color(0x16181c, .35))
 	c.Block(rect(0, 0, size.Width, size.Height))
-	adapters := m.dialogAdapters()
-	height := float32(150 + len(adapters)*64)
+	sources := m.dialogSources()
+	height := float32(150 + len(sources)*64)
 	b := rect(size.Width/2-250, size.Height/2-height/2, 500, height)
 	m.glass(c, b, 18, .92)
 	c.PushLayer(4)
@@ -327,11 +330,12 @@ func (m *model) paintImportDialog(c *ui.Canvas, size ui.Size) {
 		m.dialog = ""
 	}
 	m.text(c, subtitle, rect(b.X+24, b.Y+56, 450, 20), 12, 400, m.muted())
-	for i, adapter := range adapters {
+	for i, src := range sources {
 		y := b.Y + 92 + float32(i)*64
-		id := adapter.ID()
+		id := src.ID()
 		record, ok := m.importSourceState(id)
-		state, _ := adapter.Login(context.Background())
+		status, _ := src.Auth().Status(context.Background())
+		signedIn := status.State == source.AuthSignedIn
 		m.text(c, sourceLabel(id.String()), rect(b.X+24, y, 220, 22), 14, 600, m.ink())
 		detail := "尚未导入"
 		if ok {
@@ -373,11 +377,11 @@ func (m *model) paintImportDialog(c *ui.Canvas, size ui.Size) {
 				detail = "浏览并选择要导入的歌单"
 			}
 		}
-		if !state.LoggedIn {
+		if !signedIn {
 			detail = "未登录"
 		}
 		m.text(c, detail, rect(b.X+24, y+24, 300, 18), 11, 400, m.muted())
-		label := m.importActionLabel(record, ok, state.LoggedIn)
+		label := m.importActionLabel(record, ok, signedIn)
 		if m.importKind == "playlist" && label != "去登录" {
 			label = "选择歌单"
 		}
@@ -407,33 +411,31 @@ func (m *model) paintImportDialog(c *ui.Canvas, size ui.Size) {
 // registry already knows which sources are enabled, so this stays correct when
 // more adapters land.
 func (m *model) searchScopeLabel() string {
-	adapters := m.dialogAdapters()
-	if len(adapters) == 0 {
+	sources := m.dialogSources()
+	if len(sources) == 0 {
 		if m.demo {
 			return sourceLabel(music.SourceHuawei.String())
 		}
 		return "未启用音源"
 	}
-	names := make([]string, 0, len(adapters))
-	for _, adapter := range adapters {
-		names = append(names, sourceLabel(adapter.ID().String()))
+	names := make([]string, 0, len(sources))
+	for _, src := range sources {
+		names = append(names, sourceLabel(src.ID().String()))
 	}
 	return strings.Join(names, "、")
 }
 
-func (m *model) dialogAdapters() []source.Adapter {
+// dialogSources lists enabled contract sources in registry order.
+func (m *model) dialogSources() []source.Source {
 	if m.registry == nil {
 		return nil
 	}
-	out := make([]source.Adapter, 0, len(m.registry.Adapters()))
-	for _, adapter := range m.registry.Adapters() {
-		if adapter == nil {
+	out := make([]source.Source, 0, len(m.registry.SourceList()))
+	for _, src := range m.registry.SourceList() {
+		if src == nil || !m.sourceEnabled(src.ID()) {
 			continue
 		}
-		if !m.sourceEnabled(adapter.ID()) {
-			continue
-		}
-		out = append(out, adapter)
+		out = append(out, src)
 	}
 	return out
 }
@@ -519,12 +521,12 @@ func (m *model) paintToast(c *ui.Canvas, size ui.Size) {
 }
 
 func (m *model) paintSearchTabs(c *ui.Canvas, b ui.Rect) {
-	adapters := m.dialogAdapters()
-	if len(adapters) <= 1 {
+	sources := m.dialogSources()
+	if len(sources) <= 1 {
 		return
 	}
-	for i, adapter := range adapters {
-		id := adapter.ID()
+	for i, src := range sources {
+		id := src.ID()
 		active := id == m.searchSource
 		x := b.X + float32(i)*104
 		if m.pill(c, searchTabs.At(i), rect(x, b.Y, 96, 32), sourceLabel(id.String()), active) {
@@ -547,7 +549,7 @@ func (m *model) newPlaylistButton(c *ui.Canvas, id ui.ID, b ui.Rect, label strin
 }
 
 // remoteImportButton imports one remote playlist from the browser page.
-func (m *model) remoteImportButton(c *ui.Canvas, id ui.ID, b ui.Rect, p huawei.Playlist) bool {
+func (m *model) remoteImportButton(c *ui.Canvas, id ui.ID, b ui.Rect, p music.Playlist) bool {
 	// The playlist browser mirrors the favorites dialog: when the source is
 	// signed out the action routes to login instead of failing on click.
 	if m.session == nil && !m.demo {
@@ -568,7 +570,7 @@ func (m *model) remoteImportButton(c *ui.Canvas, id ui.ID, b ui.Rect, p huawei.P
 	return true
 }
 
-func (m *model) remoteImported(p huawei.Playlist) bool {
+func (m *model) remoteImported(p music.Playlist) bool {
 	if m.local == nil {
 		return false
 	}
@@ -577,7 +579,7 @@ func (m *model) remoteImported(p huawei.Playlist) bool {
 }
 
 // importPlaylist mirrors one remote playlist into the local library.
-func (m *model) importPlaylist(p huawei.Playlist) {
+func (m *model) importPlaylist(p music.Playlist) {
 	if m.demo {
 		value := p
 		m.detail = &value
@@ -588,7 +590,7 @@ func (m *model) importPlaylist(p huawei.Playlist) {
 		m.notify("请先登录华为音乐")
 		return
 	}
-	playlist, err := m.local.EnsureImportedPlaylist(context.Background(), music.SourceHuawei, p.ID, p.Title, p.Description, p.CoverURL)
+	playlist, err := m.local.EnsureImportedPlaylist(context.Background(), music.SourceHuawei, p.ID, p.Name, p.Description, p.CoverURL)
 	if err != nil {
 		m.notify("导入歌单失败")
 		return
@@ -598,7 +600,7 @@ func (m *model) importPlaylist(p huawei.Playlist) {
 	// import more playlists without walking back through the local list.
 	m.refreshPlaylists()
 	m.runPlaylistUpdate(playlist)
-	m.notify("正在导入歌单 " + p.Title + "…")
+	m.notify("正在导入歌单 " + p.Name + "…")
 }
 
 // updateImportedPlaylist re-mirrors members from the current account snapshot
@@ -609,7 +611,7 @@ func (m *model) updateImportedPlaylist(p librarydb.Playlist) {
 		return
 	}
 	if account, ok, err := m.local.LastRunAccount(music.SourceID(p.Source), "playlist", p.RemoteID); err == nil && ok && m.session != nil {
-		current := librarydb.AccountID(p.Source, m.session.AccountKey())
+		current := librarydb.AccountID(p.Source, m.session.Account())
 		if account != "" && account != current {
 			m.pendingPlaylistUpdate = p.ID
 			m.dialog = "account-switch"
@@ -620,7 +622,7 @@ func (m *model) updateImportedPlaylist(p librarydb.Playlist) {
 }
 
 func (m *model) runPlaylistUpdate(p librarydb.Playlist) {
-	adapter, ok := m.registry.Adapter(music.SourceID(p.Source))
+	src, ok := m.registry.Source(music.SourceID(p.Source))
 	if !ok {
 		m.notify("音源未注册")
 		return
@@ -628,13 +630,13 @@ func (m *model) runPlaylistUpdate(p librarydb.Playlist) {
 	// Keep the local copy's own metadata: the sync payload only carries the
 	// member list, so passing empty description/cover here would erase the
 	// cover that was stored when the playlist was imported.
-	remote := huawei.Playlist{ID: p.RemoteID, Title: p.Name, Kind: "owned", Description: p.Description, CoverURL: p.CoverURL}
+	remote := music.Playlist{Source: music.SourceHuawei, ID: p.RemoteID, Name: p.Name, Kind: music.PlaylistOwned, Description: p.Description, CoverURL: p.CoverURL}
 	go func() {
 		ctx := context.Background()
 		var ids []string
 		judge, policy := m.matchJudge()
 		for cursor := 0; cursor < 1_000_000; {
-			page, err := adapter.Import(ctx, source.ImportRequest{Collection: source.Collection{Kind: "playlist", ID: p.RemoteID}, Cursor: fmt.Sprint(cursor), Limit: 50})
+			page, err := src.Library().Import(ctx, source.ImportRequest{Collection: source.Collection{Kind: "playlist", ID: p.RemoteID}, Cursor: fmt.Sprint(cursor), Limit: 50})
 			if err != nil {
 				m.postSource(sourceResult{kind: "playlist-done", err: err, message: p.ID})
 				return
@@ -657,7 +659,7 @@ func (m *model) runPlaylistUpdate(p librarydb.Playlist) {
 				break
 			}
 		}
-		if err := m.local.ReplaceImportedMembers(ctx, p.ID, ids, remote.Title, remote.Description, remote.CoverURL); err != nil {
+		if err := m.local.ReplaceImportedMembers(ctx, p.ID, ids, remote.Name, remote.Description, remote.CoverURL); err != nil {
 			m.postSource(sourceResult{kind: "playlist-done", err: err, message: p.ID})
 			return
 		}
@@ -697,31 +699,27 @@ func (m *model) paintAccountSwitchDialog(c *ui.Canvas, size ui.Size) {
 
 // searchSource searches the currently selected platform tab. Unregistered or
 // disabled sources fall back to the Huawei adapter so the page keeps working.
-func (m *model) searchTracks(ctx context.Context, query string, start int) ([]huawei.Track, int, error) {
+func (m *model) searchTracks(ctx context.Context, query string, start int) ([]music.Track, int, error) {
 	id := m.searchSource
 	if id == "" {
 		id = music.SourceHuawei
 	}
-	adapter, ok := m.registry.Adapter(id)
-	if !ok {
-		return nil, start, fmt.Errorf("音源未注册")
+	catalog := m.catalogSource()
+	cursor := ""
+	if start > 0 {
+		cursor = fmt.Sprint(start)
 	}
-	page, err := source.Search(ctx, adapter, source.SearchRequest{Query: query, Cursor: fmt.Sprint(start), Limit: 20})
+	page, err := catalog.Search(ctx, source.SearchRequest{Query: query, Cursor: cursor, Limit: 20})
 	if err != nil {
 		return nil, start, err
 	}
-	tracks := make([]huawei.Track, 0, len(page.Tracks))
-	for _, track := range page.Tracks {
-		if track.Source != music.SourceHuawei {
-			continue
-		}
-		tracks = append(tracks, huawei.TrackFromMusic(track))
-	}
-	next := start + len(page.Tracks)
-	if page.Next == "" {
+	next := start + len(page.Items)
+	if !page.HasMore {
 		next = 0
+	} else if parsed, err := strconv.Atoi(page.Next); err == nil {
+		next = parsed
 	}
-	return tracks, next, nil
+	return page.Items, next, nil
 }
 
 // deleteLocalPlaylist hard-deletes a local playlist. Favorites and the
@@ -761,15 +759,15 @@ func (m *model) setStatus(text string) {
 // refreshImportedMeta copies display metadata (name, description, cover) from
 // a fresh remote listing onto local imported copies. It never creates a copy
 // for a remote-only playlist, and an empty remote field keeps what is stored.
-func (m *model) refreshImportedMeta(remote []huawei.Playlist) {
+func (m *model) refreshImportedMeta(remote []music.Playlist) {
 	if m.demo || m.local == nil {
 		return
 	}
 	for _, p := range remote {
-		if p.ID == "" || (p.CoverURL == "" && p.Description == "" && p.Title == "") {
+		if p.ID == "" || (p.CoverURL == "" && p.Description == "" && p.Name == "") {
 			continue
 		}
-		if err := m.local.UpdateImportedMeta(context.Background(), music.SourceHuawei, p.ID, p.Title, p.Description, p.CoverURL); err != nil {
+		if err := m.local.UpdateImportedMeta(context.Background(), music.SourceHuawei, p.ID, p.Name, p.Description, p.CoverURL); err != nil {
 			continue
 		}
 	}

@@ -5,7 +5,7 @@ import (
 	"github.com/vivaui/viva/ui"
 	"strings"
 	"testing"
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
 func TestAccountResetDiscardsPendingUIResults(t *testing.T) {
@@ -15,8 +15,8 @@ func TestAccountResetDiscardsPendingUIResults(t *testing.T) {
 	m.writeBusy = true
 	m.writeResults = []writeResult{{epoch: 9, kind: "favorite", id: "old", favorite: true}}
 	m.coverResults = []coverResult{{epoch: 9, url: "https://fixture.dbankcdn.cn/cover"}}
-	m.entity = &huawei.Detail{ID: "old"}
-	m.entityResults = []entityResult{{generation: m.entityGeneration, detail: huawei.Detail{ID: "old"}}}
+	m.entity = &music.Detail{ID: "old"}
+	m.entityResults = []entityResult{{generation: m.entityGeneration, detail: music.Detail{ID: "old"}}}
 	m.clearLibrary()
 	m.wake()
 	if m.entity != nil || len(m.covers) != 0 || m.favoriteOff["old"] || m.writeBusy {

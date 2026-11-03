@@ -6,6 +6,7 @@ import (
 
 	"github.com/vivaui/viva/ui"
 	"tinglan/native/internal/icons"
+	"tinglan/native/internal/music"
 	"tinglan/native/internal/visual"
 )
 
@@ -31,7 +32,7 @@ func (m *model) paintCollections(c *ui.Canvas, b ui.Rect) {
 			return
 		}
 		extraRows := 0
-		if m.detail.Kind == "owned" {
+		if m.detail.Kind == music.PlaylistOwned {
 			extraRows = 1
 		}
 		contentH := entityContentHeight(b.Width, b.Height, extraRows, len(m.detailTracks))
@@ -40,12 +41,12 @@ func (m *model) paintCollections(c *ui.Canvas, b ui.Rect) {
 		c.Clip(b)
 		hero := rect(b.X, b.Y-off, b.Width, b.Height)
 
-		kind := map[string]string{"owned": "自建歌单", "collected": "收藏歌单", "chart": "榜单"}[m.detail.Kind]
-		listY := m.detailHero(c, hero, kind, m.detail.Title, m.detail.CoverURL, fmt.Sprintf("%d 首", len(m.detailTracks)), m.detailTracks)
+		kind := map[string]string{"owned": "自建歌单", "favorite": "收藏歌单", "chart": "榜单"}[string(m.detail.Kind)]
+		listY := m.detailHero(c, hero, kind, m.detail.Name, m.detail.CoverURL, fmt.Sprintf("%d 首", len(m.detailTracks)), m.detailTracks)
 		if m.pill(c, refreshCollectionsID, rect(b.X+b.Width-110, listY-50, 90, 32), "刷新详情", false) {
 			m.loadCollections("detail", true)
 		}
-		if m.detail.Kind == "owned" {
+		if m.detail.Kind == music.PlaylistOwned {
 			m.text(c, m.detail.Description, rect(b.X+23, listY, b.Width-265, 32), 12, 400, m.secondary())
 			if m.pill(c, editPlaylistID, rect(b.X+b.Width-240, listY, 100, 32), "修改简介", false) {
 				m.dialog = "description"
@@ -193,13 +194,13 @@ func (m *model) paintRemoteCollections(c *ui.Canvas, b ui.Rect) {
 		c.Rounded(rect(x, y, side, side), 16, color(0xcbb8b3, .65))
 		c.DrawIcon(icons.ListMusic, rect(x+r.Width/2-20, y+side/2-20, 40, 40), color(0xffffff, .9))
 		m.cover(c, p.CoverURL, rect(x, y, side, side))
-		m.text(c, p.Title, rect(x, y+side+12, r.Width, 24), 15, 600, m.ink())
-		kind := map[string]string{"owned": "华为账号自建", "collected": "华为账号收藏", "chart": "华为榜单"}[p.Kind]
+		m.text(c, p.Name, rect(x, y+side+12, r.Width, 24), 15, 600, m.ink())
+		kind := map[string]string{"owned": "华为账号自建", "favorite": "华为账号收藏", "chart": "华为榜单"}[string(p.Kind)]
 		m.text(c, kind, rect(x, y+side+38, r.Width, 20), 11, 400, m.muted())
 		if m.remoteImportButton(c, importRemoteID.At(i), rect(x, y+side+60, r.Width, 26), p) {
 			continue
 		}
-		if hit(c, playlistRows.At(i), r, p.Title) {
+		if hit(c, playlistRows.At(i), r, p.Name) {
 			// Clicking a card must not start a network import on its own; the
 			// 导入 button below each card is the explicit action. Ask first.
 			m.remotePending, m.remotePendingOK = p, true

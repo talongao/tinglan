@@ -340,18 +340,18 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 	m.text(c, "本地收藏", rect(x+2, y+78, w-4, 24), 13, 600, m.ink())
 	m.text(c, fmt.Sprintf("%d 首 · 来自本机规范化曲库，不随账号退出删除", count), rect(x+2, y+104, w-4, 22), 11, 400, m.muted())
 	if m.registry != nil {
-		for i, adapter := range m.registry.Adapters() {
-			if adapter == nil {
+		for i, src := range m.registry.SourceList() {
+			if src == nil {
 				continue
 			}
-			on := m.sourceEnabled(adapter.ID())
+			on := m.sourceEnabled(src.ID())
 			state := "已停用"
 			if on {
 				state = "已启用"
 			}
-			label := sourceLabel(adapter.ID().String()) + " 音源 · " + state
+			label := sourceLabel(src.ID().String()) + " 音源 · " + state
 			if m.pill(c, sourceSettings.At(i), rect(x+2, y+126+float32(i)*34, 210, 28), label, on) {
-				m.toggleSource(adapter.ID())
+				m.toggleSource(src.ID())
 			}
 		}
 	}

@@ -15,15 +15,14 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"tinglan/native/internal/huawei"
 )
 
 // ChromiumAuthorize owns a disposable browser profile and its loopback CDP
 // connection. The temporary browser profile is removed when authorization ends.
-func ChromiumAuthorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {
-	return chromiumAuthorize(ctx, attempt.AuthorizeURL(), false)
+func ChromiumAuthorize(ctx context.Context, flow Flow) (string, error) {
+	return chromiumAuthorize(ctx, flow, flow.AuthorizeURL(), false)
 }
-func chromiumAuthorize(ctx context.Context, authorizeURL string, headless bool) (string, error) {
+func chromiumAuthorize(ctx context.Context, flow Flow, authorizeURL string, headless bool) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -134,7 +133,7 @@ wait:
 	conn.SetReadLimit(2 * 1024 * 1024)
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	return captureAuthorization(ctx, conn, authorizeURL)
+	return captureAuthorization(ctx, conn, flow, authorizeURL)
 }
 
 type browserEvent struct {
@@ -145,7 +144,7 @@ type browserEvent struct {
 	Error  *struct{ Code int }
 }
 
-func captureAuthorization(ctx context.Context, conn *websocket.Conn, authorizeURL string) (string, error) {
+func captureAuthorization(ctx context.Context, conn *websocket.Conn, flow Flow, authorizeURL string) (string, error) {
 	id := 0
 	send := func(method string, params any) (int, error) {
 		id++
@@ -209,7 +208,7 @@ func captureAuthorization(ctx context.Context, conn *websocket.Conn, authorizeUR
 				return "", errors.New("authorization page failed to load")
 			}
 		}
-		if callback := callbackFromEvent(event.Method, event.Params); callback != "" {
+		if callback := callbackFromEvent(flow, event.Method, event.Params); callback != "" {
 			return callback, nil
 		}
 		if event.Method == "Fetch.requestPaused" {
@@ -224,7 +223,7 @@ func captureAuthorization(ctx context.Context, conn *websocket.Conn, authorizeUR
 
 }
 
-func callbackFromEvent(method string, data []byte) string {
+func callbackFromEvent(flow Flow, method string, data []byte) string {
 	var p struct {
 		URL     string `json:"url"`
 		Request struct {
@@ -237,15 +236,15 @@ func callbackFromEvent(method string, data []byte) string {
 	}
 	if method == "Fetch.requestPaused" {
 		for _, h := range p.Headers {
-			if strings.EqualFold(h.Name, "location") && huawei.IsCallback(h.Value) {
+			if strings.EqualFold(h.Name, "location") && flow.IsCallback(h.Value) {
 				return h.Value
 			}
 		}
-		if huawei.IsCallback(p.Request.URL) {
+		if flow.IsCallback(p.Request.URL) {
 			return p.Request.URL
 		}
 	}
-	if method == "Page.frameRequestedNavigation" && huawei.IsCallback(p.URL) {
+	if method == "Page.frameRequestedNavigation" && flow.IsCallback(p.URL) {
 		return p.URL
 	}
 	return ""

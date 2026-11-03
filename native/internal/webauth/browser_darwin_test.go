@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/testsupport"
 )
 
@@ -17,7 +16,7 @@ func TestMain(m *testing.M) { os.Exit(testsupport.Run(m)) }
 func TestCancelledContextDoesNotOpenBrowser(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if raw, err := Authorize(ctx, huawei.NewAttempt(time.Now())); err == nil || raw != "" {
+	if raw, err := Authorize(ctx, &stubFlow{url: "https://login.invalid/authorize"}); err == nil || raw != "" {
 		t.Fatal("cancelled authorization succeeded")
 	}
 }
@@ -27,7 +26,7 @@ func TestCancelledContextDoesNotOpenBrowser(t *testing.T) {
 func TestMissingPresentationWindowFailsClosed(t *testing.T) {
 	for range 3 {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		raw, err := Authorize(ctx, huawei.NewAttempt(time.Now()))
+		raw, err := Authorize(ctx, &stubFlow{url: "https://login.invalid/authorize"})
 		cancel()
 		if err == nil || raw != "" {
 			t.Fatal("authorization without a window succeeded")

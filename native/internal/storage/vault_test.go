@@ -11,9 +11,10 @@ import (
 	"testing"
 
 	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/source"
 )
 
-func syntheticSession(t *testing.T) *huawei.Session {
+func syntheticSession(t *testing.T) *source.Session {
 	t.Helper()
 	key := huawei.NewVaultKey()
 	block, _ := aes.NewCipher(key)
@@ -24,7 +25,7 @@ func syntheticSession(t *testing.T) *huawei.Session {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return session
+	return huawei.NeutralSession(session)
 }
 
 func TestLocalSessionRestartPermissionsAndLogout(t *testing.T) {
@@ -35,7 +36,7 @@ func TestLocalSessionRestartPermissionsAndLogout(t *testing.T) {
 		t.Fatal(err)
 	}
 	restored, err := New(dir).LoadSession()
-	if err != nil || restored.AccountKey() != session.AccountKey() {
+	if err != nil || restored.Account() != session.Account() {
 		t.Fatal("restart failed", err)
 	}
 	if runtime.GOOS != "windows" {

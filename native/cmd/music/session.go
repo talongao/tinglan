@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"tinglan/native/internal/appmeta"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/music"
 )
 
@@ -88,8 +87,8 @@ func (m *model) restoreSession() {
 		session, err := m.store.LoadSession()
 		// A network outage must not destroy a saved session or its cache.
 		if err == nil {
-			validation := huawei.NewClient().ValidateSession(ctx, session)
-			if huawei.SessionExpired(validation) {
+			validation := m.checkSession(ctx, session)
+			if sessionExpired(validation) {
 				err = validation
 			}
 		}
@@ -105,7 +104,7 @@ func (m *model) attachAccount() {
 	if m.store == nil || m.session == nil {
 		return
 	}
-	m.accountStore = m.store.Account(m.session.AccountKey())
+	m.accountStore = m.store.Account(m.session.Account())
 	if saved, err := m.accountStore.LoadQueue(); err == nil {
 		m.queue.Mode = m.settings.RepeatMode
 		m.queue.Shuffle = m.settings.Shuffle
@@ -121,7 +120,7 @@ func (m *model) attachAccount() {
 	// a stale logged_out row would mark every binding Disabled and make every
 	// track look like it has no source.
 	if m.local != nil {
-		if _, err := m.local.EnsureAccount(context.Background(), music.SourceHuawei, m.session.AccountKey(), "华为音乐账号"); err == nil {
+		if _, err := m.local.EnsureAccount(context.Background(), music.SourceHuawei, m.session.Account(), "华为音乐账号"); err == nil {
 			m.installLocalLibrary()
 		}
 	}
@@ -171,7 +170,7 @@ type sessionCheckResult struct {
 }
 
 func (m *model) expireSession(err error) bool {
-	if !huawei.SessionExpired(err) {
+	if !sessionExpired(err) {
 		return false
 	}
 	m.logout()
@@ -189,7 +188,7 @@ func (m *model) scheduleSessionCheck() {
 	m.sessionTimer = time.AfterFunc(5*time.Minute, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		err := huawei.NewClient().ValidateSession(ctx, session)
+		err := m.checkSession(ctx, session)
 		m.mu.Lock()
 		if !m.closed {
 			m.sessionChecks = append(m.sessionChecks, sessionCheckResult{epoch, err})

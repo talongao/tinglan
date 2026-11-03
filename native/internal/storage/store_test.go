@@ -3,11 +3,11 @@ package storage
 import (
 	"bytes"
 	"errors"
-	"tinglan/native/internal/huawei"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"tinglan/native/internal/music"
 )
 
 func TestSettingsQueueRestartAndClear(t *testing.T) {
@@ -19,7 +19,7 @@ func TestSettingsQueueRestartAndClear(t *testing.T) {
 	if err := s.SaveSettings(settings); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SaveQueue(SavedQueue{Tracks: []huawei.Track{{ID: "fixture", Title: "Synthetic", CoverURL: "file:///private"}}, Position: 13}); err != nil {
+	if err := s.SaveQueue(SavedQueue{Tracks: []music.Track{{ID: "fixture", Title: "Synthetic", CoverURL: "file:///private"}}, Position: 13}); err != nil {
 		t.Fatal(err)
 	}
 	restarted := New(dir)

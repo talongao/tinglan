@@ -6,7 +6,7 @@
 - 开工先读 README.md、docs/IMPLEMENTATION_STATUS.md、docs/API_CONTRACT.md、docs/authorized-feature-validation.md。历史方案/验证记录保留作参考，与当前状态冲突时以当前实现和最新用户要求为准。
 - 原生代码在 native/（Go 模块根目录，`go.mod` 在这里）；以下命令都在 native/ 下执行：启动 `go run ./cmd/tinglan-tool start`，构建 `go run ./cmd/tinglan-tool build`，测试 `go test ./...`，静态检查 `go vet ./...`，界面回归 `go run ./cmd/tinglan-tool ui-check`。仓库不再依赖 Node.js/npm。
 - macOS Apple Silicon 是当前主要实机环境。GitHub Actions 构建 macOS arm64 / Intel x64 DMG 和 Windows x64 NSIS 安装包；Windows 尚未实机验收，Linux 暂不打包，编译成功不能宣称验收。
-- 音源以华为音乐为其中一源，按 roadmap 首期接入网易云音乐，其他平台后续评估；不依赖手机播放器，不绕过会员/地域/DRM，不实现音频下载或解密，只播放源侧提供的音频流。
+- 音源以华为音乐为其中一源，按 roadmap 首期接入网易云音乐，其他平台后续评估；客户端只做在线播放，遵守各平台的服务条款与会员/地域限制，不提供下载、离线保存或媒体文件处理功能。
 - .local/、research/ 含私人凭据与研究材料，禁止打印、提交、上传、打包。不得主动使用保存的私人会话或执行真实账号写操作；需要当前用户授权。
 - 登录与业务请求由 Go 内部模块处理；不关闭 TLS 校验，不抢占全局 hms://，不改系统代理。凭据按用户决定存应用数据目录，不使用钥匙串；音乐会话确认失效后重新登录，不自动续期。
 - 技术包名、bundle 标识 `org.tinglan.unofficial.internal.viva` 和用户数据目录 `tinglan/native-v1` 统一来自 `native/internal/appmeta`。旧目录 `huawei-music-desktop/native-v1` 由 `appmeta.MigrateDataDir` 在首次启动时整体迁移，不要手工删除。显示名统一来自 appmeta。

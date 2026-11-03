@@ -14,9 +14,10 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/lyrics"
+	"tinglan/native/internal/music"
 	"tinglan/native/internal/resource"
+	"tinglan/native/internal/source"
 	"tinglan/native/internal/storage"
 	"tinglan/native/internal/visual"
 )
@@ -29,6 +30,7 @@ type coverResult struct {
 	stage    ui.Bitmap
 }
 type resourceState struct {
+	resourceClient   *resource.Client
 	coverRetryTimer  *time.Timer
 	coverAlternates  map[string][]string
 	coverRetry       map[string]time.Time
@@ -48,7 +50,7 @@ type resourceState struct {
 	coverResults     []coverResult
 	coverID          uint64
 	lyricSource      string
-	entity           *huawei.Detail
+	entity           *music.Detail
 	entityKind       string
 	entityBack       int
 	entityAlbumPage  int
@@ -85,7 +87,7 @@ func (m *model) removeLyrics() {
 }
 
 func (m *model) cover(c *ui.Canvas, raw string, b ui.Rect) bool {
-	if raw == "" || !huawei.SafeResourceURL(raw) {
+	if raw == "" || !m.resourceAllowed(raw) {
 		return false
 	}
 	if bitmap, ok := m.covers[raw]; ok {
@@ -119,7 +121,7 @@ func (m *model) cover(c *ui.Canvas, raw string, b ui.Rect) bool {
 		var bitmap ui.Bitmap
 		var stage ui.Bitmap
 		for _, candidate := range candidates {
-			if !huawei.SafeResourceURL(candidate) {
+			if !m.resourceAllowed(candidate) {
 				continue
 			}
 			var data []byte
@@ -304,7 +306,7 @@ func (m *model) touchCover(raw string) {
 	m.coverUsed[raw] = m.coverTick
 }
 
-func (m *model) trackCover(c *ui.Canvas, t huawei.Track, b ui.Rect) bool {
+func (m *model) trackCover(c *ui.Canvas, t music.Track, b ui.Rect) bool {
 	if t.CoverURL != "" {
 		if m.coverAlternates == nil {
 			m.coverAlternates = make(map[string][]string)
@@ -335,8 +337,8 @@ func (m *model) trackCover(c *ui.Canvas, t huawei.Track, b ui.Rect) bool {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cancel()
-		detail, err := huawei.NewClient().AlbumDetail(ctx, id, 0, 1)
-		raw := detail.CoverURL
+		detail, err := m.catalogSource().AlbumDetail(ctx, source.EntityRequest{Ref: source.EntityRef{Source: music.SourceHuawei, Kind: "album", ID: id}, Limit: 1})
+		raw := detail.Album.CoverURL
 		if raw == "" && len(detail.Tracks) > 0 {
 			raw = detail.Tracks[0].CoverURL
 		}
@@ -351,4 +353,23 @@ func (m *model) trackCover(c *ui.Canvas, t huawei.Track, b ui.Rect) bool {
 		m.requestUpdate()
 	}()
 	return false
+}
+
+// resourceAllowed applies the allowlist declared by the built-in source, so
+// media and cover URLs never depend on a provider hard-coded in the shell.
+func (m *model) resourceAllowed(raw string) bool {
+	if m.resourceClient == nil {
+		return false
+	}
+	return m.resourceClient.Allows(raw)
+}
+
+// resourceClient is built once per adapter descriptor so media URLs follow the
+// same allowlist the adapter declares.
+func (m *model) initResourceClient() {
+	domains := []string{".dbankcdn.cn", ".tingmall.com", ".kuke.com"}
+	if m.builtinSource != nil {
+		domains = m.builtinSource.Describe().ResourceDomains
+	}
+	m.resourceClient = resource.NewFor(domains)
 }

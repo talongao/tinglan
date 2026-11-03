@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"time"
 
-	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
 type Collection struct {
-	Playlists []huawei.Playlist
-	Tracks    []huawei.Track
+	Playlists []music.Playlist
+	Tracks    []music.Track
 	SavedAt   time.Time
 }
 

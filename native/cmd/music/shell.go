@@ -10,7 +10,6 @@ import (
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
-	"tinglan/native/internal/huawei"
 	"tinglan/native/internal/icons"
 	"tinglan/native/internal/lyrics"
 	"tinglan/native/internal/music"
@@ -510,10 +509,10 @@ func durationText(duration *float64) string {
 	return fmt.Sprintf("%d:%02d", int(*duration)/60, int(*duration)%60)
 }
 
-func (m *model) paintLibrary(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, search bool) {
+func (m *model) paintLibrary(c *ui.Canvas, b ui.Rect, tracks []music.Track, search bool) {
 	m.paintTrackList(c, b, tracks, search, false)
 }
-func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, search, detail bool) {
+func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, search, detail bool) {
 	boxHeight := min(b.Height, float32(len(tracks))*58+155)
 	if detail {
 		boxHeight = b.Height

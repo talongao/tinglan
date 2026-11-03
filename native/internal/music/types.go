@@ -38,13 +38,56 @@ func (s SourceID) Valid() bool {
 }
 
 type Artist struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name"`
+	ID       string `json:"id,omitempty"`
+	Name     string `json:"name"`
+	CoverURL string `json:"coverUrl,omitempty"`
 }
 
 type Album struct {
-	ID    string `json:"id,omitempty"`
-	Title string `json:"title"`
+	ID       string   `json:"id,omitempty"`
+	Title    string   `json:"title"`
+	CoverURL string   `json:"coverUrl,omitempty"`
+	Artists  []Artist `json:"artists,omitempty"`
+}
+
+// Detail is a provider-neutral entity page: album, artist or playlist.
+type Detail struct {
+	ID       string
+	Title    string
+	CoverURL string
+	Tracks   []Track
+	Albums   []Album
+	More     bool
+	Next     int
+}
+
+// Page is one page of provider results with an opaque cursor. Catalog code
+// keeps it neutral so no provider type leaks into the library index.
+type Page struct {
+	Items []Track
+	Next  int
+	More  bool
+}
+
+// PlaylistKind distinguishes user-owned, favorited and ranked lists on a source.
+type PlaylistKind string
+
+const (
+	PlaylistOwned    PlaylistKind = "owned"
+	PlaylistFavorite PlaylistKind = "favorite"
+	PlaylistChart    PlaylistKind = "chart"
+)
+
+// Playlist is provider-neutral list metadata. Local playlists live in the
+// library database; this type only describes lists a source can return.
+type Playlist struct {
+	Source      SourceID     `json:"source,omitempty"`
+	ID          string       `json:"id"`
+	Kind        PlaylistKind `json:"kind,omitempty"`
+	Name        string       `json:"name"`
+	Description string       `json:"description,omitempty"`
+	CoverURL    string       `json:"coverUrl,omitempty"`
+	TrackCount  int          `json:"trackCount,omitempty"`
 }
 
 // Access describes how much of a track a source can actually deliver. It is
@@ -140,9 +183,31 @@ type Track struct {
 	Artists   []Artist `json:"artists,omitempty"`
 	Album     *Album   `json:"album,omitempty"`
 	CoverURL  string   `json:"coverUrl,omitempty"`
+	CoverURLs []string `json:"coverUrls,omitempty"`
 	Duration  *float64 `json:"durationSeconds,omitempty"`
 	Version   Version  `json:"version,omitempty"`
 	RawSource string   `json:"-"` // provider payload never leaves the adapter
+
+	// OnlySource restricts playback to one source binding. It is queue state,
+	// not source metadata, so adapters must leave it empty.
+	OnlySource SourceID `json:"onlySource,omitempty"`
+	// Collected marks a row whose ID is the stable local canonical id rather
+	// than a platform track id. Also queue state.
+	Collected bool `json:"collected,omitempty"`
+}
+
+// CoverCandidates lists distinct covers, primary first, for the cover cache.
+func (t Track) CoverCandidates() []string {
+	seen := make(map[string]bool, len(t.CoverURLs)+1)
+	out := make([]string, 0, len(t.CoverURLs)+1)
+	for _, url := range append([]string{t.CoverURL}, t.CoverURLs...) {
+		if url == "" || seen[url] {
+			continue
+		}
+		seen[url] = true
+		out = append(out, url)
+	}
+	return out
 }
 
 func (t Track) ArtistText() string {
