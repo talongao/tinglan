@@ -145,10 +145,7 @@ func TestImportMergesAcrossSourcesAndPreservesOrder(t *testing.T) {
 }
 
 func TestReimportRefreshesMetadataWithoutNewSeq(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
 	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
@@ -176,10 +173,7 @@ func TestReimportRefreshesMetadataWithoutNewSeq(t *testing.T) {
 }
 
 func TestJevOnlyCalledForGrayZone(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
 	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
@@ -200,10 +194,7 @@ func TestJevOnlyCalledForGrayZone(t *testing.T) {
 }
 
 func TestJudgeErrorKeepsRowsSeparate(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
 	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
@@ -221,10 +212,7 @@ func TestJudgeErrorKeepsRowsSeparate(t *testing.T) {
 }
 
 func TestUnfavoriteKeepsCanonicalRowAndBindings(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
 	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
@@ -285,10 +273,7 @@ func TestFailedImportPublishesNothing(t *testing.T) {
 	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err == nil {
 		t.Fatal("expected the exhausted adapter to fail the import")
 	}
-	reopened, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	reopened := openForTest(t, dir)
 	if reopened.Len() != 0 {
 		t.Fatalf("failed import published %d rows", reopened.Len())
 	}
@@ -298,10 +283,7 @@ func TestFailedImportPublishesNothing(t *testing.T) {
 }
 
 func TestImportSkipsInvalidTracks(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	bad := music.Track{Source: music.SourceHuawei, Title: "no id"}
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(bad, track("h1", "七里香", 299))}}
 	result, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil)
@@ -336,10 +318,7 @@ func TestSaveUsesRestrictedPermissions(t *testing.T) {
 }
 
 func TestDocumentUpdatedAt(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	library.now = func() time.Time { return time.Unix(100, 0) }
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
 	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
@@ -351,10 +330,7 @@ func TestDocumentUpdatedAt(t *testing.T) {
 }
 
 func TestAddMergesSearchResultAndIsIdempotent(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	judge := &recordingJudge{score: .95}
 	policy := music.DefaultMatchPolicy()
 	if added, err := library.Add(context.Background(), track("hw-1", "夜曲", 226), judge, policy); err != nil || !added {
@@ -379,10 +355,7 @@ func TestAddMergesSearchResultAndIsIdempotent(t *testing.T) {
 }
 
 func TestDisableSourceAndReimportReactivates(t *testing.T) {
-	library, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, t.TempDir())
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("hw-1", "夜曲", 226))}}
 	if _, err := library.Import(context.Background(), first, source.Collection{}, nil, music.DefaultMatchPolicy(), nil); err != nil {
 		t.Fatal(err)
