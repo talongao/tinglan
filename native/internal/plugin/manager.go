@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -620,7 +621,13 @@ func entryCommand(dir string, spec EntrySpec) (string, []string, error) {
 		if err != nil || info.IsDir() {
 			return "", nil, fmt.Errorf("插件入口不存在：%s", spec.Command)
 		}
-		if info.Mode()&0o111 == 0 {
+		if runtime.GOOS == "windows" {
+			switch strings.ToLower(filepath.Ext(binary)) {
+			case ".exe", ".com", ".bat", ".cmd":
+			default:
+				return "", nil, fmt.Errorf("Windows 插件入口需要 .exe/.bat/.cmd：%s（脚本类插件请用 command/args 指定解释器）", spec.Command)
+			}
+		} else if info.Mode()&0o111 == 0 {
 			return "", nil, fmt.Errorf("插件入口没有执行权限：%s（脚本类插件请用 command/args 指定解释器）", spec.Command)
 		}
 		return binary, nil, nil

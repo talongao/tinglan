@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -128,14 +129,16 @@ func writeFakePlugin(t *testing.T, root string) Manifest {
 	if err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\nTINGLAN_TEST_PLUGIN=1 exec \"" + exe + "\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "bin", "plugin"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// Run this test binary itself as the plugin: a launcher script would not
+	// work on Windows, so the entry names the executable and sets the env var.
 	manifest := Manifest{
 		SchemaVersion: 1,
 		ID:            "fake",
-		Entry:         map[string]EntrySpec{PlatformKey(): {Command: "bin/plugin"}},
+		Entry: map[string]EntrySpec{PlatformKey(): {
+			Command: exe,
+			Args:    []string{"-test.run=^$"},
+			Env:     map[string]string{"TINGLAN_TEST_PLUGIN": "1"},
+		}},
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -457,6 +460,9 @@ func TestManagerRejectsMissingID(t *testing.T) {
 }
 
 func TestManagerLaunchesInterpreterEntry(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("/bin/sh is not available on Windows")
+	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "fake")
 	if err := os.MkdirAll(dir, 0o700); err != nil {

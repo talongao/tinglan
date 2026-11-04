@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,8 +54,18 @@ func hmsFlow(address string) *testFlow {
 	return &testFlow{
 		address:  address,
 		allowed:  func(raw string) bool { return raw == address || raw == address+"/" },
-		callback: func(raw string) bool { return len(raw) > 6 && raw[:6] == "hms://" },
+		callback: isRedirectCallback,
 	}
+}
+
+// isRedirectCallback mirrors huawei.IsCallback: only hms://redirect_uri counts,
+// so a lookalike host such as hms://redirect_uri.evil is not a callback.
+func isRedirectCallback(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	return parsed.Scheme == "hms" && parsed.Host == "redirect_uri"
 }
 
 func TestWebViewProfileCleanupRetriesLockedFile(t *testing.T) {

@@ -19,7 +19,11 @@ import (
 func buildHuaweiPlugin(t *testing.T, root string) string {
 	t.Helper()
 	dir := filepath.Join(root, "huawei")
-	bin := filepath.Join(dir, "bin", "huawei-source")
+	name := "huawei-source"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	bin := filepath.Join(dir, "bin", name)
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +42,7 @@ func buildHuaweiPlugin(t *testing.T, root string) string {
   "name": "华为音乐",
   "shortName": "华",
   "accent": "#C7000B",
-  "entry": {"` + runtime.GOOS + `-` + archKey(runtime.GOARCH) + `": "bin/huawei-source"},
+  "entry": {"` + runtime.GOOS + `-` + archKey(runtime.GOARCH) + `": "bin/` + name + `"},
   "protocol": {"min": 1, "max": 1},
   "capabilities": {
     "search": true, "playlists": true, "playlistDetail": true,
