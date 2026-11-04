@@ -79,7 +79,7 @@ source.catalog.playlistDetail {ref, section?, cursor, limit} → PlaylistDetail
 source.catalog.albumDetail    {ref, section?, cursor, limit} → AlbumDetail
 source.catalog.artistDetail   {ref, section, cursor, limit} → ArtistDetail
 source.catalog.history        {cursor, limit} → Page<Track>
-source.lyrics.get             {ref} → LyricsLine[]（SDK 参数差异见 §8）
+source.lyrics.get             {ref} → LyricsLine[]
 source.manage.reportHistory   {track,listenedSeconds} → {}
 source.manage.updatePlaylistDescription {ref,description} → {}
 source.manage.deletePlaylist  {ref} → {}

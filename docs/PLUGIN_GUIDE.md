@@ -579,7 +579,7 @@ node check.mjs
 | 列表/详情 | `source.catalog.playlists {kind,cursor,limit}`；`playlistDetail/albumDetail/artistDetail {ref,section,cursor,limit}` |
 | 平台历史 | `source.catalog.history {cursor,limit}`；协议保留，当前界面只展示本机历史 |
 | 导入/播放 | `source.library.import {collection,runId,cursor,limit}`；`resolve {track,quality}` |
-| 歌词 | `source.lyrics.get {ref}` → 歌词行数组；Go SDK 当前存在参数拆包差异，见协议 §8 |
+| 歌词 | `source.lyrics.get {ref}` → 歌词行数组 |
 | 宿主服务 | `host.session.*`、`host.webview.open/close`、`host.log {level,message}` |
 
 业务错误码按当前 `source.go` 的 `classify` 映射，不能套用其它 JSON-RPC 服务的编号：

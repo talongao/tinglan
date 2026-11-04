@@ -254,9 +254,19 @@ func (p *Plugin) dispatch(ctx context.Context, host *Host, method string, params
 		}
 		return p.Source.Catalog().History(ctx, request)
 	case "source.lyrics.get":
-		var ref source.TrackRef
-		if err := json.Unmarshal(params, &ref); err != nil {
+		// The host wraps the ref as {"ref": {...}}; tolerate a bare TrackRef
+		// so older callers keep working.
+		var request struct {
+			Ref source.TrackRef `json:"ref"`
+		}
+		if err := json.Unmarshal(params, &request); err != nil {
 			return nil, fmt.Errorf("lyrics params: %w", err)
+		}
+		ref := request.Ref
+		if ref.ID == "" && ref.Source == "" {
+			if err := json.Unmarshal(params, &ref); err != nil {
+				return nil, fmt.Errorf("lyrics params: %w", err)
+			}
 		}
 		lines, err := p.Source.Lyrics().Lyrics(ctx, ref)
 		if err != nil {
