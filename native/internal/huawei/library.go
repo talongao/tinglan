@@ -202,14 +202,6 @@ func (c *Client) Favorites(ctx context.Context, session *Session, start, limit i
 	if err != nil {
 		return Page{}, err
 	}
-	// An empty page is also what an invalidated token produces, because naming a
-	// target user suppresses the authentication error. Ask for the caller's own
-	// list so an expired session surfaces as a login problem, not as "no data".
-	if len(response.Items) == 0 {
-		if err := c.ValidateSession(ctx, session); err != nil {
-			return Page{}, err
-		}
-	}
 	return pageFrom(response.Items, start, limit), nil
 }
 func (c *Client) Search(ctx context.Context, query string, start, limit int) (Page, error) {

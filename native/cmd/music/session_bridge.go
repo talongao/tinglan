@@ -130,8 +130,11 @@ func (m *model) runSourceLogin(ctx context.Context) (*source.Session, error) {
 	attempt := fmt.Sprintf("attempt-%d", time.Now().UnixNano())
 	result, err := src.Auth().Login(ctx, source.LoginRequest{Kind: source.LoginWebView, AttemptID: attempt})
 	if err != nil {
+		m.logPlugin("login call failed: %v", err)
 		return nil, err
 	}
+	m.logPlugin("login result: succeeded=%v persisted=%v account=%q key=%q state=%q",
+		result.Succeeded, result.Persisted, result.Status.DisplayName, result.Status.AccountKey, result.Status.State)
 	m.loginSaved = result.Persisted
 	if !result.Succeeded || result.Status.AccountKey == "" {
 		return nil, source.NewError(music.SourceHuawei, "login", source.KindCanceled, fmt.Errorf("登录已取消"))

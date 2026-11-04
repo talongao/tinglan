@@ -163,6 +163,9 @@ func (m *model) wake() {
 			continue
 		}
 		if result.err != nil {
+			if !result.restored {
+				m.logPlugin("login failed: %v", result.err)
+			}
 			if errors.Is(result.err, webauth.ErrWebView2Missing) {
 				m.dialog = "webview-guide"
 				m.setStatus("登录需要 Microsoft Edge WebView2 Runtime")

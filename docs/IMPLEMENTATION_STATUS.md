@@ -472,3 +472,15 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 - 新增回归测试 `TestParseTTMLAcceptsAppleRolePrefix`、`TestParseTTMLKeepsWordTimesInsideParent`；
   `go test ./internal/lyrics/` 与全量 `go build/vet/test ./...`、`tinglan-tool ui-check` 全绿。
 - 仅离线验证：本机没有带 TTML 的真实音源可测，插件侧仍是各平台自行转换；Windows 未实机。
+
+### 2026-11-05：登录态校验回滚与登录诊断日志
+
+- 回滚 `ValidateSession` 的「自查」形状（不带 `targetSnsUserID`）：实测该请求形状会让**刚登录成功**的账号被判失效，
+  导致登录窗口完成后没有会话落盘、界面一直「未登录」。恢复带目标用户的请求体，并在注释里写明这条检查单独不能证明新鲜度。
+- `Favorites` 空页不再触发二次校验（同一接口自查同样不可靠）；空快照保护仍在 `canonical.Import` 与歌单更新处生效。
+- 新增登录诊断：`cmd/music/session_bridge.go` 与 `applySessionChecks` 把登录结果/失败原因写入 `<profile>/logs/plugin.log`，
+  失败时不再只能靠猜。
+- verified（本轮实测，macOS，真实账号）：回滚后重新登录成功（`source_accounts` = `logged_in`，`plugin.session.huawei` 已落盘），
+  收藏页双击播放《终有一天》得到完整时长 4:18、播放条无「试听」标记；此前会话被顶掉时同一首为 `0:29` 试听。
+- 遗留：过期 token 仍可能被服务端以「200 + 空列表」掩盖，界面无法可靠区分「没收藏」与「登录失效」；
+  待找到可用的新鲜度判据后再收紧。

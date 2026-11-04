@@ -144,18 +144,20 @@ func (c *Client) Exchange(ctx context.Context, attempt *Attempt) (*Session, erro
 	return &Session{token: result.Token, snsUserID: result.UserID, expireTime: result.Expiry}, nil
 }
 
-// ValidateSession asks the service for the caller's own favorites. Naming a
-// target user would let an expired token answer 200 with an empty list, which
-// is exactly the failure this check exists to catch.
+// ValidateSession confirms the token can read this account's favourites. An
+// expired token answers 200 with an empty list when a target user is named, so
+// this check alone cannot prove freshness; callers that need certainty compare
+// the returned list against local data.
 func (c *Client) ValidateSession(ctx context.Context, session *Session) error {
 	if session == nil || session.token == "" || session.snsUserID == "" {
 		return errors.New("music session missing")
 	}
 	body, _ := json.Marshal(struct {
-		Start int   `json:"start"`
-		Limit int   `json:"limit"`
-		Types []int `json:"contentTypes"`
-	}{0, 1, []int{1}})
+		UserID string `json:"targetSnsUserID"`
+		Start  int    `json:"start"`
+		Limit  int    `json:"limit"`
+		Types  []int  `json:"contentTypes"`
+	}{session.snsUserID, 0, 1, []int{1}})
 	headers, err := musicHeaders(session.token, time.Now())
 	if err != nil {
 		return err
