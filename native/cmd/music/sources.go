@@ -77,6 +77,11 @@ func (m *model) openLocalLibrary() {
 	if m.store == nil {
 		return
 	}
+	// Reopening must not leak the previous handle: sqlite keeps the file locked
+	// on Windows until every connection is closed.
+	if m.local != nil {
+		_ = m.local.Close()
+	}
 	m.local = nil
 	library, err := canonical.Open(m.store.Dir())
 	if err != nil {
