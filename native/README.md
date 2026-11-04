@@ -22,6 +22,16 @@ go run ./cmd/tinglan-tool ui-check   # 无头界面回归
 
 普通启动自动读取原生专用 profile：系统配置目录下 `tinglan/native-v1`（首次启动会把旧的 `huawei-music-desktop/native-v1` 整体迁移过来）。通用设置、歌词缓存与按账号散列隔离的队列/库缓存分开；凭据按用户选择保存在本机应用数据目录，保存失败则仅保留内存会话。不读取或迁移旧 Electron 密文。
 
+## 外置音源插件
+
+第三方作者从[插件开发指南](../docs/PLUGIN_GUIDE.md)开始：完整 Node 示例无需 Go 或 npm，可离线验证握手与搜索，再从「设置 → 音源 → 导入插件」安装。宿主工具链不依赖 Node；脚本插件的解释器由用户另外安装。
+
+插件是独立进程，通过 stdin/stdout 上的 Content-Length JSON-RPC 2.0 通信，stderr 用于日志。`source.json` 只描述启动入口；宿主探测 `initialize` 返回的 descriptor，分配 ID，复制到应用数据目录 `sources/<id>/` 并缓存 `descriptor.json`。导入探测本身会启动插件，插件不是沙箱程序。
+
+实现位于 `internal/plugin/`，协议与当前限制见 [SOURCE_PLUGIN_PROTOCOL.md](../docs/SOURCE_PLUGIN_PROTOCOL.md)，业务语义见 [SOURCE_CONTRACT.md](../docs/SOURCE_CONTRACT.md)。`internal/plugin/sdk/` 和 `wire/` 是仓库内部 Go 包，尚无可供外部模块直接引用的公开 SDK。可导入的脚本样例在 `internal/plugin/testdata/node-source-plugin/`。
+
+华为源进程入口是 `cmd/huawei-source/`，清单与预置描述在 `plugins/huawei/`；macOS 应用内位于 `Contents/Resources/sources/huawei/`，默认启用。第三方插件安装不修改应用包。当前不支持宿主二维码展示、自动更新或热重载，Windows 插件全流程仍待实机验收。
+
 ## 离线验证
 
 在 `native/` 下：
@@ -35,13 +45,13 @@ go run ./cmd/tinglan-tool ui-check   # 无头界面回归
 
 `--demo` 不读默认 profile 或系统凭据、不请求业务网络；`--fixture-dir` 只使用自行生成的 `tone.mp3` / `tone.flac`，默认静音。不得指向私人媒体或旧用户数据。普通全模块测试没有夹具时明确跳过音频集成检查。
 
-根目录 `test:native:ui` 构建 headless 版本并验证 1180/1100/1020/960 断点、设置滚动、专辑/艺人/歌单详情、沉浸歌词与抽屉共 34 项布局检查、965 首完整队列落盘，自动清理合成 profile。截图与报告写在忽略目录 `out/native/qa/`。
+`go run ./cmd/tinglan-tool ui-check` 构建 headless 版本并验证 1180/1100/1020/960 断点、设置滚动、专辑/艺人/歌单详情、沉浸歌词与抽屉共 34 项布局检查、965 首完整队列落盘，自动清理合成 profile。截图与报告写在忽略目录 `out/native/qa/`。
 
 macOS 音频脚本 `native/scripts/test-audio.sh` 使用 Python、系统 afconvert 和开发工具 lame 生成 4 秒合成音频，验证 AVFoundation 与 portableaudio 两个实现；开发工具不进入发行包。音频也可通过 `HWMUSIC_AUDIO_FIXTURES` 显式指定合成目录。
 
 ## 当前边界
 
-- 登录通过授权窗口自动接收本次回调，无需复制链接。macOS 使用 AuthenticationServices；develop 中 Windows 改用专用 WebView2 窗口，仅登录时创建，需安装 Microsoft Edge WebView2 Runtime。窗口使用独立临时数据目录，拦截 hms 导航/弹窗、拒绝下载与设备权限，完成或取消后关闭并清理。Linux 保留独立 Chromium/CDP。均不注册系统 hms 协议，不依赖默认浏览器。Windows WebView2 合成回归以 `HWMUSIC_TEST_WEBVIEW2=1 go test ./internal/webauth -run 'TestWebView|TestSyntheticWebView' -v` 显式执行，真实扫码仍待验。
+- 登录通过授权窗口自动接收本次回调，无需复制链接。当前预置华为插件通过 `host.webview.open` 请求窗口；macOS 默认使用 WKWebView，Windows 使用专用 WebView2 窗口，仅登录时创建，需安装 Microsoft Edge WebView2 Runtime。窗口使用独立临时数据目录，拦截 hms 导航/弹窗、拒绝下载与设备权限，完成或取消后关闭并清理。Linux 保留独立 Chromium/CDP。均不注册系统 hms 协议，不依赖默认浏览器。Windows WebView2 合成回归以 `HWMUSIC_TEST_WEBVIEW2=1 go test ./internal/webauth -run 'TestWebView|TestSyntheticWebView' -v` 显式执行，真实扫码仍待验。
 - 业务 HTTP、歌词、封面、音频 Range 均在 Go 内部处理；音频不落盘、不搭本地服务器、不向 CDN 发送业务凭据。
 - 收藏/搜索/歌单/专辑/艺人/历史、队列、受控写操作、网络与本地歌词已有实现与合成测试。
 - macOS 托盘/单实例/媒体键与普通字体选择有适配；物理媒体键待验，Windows/Linux 字体选择已补适配并交叉编译，显示待实机验收；Linux 已接 MPRIS（曲目、状态、播放/定位、音量/随机/循环），Windows 已接 SMTC（曲目、状态、时间线与媒体事件）；后两者只有交叉编译证据，未做实机验收。

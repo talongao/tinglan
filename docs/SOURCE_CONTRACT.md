@@ -1,10 +1,30 @@
 # 音源契约 v1（草案）
 
-状态：与 Astra 评审合并后的候选稿，待用户确认后冻结。冻结前实现仍以 `native/internal/source` 的现状为准。
+状态：本文保留 2026-11-03 的语义设计与迁移记录；2026-11-04 核对发现部分类型示意和保证尚未落实，不能直接作为外置插件的 JSON 模板。可互操作格式以 [SOURCE_PLUGIN_PROTOCOL.md](SOURCE_PLUGIN_PROTOCOL.md) 为准，上手见 [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md)。
 
 本文定义「一个音源是什么、能做什么、怎样失败」，不定义插件进程协议；外置插件的线格式见
 `docs/SOURCE_PLUGIN_PROTOCOL.md`。两份文档共享同一套语义，进程内音源直接实现 Go 接口，
 外置插件通过 JSON-RPC 实现同一套方法。
+
+### 当前实现差异（2026-11-04）
+
+下表优先于后文的设计类型示意；它不将尚未实现的保证降格为已完成，也不改变业务约束。
+
+| 主题 | 当前代码事实 / 未完成项 |
+| --- | --- |
+| 身份与清单 | 第三方交付 `source.json` 只有启动配置；导入分配 ID，握手自报 descriptor。能力不再与 manifest 声明合并 |
+| 能力字段 | `import/resolve/search/lyrics/playlist`（单数）及 collections/maxPageSize/loginKinds/loginRequired；没有独立详情、历史、qualities 能力位 |
+| 歌曲时长 | `durationSeconds`，单位秒；外置协议尚未改成 durationMs |
+| 歌单与页 | Playlist 是 source/id/kind/name 等平铺字段；Page 是 items/nextCursor/hasMore，没有 Complete |
+| 导入响应 | 实际 `source.ImportPage` 为 Tracks/Next/Partial/RemoteDeleted，无 JSON tags；RemoteDeleted 是 bool，Done 以 Next 为空判断。canonical 循环尚未处理 Partial/RemoteDeleted，不完整页必须返回错误；下文 Complete 与远端删除设计尚未完整落实 |
+| 歌词 | 当前 Go 接口返回 `[]lyrics.Line`（time/text/words 等，秒），不是格式标识加原文；外置 SDK 存在 ref 参数拆包差异，见协议 §8 |
+| 登录实现 | 发行版预置华为源是外置进程，登录经 host.webview.open；进程内 devSource 是开发回退，不代表发行版装配 |
+| 宿主安全保证 | 写令牌暂为 10 分钟有效；一次消费、attempt/代次撤销、总量/key 配额、逐服务权限检查尚未全部实现，不能据此承诺隔离 |
+| 登录 UI | WebView 回调已接入；Cookie 预置/存储导出、独立二维码展示、主动 close 尚未实现，重试保存也不能只凭接口存在宣称完整验收 |
+| 错误 | RPC 按协议 §9 的实际 -32001..-32010 映射；不按 data.kind 分类，没有独立 conflict/timeout 数字码 |
+| 远端写入 | ManageSource 保留兼容方法，不用于本地收藏和歌单；当前 shell 已移除平台历史入口与上报调用，新增插件不得因此自动写平台 |
+
+后文「应当/必须」描述目标语义；上述未完成项需要后续代码与验证收口，不能用文档更新代替实现。
 
 ## 1. 范围与边界
 
@@ -182,7 +202,7 @@ type Capabilities struct {
 - 能力是静态的，登录态不写进能力；「未登录」不能用来关闭公开搜索。
 - `LoginRequired` 只是 UI 入口提示，不是调用前的硬门禁：同一操作（例如 `PlaylistDetail`）可能对公开歌单匿名可读、对私人歌单需要登录，
   因此实体级访问要求必须由结果携带（见 6.1 `AccessRequirement`），未知时允许发起请求并按 `ErrAuthRequired` 处理。
-- 运行时能力可以少于 manifest 声明；申请额外宿主服务或资源域必须拒绝，不能静默扩大授权。
+- 外置源能力与资源域来自运行时 descriptor，清单不再声明；当前仅验证 requiredHostServices 属于宿主提供集合，尚未实现完整授权绑定与升级重新确认。
 
 ## 4. 登录与账号（AuthSource）
 
@@ -250,7 +270,7 @@ type AuthResult struct {
 
 ### 4.1 进程内注入
 
-内置源不通过 RPC，直接以 Go 接口获得宿主服务，构造关系如下（禁止适配器反向依赖 `cmd/music` 或 UI 包）：
+以下是进程内开发回退的设计接口；发行版预置华为源已通过 RPC。禁止适配器反向依赖 `cmd/music` 或 UI 包：
 
 ```go
 type Host interface {
@@ -440,7 +460,7 @@ conflict         状态冲突（代次过期、账号不匹配）
 - 宿主维护唯一 `Registry`，内置源与插件源进入同一张表；重复 `ID` 直接拒绝注册。
 - `Registry` 顺序只用于：UI 展示顺序、默认源、导入时的源选择。**它不参与播放绑定查找**（见 §10.1）。
 - 内置源也实现完整 `Source` 并暴露 `Descriptor`；UI 不再硬编码 `sourceLabel()` 与「华」角标。
-- 资源策略：`Descriptor` 增加 `ResourceDomains []string`，内置源与插件 manifest 使用同一套域名策略，
+- 资源策略：`Descriptor` 提供 `ResourceDomains []string`，内置源与插件 descriptor 使用同一套域名策略，
   播放与封面 URL 必须属于该源的资源域；跨源 URL 一律拒绝。
 
 ## 10. 宿主职责

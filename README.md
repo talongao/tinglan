@@ -15,9 +15,11 @@
 
 听澜是一款用 **Go + Viva** 构建的原生桌面音乐客户端。登录自己的华为账号，就能在电脑上浏览音乐库、播放喜欢的歌，不需要手机充当播放器。
 
+支持**外置音源插件**：在「设置 → 音源 → 导入插件」选择目录，启用后按插件声明的能力提供搜索、播放解析或收藏导入。华为音源随应用预置；第三方插件以独立进程运行，脚本插件需用户自备运行时。想编写自己的音源，从[插件开发指南：10 分钟做出可搜索的音源](docs/PLUGIN_GUIDE.md)开始。请使用包含该入口的构建，插件支持不代表各平台已经完成实机验收。
+
 轻点封面，展开歌词；再点一次，回到音乐库。工作时让播放器安静地浮在底部，想认真听一首歌时，就把封面和歌词留在眼前。
 
-> 非官方、实验性项目，与华为无隶属或合作关系。仅播放账号已有权益允许的华为音乐原音源，不替换其他平台音源，不绕过会员或版权限制。完整说明见[免责声明与使用边界](docs/DISCLAIMER.md)。
+> 非官方、实验性项目，与华为无隶属或合作关系。内置华为源仅播放账号已有权益允许的原音源；外置音源同样须遵守对应平台的服务条款与会员、地域限制，不以其它平台资源绕过限制。完整说明见[免责声明与使用边界](docs/DISCLAIMER.md)。
 
 ## 听歌，也看歌词
 
@@ -66,7 +68,7 @@
 
 听澜仍在持续打磨。目前以 **macOS Apple Silicon** 为主要开发与实际使用环境，本页截图也来自这一版本。Windows / Linux 已有适配代码与构建脚本，尚未完成实机验收。
 
-可从 [Latest Release](https://github.com/talongao/tinglan/releases/latest) 下载 macOS 或 Windows 测试安装包，也可从源码构建。测试包没有开发者证书签名或公证，尚不是正式发行版。原生界面、播放与构建工具链全部由 Go 实现，不依赖 Electron 或 Node.js。登录使用独立授权窗口并自动返回：macOS 调用系统授权服务，Windows 使用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
+可从 [Latest Release](https://github.com/talongao/tinglan/releases/latest) 下载 macOS 或 Windows 测试安装包，也可从源码构建。测试包没有开发者证书签名或公证，尚不是正式发行版。原生界面、播放与构建工具链全部由 Go 实现，不依赖 Electron 或 Node.js；外置脚本插件的解释器需另行安装。当前华为插件通过宿主内嵌窗口自动接收回调：macOS 使用 WKWebView，Windows 使用 WebView2 登录窗口（需要 Microsoft Edge WebView2 Runtime，仍待实机验证），无需手动复制回调链接。
 
 <details>
 <summary><strong>从源码启动</strong></summary>
@@ -113,7 +115,7 @@ go run ./cmd/tinglan-tool ui-check
 
 ## 接下来
 
-当前只推进 **Windows 可用性验证**，暂不增加新功能。测试和修复在 `develop` 进行，按需试用包从 Actions Artifacts 获取；经确认合入 `main` 的测试版本通过 Release 分发。
+**Windows 可用性验证**仍是发布门槛；多源收藏已纳入 roadmap，外置音源插件基础已实现，网易云适配器尚未实现。测试和修复在 `develop` 进行，按需试用包从 Actions Artifacts 获取；经确认合入 `main` 的测试版本通过 Release 分发。
 
 重点验证安装与启动、登录与会话恢复、音乐库与搜索、MP3/FLAC 播放及拖动进度、歌词、托盘续播与系统媒体控制。CI 构建成功只是起点，不代表这些使用体验已经验收。
 
@@ -121,7 +123,7 @@ go run ./cmd/tinglan-tool ui-check
 
 欢迎带着使用感受来提 [Issue](https://github.com/talongao/tinglan/issues)，也欢迎修复问题、改善排版和可访问性、补充跨平台验证的 PR。
 
-反馈时写清系统版本、复现步骤和预期表现；截图请避开账号信息。不要提交 Token、Cookie、授权码或私人数据。项目不接受绕过付费限制、音频解密或引入其他平台音源的改动。
+反馈时写清系统版本、复现步骤和预期表现；截图请避开账号信息。不要提交 Token、Cookie、授权码或私人数据。音源扩展须遵守 roadmap 与平台条款，项目不接受绕过付费限制、音频解密或未经授权的资源替换。
 
 开发资料：[原生开发说明](native/README.md) · [音源插件开发指南](docs/PLUGIN_GUIDE.md) · [实现状态](docs/IMPLEMENTATION_STATUS.md) · [迁移记录](docs/VIVA_MIGRATION.md) · [接口契约](docs/API_CONTRACT.md) · [验证记录](docs/authorized-feature-validation.md)
 

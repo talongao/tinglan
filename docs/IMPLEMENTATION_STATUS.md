@@ -343,6 +343,14 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 
 ### 2026-11-04：插件开发文档
 
-- 新增 [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md)：从最小 Node 插件开始的开发指南，
-  覆盖 `source.json`、Content-Length 帧、生命周期、方法表、数据格式、宿主服务、
-  错误码、安装/升级/卸载、调试、安全边界与常见问题；README 与协议文档已加链接。
+- 按当前代码从零重写 [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md)：完整离线 Node 搜索插件、逐步验收、
+  可复制的检查脚本，以及真实平台搜索/分页/播放/登录映射；同步 README、原生说明与示例入口。
+- 核对并修正 [SOURCE_PLUGIN_PROTOCOL.md](SOURCE_PLUGIN_PROTOCOL.md)：16 MiB、60 秒、实际错误码、
+  durationSeconds、导入字段、assignedId、解释器入口；[SOURCE_CONTRACT.md](SOURCE_CONTRACT.md) 增加设计与实现差异表。
+  未实现的令牌撤销/配额、二维码、浏览器存储导出、升级授权，以及歌词 SDK 参数差异均明确标注，不以文档改动代替修复。
+- verified（本轮离线，macOS，Node v24.22.1）：从新指南提取 source.json/main.mjs/check.mjs，
+  语法检查、握手、ID、中文搜索、两页分页、空结果、状态与 shutdown 通过；额外验证空 ID 探测、
+  拆分 UTF-8 帧、连续帧、unsupported、shutdown 通知与超限/残帧拒绝。
+- 临时 Go overlay 注入单项 `TestDocumentationExample`，用真实 Manager 完成该提取样例的
+  探测/导入/缓存/启用/搜索/停用，通过（1 test）；未修改仓库代码。
+- 本轮未做 GUI、真实账号或 Windows 实机验收，未访问私人会话；仅文档改动，未提交、未推送。
