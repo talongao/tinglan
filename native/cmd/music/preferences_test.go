@@ -119,7 +119,7 @@ func TestExpiryClearsAccountButNotOnNetworkFailure(t *testing.T) {
 func TestSourceSettingsTab(t *testing.T) {
 	m := newModel()
 	m.enableDemo(2)
-	m.openProfile(t.TempDir())
+	openProfileForTest(t, m, t.TempDir())
 	m.openLocalLibrary()
 	var canvas ui.Canvas
 	d, err := app.NewDriver(config(m), &canvas)

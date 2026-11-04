@@ -48,7 +48,7 @@ func TestManualLyricsScrollPreservesLibrary(t *testing.T) {
 func TestNavigationQueueAppearanceAndRestart(t *testing.T) {
 	m := newModel()
 	m.enableDemo(2)
-	m.openProfile(t.TempDir())
+	openProfileForTest(t, m, t.TempDir())
 	var canvas ui.Canvas
 	d, err := app.NewDriver(config(m), &canvas)
 	if err != nil {
@@ -150,7 +150,7 @@ func BenchmarkLibraryPaint(b *testing.B) {
 func TestSettingsSelectionsAndDetailScroll(t *testing.T) {
 	m := newModel()
 	m.enableDemo(2)
-	m.openProfile(t.TempDir())
+	openProfileForTest(t, m, t.TempDir())
 	var canvas ui.Canvas
 	d, err := app.NewDriver(config(m), &canvas)
 	if err != nil {

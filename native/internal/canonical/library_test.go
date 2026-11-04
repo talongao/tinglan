@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -99,12 +100,20 @@ func page(tracks ...music.Track) source.ImportPage {
 	return source.ImportPage{Tracks: tracks}
 }
 
-func TestImportMergesAcrossSourcesAndPreservesOrder(t *testing.T) {
-	dir := t.TempDir()
+// openForTest opens a library and closes it during cleanup.
+func openForTest(t *testing.T, dir string) *Library {
+	t.Helper()
 	library, err := Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = library.Close() })
+	return library
+}
+
+func TestImportMergesAcrossSourcesAndPreservesOrder(t *testing.T) {
+	dir := t.TempDir()
+	library := openForTest(t, dir)
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		page(track("h1", "七里香", 299), track("h2", "晴天", 269)),
 	}}
@@ -268,10 +277,7 @@ func TestRejectsCorruptDocument(t *testing.T) {
 
 func TestFailedImportPublishesNothing(t *testing.T) {
 	dir := t.TempDir()
-	library, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, dir)
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		{Tracks: []music.Track{track("h1", "七里香", 299)}, Next: "50"},
 		{Tracks: []music.Track{track("h2", "晴天", 269)}, Next: "100"},
@@ -308,11 +314,11 @@ func TestImportSkipsInvalidTracks(t *testing.T) {
 }
 
 func TestSaveUsesRestrictedPermissions(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "profile")
-	library, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose POSIX file modes")
 	}
+	dir := filepath.Join(t.TempDir(), "profile")
+	library := openForTest(t, dir)
 	adapter := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{page(track("h1", "七里香", 299))}}
 	if _, err := library.Import(context.Background(), adapter, source.Collection{}, nil, music.MatchPolicy{}, nil); err != nil {
 		t.Fatal(err)
@@ -400,10 +406,7 @@ func TestDisableSourceAndReimportReactivates(t *testing.T) {
 
 func TestFailedUpdateKeepsPublishedData(t *testing.T) {
 	dir := t.TempDir()
-	library, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, dir)
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		{Tracks: []music.Track{track("h1", "七里香", 299), track("h2", "晴天", 269)}},
 	}}
@@ -432,10 +435,7 @@ func TestFailedUpdateKeepsPublishedData(t *testing.T) {
 
 func TestReimportDropsRemovedBindingButKeepsFavorite(t *testing.T) {
 	dir := t.TempDir()
-	library, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, dir)
 	first := &pageAdapter{id: music.SourceHuawei, pages: []source.ImportPage{
 		{Tracks: []music.Track{track("h1", "七里香", 299), track("h2", "晴天", 269)}},
 	}}
@@ -483,10 +483,7 @@ func TestLegacyMigrationRaisesImportSeqHighWater(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, fileName), data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	library, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
+	library := openForTest(t, dir)
 	defer library.Close()
 	if library.Len() != 2 {
 		t.Fatalf("len = %d", library.Len())

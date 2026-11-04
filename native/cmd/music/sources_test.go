@@ -9,7 +9,7 @@ import (
 
 func TestFavoriteButtonAddsAndRemovesLocalRow(t *testing.T) {
 	m := newModel()
-	m.openProfile(t.TempDir())
+	openProfileForTest(t, m, t.TempDir())
 	track := music.Track{
 		ID: "hw-1", Title: "测试歌曲",
 		Artists: []music.Artist{{ID: "a1", Name: "测试歌手"}},
@@ -32,7 +32,7 @@ func TestFavoriteButtonAddsAndRemovesLocalRow(t *testing.T) {
 
 func TestLogoutKeepsLocalFavorites(t *testing.T) {
 	m := newModel()
-	m.openProfile(t.TempDir())
+	openProfileForTest(t, m, t.TempDir())
 	m.toggleFavorite(music.Track{ID: "hw-keep", Title: "退出后仍在"})
 	if m.local.Len() != 1 {
 		t.Fatal("setup failed")

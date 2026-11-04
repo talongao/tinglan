@@ -62,7 +62,7 @@ func TestCancelDoesNotExchangeOrReplaceSession(t *testing.T) {
 
 func TestFreshInstallRestorationIsNotInteractiveLogin(t *testing.T) {
 	m := newModel()
-	m.openProfile(t.TempDir())
+	openProfileForTest(t, m, t.TempDir())
 	m.restoreSession()
 	if m.busy || !m.restoring {
 		t.Fatal("restore incorrectly displays cancel login")
@@ -107,4 +107,12 @@ func TestExplicitLoginSupersedesSessionRestoration(t *testing.T) {
 	}
 	m.cancelLogin()
 	m.close()
+}
+
+// openProfileForTest opens a profile and registers cleanup, so Windows can
+// delete the SQLite files during TempDir cleanup.
+func openProfileForTest(t *testing.T, m *model, dir string) {
+	t.Helper()
+	m.openProfile(dir)
+	t.Cleanup(m.close)
 }

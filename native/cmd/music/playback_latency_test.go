@@ -16,7 +16,7 @@ func TestPlaybackStartLatency(t *testing.T) {
 		t.Skip("HWMUSIC_LATENCY_PROFILE not set")
 	}
 	m := newModel()
-	m.openProfile(dir)
+	openProfileForTest(t, m, dir)
 	m.restoreSession()
 	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {

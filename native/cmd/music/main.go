@@ -258,6 +258,10 @@ func (m *model) close() {
 	m.playbackResults = nil
 	m.mu.Unlock()
 	m.session = nil
+	if m.local != nil {
+		_ = m.local.Close()
+		m.local = nil
+	}
 	if m.player != nil {
 		m.player.Close()
 		m.player = nil
