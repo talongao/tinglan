@@ -302,6 +302,15 @@ func packageNSIS(root, output, payload string, stdout, stderr io.Writer) error {
 	version := appmetaVersion()
 	name := fmt.Sprintf("tinglan-%s-%s-setup-unsigned.exe", version, nodeArch())
 	artifact := filepath.Join(output, name)
+	notice, err := os.ReadFile(filepath.Join(payload, "NOTICE.txt"))
+	if err != nil {
+		return err
+	}
+	license := filepath.Join(staging, "license-utf16.txt")
+	body := "\ufeff" + appmetaDisplayName() + " · 安装说明\r\n\r\n" + string(notice)
+	if err := os.WriteFile(license, utf16le(body), 0o644); err != nil {
+		return err
+	}
 	script := nsisScript(nsisConfig{
 		Icon:       icon,
 		Name:       appmetaDisplayName(),
@@ -370,6 +379,7 @@ func nsisScript(cfg nsisConfig) string {
 	shortcut := "$SMPROGRAMS\\Tinglan\\" + name + ".lnk"
 	return "Unicode true\n" +
 		"!include \"MUI2.nsh\"\n" +
+		"!include \"FileFunc.nsh\"\n" +
 		"!define MUI_ICON \"" + nsisEscape(cfg.Icon) + "\"\n" +
 		"!define MUI_UNICON \"" + nsisEscape(cfg.Icon) + "\"\n" +
 		"Name \"" + name + "\"\n" +
@@ -391,6 +401,8 @@ func nsisScript(cfg nsisConfig) string {
 		files.String() +
 		" WriteUninstaller \"$INSTDIR\\Uninstall.exe\"\n" +
 		" CreateDirectory \"$SMPROGRAMS\\Tinglan\"\n" +
+		" CreateDirectory \"$INSTDIR\\upgrade-backup\"\n" +
+		" ${Locate} \"$SMPROGRAMS\\Tinglan\" \"/M=*.lnk\" \"BackupLegacyShortcut\"\n" +
 		" CreateShortcut \"" + shortcut + "\" \"$INSTDIR\\" + cfg.Files[0] + "\"\n" +
 		" CreateShortcut \"$SMPROGRAMS\\Tinglan\\Uninstall.lnk\" \"$INSTDIR\\Uninstall.exe\"\n" +
 		" WriteRegStr HKCU \"Software\\HuaweiMusicViva\" \"InstallDir\" \"$INSTDIR\"\n" +
@@ -408,7 +420,26 @@ func nsisScript(cfg nsisConfig) string {
 		" RMDir \"$INSTDIR\"\n" +
 		" DeleteRegKey HKCU \"Software\\HuaweiMusicViva\"\n" +
 		" DeleteRegKey HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva\"\n" +
-		"SectionEnd\n"
+		"SectionEnd\n" +
+		"\n" +
+		"Function BackupLegacyShortcut\n" +
+		" StrCmp $R9 \"Uninstall.lnk\" done\n" +
+		" StrCmp $R9 \"" + name + ".lnk\" done\n" +
+		" Rename \"$SMPROGRAMS\\Tinglan\\$R9\" \"$INSTDIR\\upgrade-backup\\$R9.bak\"\n" +
+		"done:\n" +
+		"FunctionEnd\n"
+}
+
+// utf16le encodes text as UTF-16LE, the format NSIS LicenseData reads as-is.
+func utf16le(text string) []byte {
+	out := make([]byte, 0, len(text)*2)
+	for _, r := range text {
+		if r > 0xffff {
+			r = 0xfffd
+		}
+		out = append(out, byte(r), byte(r>>8))
+	}
+	return out
 }
 
 func packageCommand(stdout, stderr io.Writer, args []string) error {
