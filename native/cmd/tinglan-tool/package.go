@@ -222,13 +222,20 @@ func packageLocal(root string, request packageRequest, stdout, stderr io.Writer)
 	}
 	switch platform {
 	case "darwin":
+		return packageDMG(root, output, payload, stdout, stderr)
 	case "win32":
-		return errors.New("Windows NSIS packaging is out of scope for the Go port; run native/scripts/package.mjs on Windows")
+		return packageNSIS(root, output, payload, stdout, stderr)
 	case "linux":
 		return errors.New("Linux tarball packaging is out of scope for the Go port; run native/scripts/package.mjs on Linux")
 	default:
 		return errors.New("Unsupported installer platform")
 	}
+}
+
+// packageDMG is the macOS half of package.mjs: stage Tinglan.app, add the
+// /Applications symlink and NOTICE.txt, then build and verify the UDZO image.
+func packageDMG(root, output, payload string, stdout, stderr io.Writer) error {
+	arch := nodeArch()
 	if err := macApp(root, stdout, stderr); err != nil {
 		return err
 	}
@@ -278,6 +285,130 @@ func packageLocal(root string, request packageRequest, stdout, stderr io.Writer)
 	}
 	_, err = fmt.Fprintf(stdout, "Local test package: %s\n", artifact)
 	return err
+}
+
+// packageNSIS is the Windows half of package.mjs: write a UTF-8 NSIS script for
+// the staged payload and run makensis to produce the unsigned installer.
+func packageNSIS(root, output, payload string, stdout, stderr io.Writer) error {
+	icon := filepath.Join(root, "out", "native", "windows-resources", "app.ico")
+	if _, err := os.Stat(icon); err != nil {
+		return fmt.Errorf("Windows icon: %w", err)
+	}
+	staging, err := os.MkdirTemp("", "hwmusic-native-nsis-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+	version := appmetaVersion()
+	name := fmt.Sprintf("tinglan-%s-%s-setup-unsigned.exe", version, nodeArch())
+	artifact := filepath.Join(output, name)
+	script := nsisScript(nsisConfig{
+		Icon:       icon,
+		Name:       appmetaDisplayName(),
+		Output:     artifact,
+		InstallDir: "$LOCALAPPDATA\\Programs\\Tinglan",
+		Version:    version,
+		Notice:     filepath.Join(payload, "NOTICE.txt"),
+		Payload:    payload,
+		Files:      []string{executableName("win32"), "LICENSE", "THIRD_PARTY_NOTICES.txt", "icon.LICENSE.txt", "NOTICE.txt", "SHA256SUMS"},
+	})
+	file := filepath.Join(staging, "installer.nsi")
+	if err := writeFile(file, []byte("\ufeff"+script), 0o644); err != nil {
+		return err
+	}
+	makensis := os.Getenv("HWMUSIC_MAKENSIS")
+	if makensis == "" {
+		makensis = "makensis"
+	}
+	if err := runCommand(commandSpec{
+		Name: makensis,
+		Args: []string{"/INPUTCHARSET", "UTF8", "/V2", file},
+	}, stdout, stderr); err != nil {
+		return fmt.Errorf("makensis (set HWMUSIC_MAKENSIS if it is not on PATH): %w", err)
+	}
+	digest, err := sha256Hex(artifact)
+	if err != nil {
+		return err
+	}
+	sums := digest + "  " + filepath.Base(artifact) + "\n"
+	if err := writeFile(filepath.Join(output, "SHA256SUMS"), []byte(sums), 0o644); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "Local test package: %s\n", artifact)
+	return err
+}
+
+// nsisConfig carries the values package.mjs interpolates into installer.nsi.
+type nsisConfig struct {
+	Icon       string
+	Name       string
+	Output     string
+	InstallDir string
+	Version    string
+	Notice     string
+	Payload    string
+	Files      []string
+}
+
+// nsisEscape mirrors package.mjs' esc(): dollars double and quotes escape.
+func nsisEscape(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, "$", "$$"), `"`, `$\"`)
+}
+
+// nsisScript renders the installer script byte-for-byte like package.mjs.
+func nsisScript(cfg nsisConfig) string {
+	var files strings.Builder
+	for _, file := range cfg.Files {
+		path := filepath.Join(cfg.Payload, file)
+		fmt.Fprintf(&files, " File \"%s\"\n", nsisEscape(path))
+	}
+	var deletes strings.Builder
+	for _, file := range cfg.Files {
+		fmt.Fprintf(&deletes, " Delete \"$INSTDIR\\%s\"\n", file)
+	}
+	name := nsisEscape(cfg.Name)
+	shortcut := "$SMPROGRAMS\\Tinglan\\" + name + ".lnk"
+	return "Unicode true\n" +
+		"!include \"MUI2.nsh\"\n" +
+		"!define MUI_ICON \"" + nsisEscape(cfg.Icon) + "\"\n" +
+		"!define MUI_UNICON \"" + nsisEscape(cfg.Icon) + "\"\n" +
+		"Name \"" + name + "\"\n" +
+		"OutFile \"" + nsisEscape(cfg.Output) + "\"\n" +
+		"RequestExecutionLevel user\n" +
+		"InstallDir \"" + cfg.InstallDir + "\"\n" +
+		"InstallDirRegKey HKCU \"Software\\HuaweiMusicViva\" \"InstallDir\"\n" +
+		"!insertmacro MUI_PAGE_WELCOME\n" +
+		"!insertmacro MUI_PAGE_LICENSE \"" + nsisEscape(cfg.Notice) + "\"\n" +
+		"!insertmacro MUI_PAGE_DIRECTORY\n" +
+		"!insertmacro MUI_PAGE_INSTFILES\n" +
+		"!insertmacro MUI_PAGE_FINISH\n" +
+		"!insertmacro MUI_UNPAGE_CONFIRM\n" +
+		"!insertmacro MUI_UNPAGE_INSTFILES\n" +
+		"!insertmacro MUI_LANGUAGE \"SimpChinese\"\n" +
+		"Section\n" +
+		" SetShellVarContext current\n" +
+		" SetOutPath \"$INSTDIR\"\n" +
+		files.String() +
+		" WriteUninstaller \"$INSTDIR\\Uninstall.exe\"\n" +
+		" CreateDirectory \"$SMPROGRAMS\\Tinglan\"\n" +
+		" CreateShortcut \"" + shortcut + "\" \"$INSTDIR\\" + cfg.Files[0] + "\"\n" +
+		" CreateShortcut \"$SMPROGRAMS\\Tinglan\\Uninstall.lnk\" \"$INSTDIR\\Uninstall.exe\"\n" +
+		" WriteRegStr HKCU \"Software\\HuaweiMusicViva\" \"InstallDir\" \"$INSTDIR\"\n" +
+		" WriteRegStr HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva\" \"DisplayName\" \"" + name + "\"\n" +
+		" WriteRegStr HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva\" \"DisplayVersion\" \"" + cfg.Version + "\"\n" +
+		" WriteRegStr HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva\" \"UninstallString\" '\"$INSTDIR\\Uninstall.exe\"'\n" +
+		"SectionEnd\n" +
+		"Section \"Uninstall\"\n" +
+		" SetShellVarContext current\n" +
+		deletes.String() +
+		" Delete \"$INSTDIR\\Uninstall.exe\"\n" +
+		" Delete \"" + shortcut + "\"\n" +
+		" Delete \"$SMPROGRAMS\\Tinglan\\Uninstall.lnk\"\n" +
+		" RMDir \"$SMPROGRAMS\\Tinglan\"\n" +
+		" RMDir \"$INSTDIR\"\n" +
+		" DeleteRegKey HKCU \"Software\\HuaweiMusicViva\"\n" +
+		" DeleteRegKey HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva\"\n" +
+		"SectionEnd\n"
 }
 
 func packageCommand(stdout, stderr io.Writer, args []string) error {
