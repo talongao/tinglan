@@ -460,3 +460,15 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   播放页《百年孤寂》当前行「曲」已高亮、其余字仍暗，确认逐字推进；试听曲目播放条显示「试听」
   并提示「只能试听：平台没有提供完整音源，可能需要会员。」
 - 未验证：Windows 实机；`.hmrc` 与服务端字段变化；其他音源（暂无实现）。
+
+### 2026-11-05：插件文档补 TTML，解析器按文档校正
+
+- `docs/PLUGIN_GUIDE.md` §6.8.1 新增「若平台的歌词是 TTML」：`<p>`/`<span>` 到 `Line`/`Word` 的映射、
+  时间容器规则、`ttm:role` 两种写法、完整示例与期望 JSON、注意事项（译文不进 words、行文本要与
+  words 拼出的一致、512 KiB 上限）；`docs/SOURCE_PLUGIN_PROTOCOL.md` §8 指向该节并声明宿主不解析平台格式。
+- 按文档核对解析器时发现三处不一致，改的是解析器（文档描述的才是正确行为）：
+  `ttmlRole` 不认 Apple 的 `x-translation`/`x-transcription` 前缀；词的开始时间未夹进父容器区间，
+  畸形文档会出现起点晚于终点；`<p>` 内的缩进换行会混进歌词文本。
+- 新增回归测试 `TestParseTTMLAcceptsAppleRolePrefix`、`TestParseTTMLKeepsWordTimesInsideParent`；
+  `go test ./internal/lyrics/` 与全量 `go build/vet/test ./...`、`tinglan-tool ui-check` 全绿。
+- 仅离线验证：本机没有带 TTML 的真实音源可测，插件侧仍是各平台自行转换；Windows 未实机。
