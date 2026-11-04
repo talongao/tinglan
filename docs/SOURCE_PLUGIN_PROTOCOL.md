@@ -242,6 +242,8 @@ Playback {
   - 对象（MCP 式）：`command`（PATH 或绝对路径）、`args`、`env`。相对 `args` 若在插件目录内存在则解析为绝对路径；
     绝对 `args` 与含 `..` 的 `args` 直接拒绝。对象形式不要求入口文件在插件目录内，也不会自动加执行位检查。
 - 平台键优先取宿主平台（如 `darwin-arm64`），缺失时回退 `any`。
+- 仓库自带一个最小 Node 示例：`native/internal/plugin/testdata/node-source-plugin/`（`main.mjs` + `source.json`），
+  演示纯脚本插件如何完成 `initialize` 握手与 `source.catalog.search`；导入后搜索「脚本」即可验证。
 - 运行时由插件作者和用户负责：宿主不内置 Node/Python，也不做 shebang 探测。
   启动失败会带上 `command` 与插件 stderr 首行，便于判断是解释器缺失还是插件自身报错。
 

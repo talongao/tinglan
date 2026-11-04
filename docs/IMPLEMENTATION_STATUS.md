@@ -333,3 +333,10 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 - 内置华为源与示例插件仍用二进制；脚本类第三方插件（如 `node main.mjs`、`uv run main.py`）
   需要用户自备运行时，启动失败会在错误里带上 command 与 stderr 首行。
 - 新增 `TestManagerLaunchesInterpreterEntry`：用 `/bin/sh -c` 启动插件并完成握手、注册。
+
+### 2026-11-04：MCP 式入口的 Node 端到端验证
+
+- 用 `native/internal/plugin/testdata/node-source-plugin/`（Node + Content-Length JSON-RPC）走完
+  「导入插件 → 系统选择器 → 授权启用 → 设置页出现 → 搜索页页签 → 搜索结果」全流程；
+  安装后的清单 id 由宿主分配（如 `node-3df1`），进程为 `node .../sources/node-3df1/main.mjs`。
+- 搜索结果行的来源徽标改为读取插件的 `Descriptor.ShortName`，不再把所有临时行都画成「华」。

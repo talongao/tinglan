@@ -1,0 +1,6 @@
+{
+  "schemaVersion": 1,
+  "entry": {
+    "any": { "command": "node", "args": ["main.mjs"] }
+  }
+}

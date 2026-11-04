@@ -699,7 +699,7 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 		if t.Album != nil && t.Album.ID != "" && hit(c, albumRows.At(i), albumRect, "专辑 "+album) {
 			m.openEntity("album", t.Album.ID, t.Album.Title)
 		}
-		m.paintSourceBadges(c, t.ID, rect(r.X+r.Width-192, y+19, 76, 20), !available)
+		m.paintSourceBadges(c, t, rect(r.X+r.Width-192, y+19, 76, 20), !available)
 		if m.iconButtonDim(c, collectRows.At(i), rect(r.X+r.Width-83, y+14, 30, 30), icons.Plus, "加入歌单 "+t.Title, false, !available) {
 			m.openAddToPlaylist(t)
 		}
@@ -1018,28 +1018,55 @@ func (m *model) paintTitlebar(c *ui.Canvas, size ui.Size) {
 	c.MoveRegion(rect(leading, 0, max(0, size.Width-leading-trailing), 28))
 }
 
-func (m *model) paintSourceBadges(c *ui.Canvas, rowID string, b ui.Rect, dim bool) {
-	sources := m.rowSources[rowID]
+// sourceBadgeLabel is the one-character badge for a source row: the plugin's
+// short name when it declares one, otherwise the built-in labels.
+func (m *model) sourceBadgeLabel(id music.SourceID) string {
+	if m.registry != nil {
+		if src, ok := m.registry.Source(id); ok {
+			if name := strings.TrimSpace(src.Describe().ShortName); name != "" {
+				runes := []rune(name)
+				if len(runes) > 2 {
+					runes = runes[:2]
+				}
+				return string(runes)
+			}
+		}
+	}
+	switch id {
+	case music.SourceHuawei:
+		return "华"
+	case music.SourceNetEase:
+		return "网"
+	}
+	if name := m.sourceDisplayName(id); name != "" {
+		runes := []rune(name)
+		return string(runes[:min(2, len(runes))])
+	}
+	return "?"
+}
+
+func (m *model) paintSourceBadges(c *ui.Canvas, track music.Track, b ui.Rect, dim bool) {
+	sources := m.rowSources[track.ID]
 	if len(sources) == 0 {
 		// Transient rows (search results, remote playlist entries, one-off
 		// history items) are not in 收录音乐 yet, so they have no canonical ID
-		// lookup. Every transient row currently comes from Huawei Music, and the
-		// search tabs only list registered sources, so show that provider
-		// instead of leaving the column blank and inconsistent with favorites.
-		sources = []music.SourceID{music.SourceHuawei}
+		// lookup. Show the source the row was returned by instead.
+		source := track.Source
+		if source == "" {
+			source = music.SourceHuawei
+		}
+		sources = []music.SourceID{source}
 	}
 	for i, source := range sources {
 		if i >= 3 {
 			break
 		}
-		label := "?"
-		switch source {
-		case music.SourceHuawei:
-			label = "华"
-		case music.SourceNetEase:
-			label = "网"
+		label := m.sourceBadgeLabel(source)
+		width := float32(22)
+		if label != "" {
+			width = max(22, 10+float32(len([]rune(label)))*7)
 		}
-		r := rect(b.X+float32(i)*26, b.Y, 22, 18)
+		r := rect(b.X+float32(i)*32, b.Y, width, 18)
 		tint := m.accent()
 		tint.Alpha = .10
 		ink := m.accent()
@@ -1051,6 +1078,6 @@ func (m *model) paintSourceBadges(c *ui.Canvas, rowID string, b ui.Rect, dim boo
 		m.text(c, label, rect(r.X+6, r.Y+1, 14, 16), 10, 600, ink)
 		// The badge is a one-character legend; give it an accessible label so
 		// hovering/AT explains which platform it stands for.
-		c.HitWithOptions(tree.ID(shell, "source-badge-"+rowID+"-"+source.String()), r, "来源："+sourceLabel(source.String()), ui.HitOptions{})
+		c.HitWithOptions(tree.ID(shell, "source-badge-"+track.ID+"-"+source.String()), r, "来源："+m.sourceDisplayName(source), ui.HitOptions{})
 	}
 }

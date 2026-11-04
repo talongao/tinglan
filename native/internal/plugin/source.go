@@ -254,9 +254,7 @@ func (c catalogSource) Playlists(ctx context.Context, request source.PlaylistReq
 		return out, classify(c.p.desc.ID, "playlists", err)
 	}
 	for i := range out.Items {
-		if out.Items[i].Source == "" {
-			out.Items[i].Source = c.p.desc.ID
-		}
+		out.Items[i].Source = c.p.desc.ID
 	}
 	return out, nil
 }
@@ -370,9 +368,10 @@ func entityParams(request source.EntityRequest) map[string]any {
 
 func (p *Plugin) stampSource(tracks []music.Track) {
 	for i := range tracks {
-		if tracks[i].Source == "" {
-			tracks[i].Source = p.desc.ID
-		}
+		// The host owns source identity: a plugin reporting its own unassigned
+		// id (or another source's id) must not leak into row badges, queue
+		// entries or playback resolution.
+		tracks[i].Source = p.desc.ID
 	}
 }
 
