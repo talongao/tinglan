@@ -33,28 +33,28 @@ type Collection struct {
 
 // ImportRequest asks for one page of a collection.
 type ImportRequest struct {
-	Collection Collection
+	Collection Collection `json:"collection"`
 	// Cursor is the provider cursor returned by the previous page. Empty starts
 	// from the beginning; callers must treat it as opaque.
-	Cursor string
-	Limit  int
+	Cursor string `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 	// RunID identifies the whole snapshot attempt. Sources only use it for
 	// diagnostics; publishing is the caller's job.
-	RunID string
+	RunID string `json:"runId,omitempty"`
 }
 
 // ImportPage is one page of imported metadata.
 type ImportPage struct {
-	Tracks []music.Track
+	Tracks []music.Track `json:"tracks"`
 	// Next is the cursor for the following page. Empty means the list ended.
-	Next string
+	Next string `json:"nextCursor,omitempty"`
 	// Partial reports that the page is usable but the provider signalled that
 	// more data exists and the caller should retry to get it.
-	Partial bool
+	Partial bool `json:"partial,omitempty"`
 	// RemoteDeleted reports that the source verified the collection no longer
 	// exists. It is only valid on the last page of a normally completed run;
 	// a network error or an empty page must not set it.
-	RemoteDeleted bool
+	RemoteDeleted bool `json:"remoteDeleted,omitempty"`
 }
 
 // Done reports whether the collection is exhausted.
@@ -62,10 +62,10 @@ func (p ImportPage) Done() bool { return p.Next == "" }
 
 // ResolveRequest asks a source for a playable stream.
 type ResolveRequest struct {
-	Track music.Track
+	Track music.Track `json:"track"`
 	// Quality is the user's preference ("standard", "lossless"). Sources may
 	// return a lower quality, but must report what they actually delivered.
-	Quality string
+	Quality string `json:"quality,omitempty"`
 }
 
 // Capabilities is static: it describes what the adapter can do, not whether it
@@ -260,7 +260,7 @@ func SortedIDs(ids []music.SourceID) []music.SourceID {
 
 // SearchRequest asks one source for a page of search results.
 type SearchRequest struct {
-	Query  string
-	Cursor string
-	Limit  int
+	Query  string `json:"query"`
+	Cursor string `json:"cursor,omitempty"`
+	Limit  int    `json:"limit,omitempty"`
 }

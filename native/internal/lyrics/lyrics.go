@@ -9,14 +9,15 @@ import (
 )
 
 type Word struct {
-	Time float64
-	Text string
+	Time float64 `json:"time"`
+	Text string  `json:"text"`
 }
 type Line struct {
-	Time              float64
-	Text, Translation string
-	Romanization      string
-	Words             []Word
+	Time         float64 `json:"time"`
+	Text         string  `json:"text"`
+	Translation  string  `json:"translation,omitempty"`
+	Romanization string  `json:"romanization,omitempty"`
+	Words        []Word  `json:"words,omitempty"`
 }
 
 var stamp = regexp.MustCompile(`\[(\d+):(\d{2})(?:\.(\d{1,3}))?\]`)

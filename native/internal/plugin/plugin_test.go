@@ -93,7 +93,7 @@ func serveFakePlugin() {
 						map[string]any{"id": "h1", "title": "第一首"},
 						map[string]any{"id": "h2", "title": "第二首"},
 					},
-					"next": "1",
+					"nextCursor": "1",
 				}
 			} else {
 				result = map[string]any{"tracks": []any{map[string]any{"id": "h3", "title": "第三首"}}}
