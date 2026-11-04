@@ -36,7 +36,7 @@ func (m *model) seedLegacySession() {
 	if m.plugins == nil || m.store == nil {
 		return
 	}
-	entry, ok := m.pluginEntry(music.SourceHuawei)
+	entry, ok := m.pluginEntry(m.accountSourceID())
 	if !ok || !entry.Enabled {
 		return
 	}
@@ -48,14 +48,14 @@ func (m *model) seedLegacySession() {
 	// older build that hashed the account key twice.
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if src, ok := m.registry.Source(music.SourceHuawei); ok {
+	if src, ok := m.registry.Source(entry.ID()); ok {
 		status, statusErr := src.Auth().Status(ctx)
 		if statusErr == nil && status.AccountKey == session.AccountKey {
 			_ = m.store.DeleteSession()
 			return
 		}
 		if statusErr == nil && status.AccountKey != "" {
-			if err := m.plugins.ClearSession(music.SourceHuawei); err != nil {
+			if err := m.plugins.ClearSession(entry.ID()); err != nil {
 				return
 			}
 		}
@@ -69,7 +69,7 @@ func (m *model) seedLegacySession() {
 		return
 	}
 	encoded := base64.StdEncoding.EncodeToString(raw)
-	if err := m.plugins.SeedSession(music.SourceHuawei, "session", encoded); err != nil {
+	if err := m.plugins.SeedSession(entry.ID(), "session", encoded); err != nil {
 		m.setStatus("旧登录状态迁移失败，请重新登录")
 		return
 	}
@@ -97,11 +97,11 @@ func (m *model) verifySource(ctx context.Context) (source.AuthStatus, error) {
 
 // mirrorSession builds the account identity the shell displays. Credentials
 // live only inside the source, never in the shell model.
-func mirrorSession(status source.AuthStatus) *source.Session {
+func mirrorSession(sourceID music.SourceID, status source.AuthStatus) *source.Session {
 	if status.AccountKey == "" {
 		return nil
 	}
-	return &source.Session{Source: music.SourceHuawei, AccountKey: status.AccountKey, ExpiresAt: status.ExpiresAt}
+	return &source.Session{Source: sourceID, AccountKey: status.AccountKey, ExpiresAt: status.ExpiresAt}
 }
 
 // loginSource is the source that owns the account UI. Every source is a plugin

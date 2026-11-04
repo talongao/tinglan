@@ -158,7 +158,7 @@ func (m *model) wake() {
 		}
 		m.busy, m.restoring, m.cancel = false, false, nil
 		if result.err == nil && result.restored && result.session == nil {
-			m.setStatus("未登录华为音乐；可在 设置 → 音源 登录并导入。")
+			m.setStatus(m.sourceSignInHint())
 			continue
 		}
 		if result.err != nil {
@@ -175,7 +175,7 @@ func (m *model) wake() {
 				m.setStatus(webauth.LoginErrorMessage(result.err))
 			}
 			if result.restored {
-				m.setStatus("未登录华为音乐；可在 设置 → 音源 登录并导入。")
+				m.setStatus(m.sourceSignInHint())
 			}
 			continue
 		}

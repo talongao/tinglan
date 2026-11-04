@@ -45,16 +45,17 @@ func (m *model) openEntity(kind, id, title string) {
 		defer cancel()
 		catalog := m.catalogSource()
 		r := entityResult{generation: gen}
+		src, hasSource := m.primarySource()
 		switch {
-		case catalog == nil:
+		case catalog == nil || !hasSource:
 			r.err = fmt.Errorf("音源未注册")
 		case kind == "artist":
-			ref := source.EntityRef{Source: music.SourceHuawei, Kind: "artist", ID: id}
+			ref := source.EntityRef{Source: src.ID(), Kind: "artist", ID: id}
 			artist, err := catalog.ArtistDetail(ctx, source.EntityRequest{Ref: ref, Limit: 50})
 			r.err = err
 			r.detail = music.Detail{ID: artist.Artist.ID, Title: artist.Artist.Name, CoverURL: artist.Artist.CoverURL, Tracks: artist.Tracks, Albums: artist.Albums, More: artist.HasMoreTracks}
 		default:
-			ref := source.EntityRef{Source: music.SourceHuawei, Kind: "album", ID: id}
+			ref := source.EntityRef{Source: src.ID(), Kind: "album", ID: id}
 			cursor := ""
 			for {
 				page, err := catalog.AlbumDetail(ctx, source.EntityRequest{Ref: ref, Cursor: cursor, Limit: 50})

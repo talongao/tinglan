@@ -337,7 +337,7 @@ func (m *model) trackCover(c *ui.Canvas, t music.Track, b ui.Rect) bool {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cancel()
-		detail, err := m.catalogSource().AlbumDetail(ctx, source.EntityRequest{Ref: source.EntityRef{Source: music.SourceHuawei, Kind: "album", ID: id}, Limit: 1})
+		detail, err := m.catalogSource().AlbumDetail(ctx, source.EntityRequest{Ref: source.EntityRef{Source: m.primarySourceID(), Kind: "album", ID: id}, Limit: 1})
 		raw := detail.Album.CoverURL
 		if raw == "" && len(detail.Tracks) > 0 {
 			raw = detail.Tracks[0].CoverURL

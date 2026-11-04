@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"tinglan/native/internal/appmeta"
-	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
 )
 
@@ -77,9 +76,9 @@ func (m *model) restoreSession() {
 		var session *source.Session
 		switch status.State {
 		case source.AuthSignedIn, source.AuthUnknown:
-			session = mirrorSession(status)
+			session = mirrorSession(m.accountSourceID(), status)
 		case source.AuthExpired:
-			err = source.NewError(music.SourceHuawei, "verify", source.KindLogin, errors.New("session expired"))
+			err = source.NewError(m.accountSourceID(), "verify", source.KindLogin, errors.New("session expired"))
 		}
 		m.mu.Lock()
 		if !m.closed {
@@ -109,7 +108,7 @@ func (m *model) attachAccount() {
 	// a stale logged_out row would mark every binding Disabled and make every
 	// track look like it has no source.
 	if m.local != nil {
-		if _, err := m.local.EnsureAccount(context.Background(), music.SourceHuawei, m.session.Account(), "华为音乐账号"); err == nil {
+		if _, err := m.local.EnsureAccount(context.Background(), m.session.Source, m.session.Account(), m.accountSourceName()); err == nil {
 			m.installLocalLibrary()
 		}
 	}
@@ -124,8 +123,9 @@ func (m *model) logout() {
 	if src, ok := m.primarySource(); ok {
 		_ = src.Auth().Logout(context.Background())
 	}
+	accountSource := m.accountSourceID()
 	if m.plugins != nil {
-		_ = m.plugins.ClearSession(music.SourceHuawei)
+		_ = m.plugins.ClearSession(accountSource)
 	}
 	accountStore := m.accountStore
 	cleanupFailed := false
@@ -138,7 +138,7 @@ func (m *model) logout() {
 	m.accountStore = nil
 	m.session = nil
 	if m.local != nil {
-		_ = m.local.DisableSource(music.SourceHuawei)
+		_ = m.local.DisableSource(accountSource)
 		m.installLocalLibrary()
 		m.setStatus("已退出账号；本地收藏仍可用")
 	}

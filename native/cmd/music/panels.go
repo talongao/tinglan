@@ -168,7 +168,7 @@ func (m *model) paintRemoteCollections(c *ui.Canvas, b ui.Rect) {
 		case m.collectionLoading:
 			m.text(c, "正在读取歌单…", rect(b.X+20, b.Y+40, b.Width-40, 28), 14, 400, m.muted())
 		case m.session == nil && !m.demo:
-			m.text(c, "登录后可以浏览并导入你在华为音乐里的歌单。", rect(b.X+20, b.Y+40, b.Width-360, 28), 14, 400, m.muted())
+			m.text(c, "登录后可以浏览并导入该音源里的歌单。", rect(b.X+20, b.Y+40, b.Width-360, 28), 14, 400, m.muted())
 			if m.pill(c, remoteLoginID, rect(b.X+b.Width-140, b.Y+36, 116, 34), "去登录", true) {
 				m.startLogin()
 			}

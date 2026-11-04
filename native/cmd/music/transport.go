@@ -81,7 +81,7 @@ func (m *model) paintTransport(c *ui.Canvas, size ui.Size, t float32) {
 		}
 		hint := "加入本机收藏"
 		if favorite {
-			hint = "从本机收藏移除（不影响华为音乐收藏）"
+			hint = "从本机收藏移除（不影响平台收藏）"
 		}
 		if m.iconButton(c, dockFavoriteID, rect(242, size.Height-85, 28, 28), icon, hint, favorite) {
 			m.toggleFavorite(*track)

@@ -354,7 +354,7 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 		}
 	}
 	if m.view == 1 && m.browseRemote {
-		title = "从华为音乐选择歌单"
+		title = "从" + m.accountSourceName() + "选择歌单"
 	}
 	if m.view == 1 && m.localDetail != nil {
 		title = m.localDetail.Name
@@ -500,7 +500,7 @@ func (m *model) paintSidebar(c *ui.Canvas, size ui.Size, rail float32) {
 			m.settingsSelect = ""
 			m.transportMenu = ""
 			// Leaving and re-entering 我的歌单 must always land on the local
-			// list, not on a stale "从华为音乐选择歌单" browser.
+			// list, not on a stale remote-playlist browser.
 			m.browseRemote = false
 			if i == 4 && m.store != nil {
 				m.lyricStats = m.store.LyricsInfo()
@@ -710,7 +710,7 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, se
 		}
 		heartHint := "加入本机收藏 " + t.Title
 		if favorite {
-			heartHint = "从本机收藏移除 " + t.Title + "（不影响华为音乐收藏）"
+			heartHint = "从本机收藏移除 " + t.Title + "（不影响平台收藏）"
 		}
 		if m.iconButtonDim(c, hearts.At(i), rect(r.X+r.Width-43, y+14, 30, 30), heart, heartHint, favorite, !available) {
 			m.toggleFavorite(t)

@@ -576,7 +576,7 @@ func (m *model) remoteImported(p music.Playlist) bool {
 	if m.local == nil {
 		return false
 	}
-	_, ok, err := m.local.ImportedPlaylist(context.Background(), music.SourceHuawei, p.ID)
+	_, ok, err := m.local.ImportedPlaylist(context.Background(), p.Source, p.ID)
 	return err == nil && ok
 }
 
@@ -592,7 +592,7 @@ func (m *model) importPlaylist(p music.Playlist) {
 		m.notify("请先登录" + m.accountSourceName())
 		return
 	}
-	playlist, err := m.local.EnsureImportedPlaylist(context.Background(), music.SourceHuawei, p.ID, p.Name, p.Description, p.CoverURL)
+	playlist, err := m.local.EnsureImportedPlaylist(context.Background(), p.Source, p.ID, p.Name, p.Description, p.CoverURL)
 	if err != nil {
 		m.notify("导入歌单失败")
 		return
@@ -636,7 +636,7 @@ func (m *model) runPlaylistUpdate(p librarydb.Playlist) {
 	// Keep the local copy's own metadata: the sync payload only carries the
 	// member list, so passing empty description/cover here would erase the
 	// cover that was stored when the playlist was imported.
-	remote := music.Playlist{Source: music.SourceHuawei, ID: p.RemoteID, Name: p.Name, Kind: music.PlaylistOwned, Description: p.Description, CoverURL: p.CoverURL}
+	remote := music.Playlist{Source: music.SourceID(p.Source), ID: p.RemoteID, Name: p.Name, Kind: music.PlaylistOwned, Description: p.Description, CoverURL: p.CoverURL}
 	go func() {
 		ctx := context.Background()
 		var ids []string
@@ -791,7 +791,7 @@ func (m *model) refreshImportedMeta(remote []music.Playlist) {
 		if p.ID == "" || (p.CoverURL == "" && p.Description == "" && p.Name == "") {
 			continue
 		}
-		if err := m.local.UpdateImportedMeta(context.Background(), music.SourceHuawei, p.ID, p.Name, p.Description, p.CoverURL); err != nil {
+		if err := m.local.UpdateImportedMeta(context.Background(), p.Source, p.ID, p.Name, p.Description, p.CoverURL); err != nil {
 			continue
 		}
 	}
@@ -817,7 +817,7 @@ func (m *model) paintWebViewGuide(c *ui.Canvas, size ui.Size) {
 	c.PushLayer(4)
 	defer c.PopLayer()
 	m.text(c, "需要安装 WebView2", rect(b.X+24, b.Y+22, 400, 32), 20, 600, m.ink())
-	m.text(c, "华为登录使用系统共享的 Microsoft Edge WebView2 Runtime。这台电脑还没有安装，安装后不用重启听澜，直接重试登录即可。", rect(b.X+24, b.Y+62, 450, 70), 13, 400, m.secondary())
+	m.text(c, "登录使用系统共享的 Microsoft Edge WebView2 Runtime。这台电脑还没有安装，安装后不用重启听澜，直接重试登录即可。", rect(b.X+24, b.Y+62, 450, 70), 13, 400, m.secondary())
 	m.text(c, "下载约 1.5 MB，不会把浏览器内核打包进听澜。", rect(b.X+24, b.Y+136, 450, 20), 12, 400, m.muted())
 	if m.pill(c, webViewGuideCancelID, rect(b.X+235, b.Y+216, 90, 34), "稍后", false) {
 		m.dialog = ""

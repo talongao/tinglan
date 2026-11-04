@@ -237,7 +237,7 @@ func (m *model) installCatalog() {
 	// the Huawei adapter; the list itself comes from favorites.local.json.
 	m.installLocalLibrary()
 	if len(m.tracks) == 0 {
-		m.setStatus("本地收藏为空，可在设置 → 音源中从华为音乐导入。")
+		m.setStatus("本地收藏为空，可在设置 → 音源中添加音源并导入。")
 	}
 }
 
@@ -674,7 +674,7 @@ func (m *model) loadCollections(kind string, force ...bool) {
 		case "detail":
 			ref := source.EntityRef{Source: playlist.Source, Kind: "playlist", ID: playlist.ID, PlaylistKind: playlist.Kind}
 			if ref.Source == "" {
-				ref.Source = music.SourceHuawei
+				ref.Source = m.primarySourceID()
 			}
 			cursor := ""
 			for {

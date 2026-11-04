@@ -173,7 +173,7 @@ func (m *model) canonicalFor(track music.Track) (music.CanonicalTrack, bool) {
 	if neutral.Source == "" {
 		// Rows reaching the shell without a source come from the built-in
 		// adapter; transient search results already carry one.
-		neutral.Source = music.SourceHuawei
+		neutral.Source = m.primarySourceID()
 	}
 	if !neutral.Valid() {
 		return music.CanonicalTrack{}, false
@@ -556,7 +556,7 @@ func (m *model) trackLyricsKey(track music.Track) string {
 			return lyricsCacheKey(links[0])
 		}
 	}
-	return string(music.SourceHuawei) + ":" + track.ID
+	return string(m.primarySourceID()) + ":" + track.ID
 }
 
 // trackOffsetKey identifies one queue row, not one source binding. Lyrics text
@@ -567,7 +567,7 @@ func (m *model) trackOffsetKey(track music.Track) string {
 			return row.ID
 		}
 	}
-	return string(music.SourceHuawei) + ":" + track.ID
+	return string(m.primarySourceID()) + ":" + track.ID
 }
 
 func (m *model) removeLocalFavorite(id string) {
@@ -804,6 +804,19 @@ func (m *model) accountSourceID() music.SourceID {
 	return music.SourceHuawei
 }
 
+// sourceSignInHint is the generic "you are not signed in" line. It names the
+// account source when one is known so the copy works for any provider.
+func (m *model) sourceSignInHint() string {
+	name := ""
+	if id := m.accountSourceID(); id != "" && m.accountSourceReady() {
+		name = m.sourceDisplayName(id)
+	}
+	if name == "" {
+		return "未登录音源；可在 设置 → 音源 登录并导入。"
+	}
+	return "未登录" + name + "；可在 设置 → 音源 登录并导入。"
+}
+
 // accountSourceName is the display name used by account-related copy.
 func (m *model) accountSourceName() string {
 	return m.sourceDisplayName(m.accountSourceID())
@@ -827,7 +840,7 @@ func (m *model) primarySource() (source.Source, bool) {
 	if m.registry == nil {
 		return nil, false
 	}
-	if src, ok := m.registry.Source(music.SourceHuawei); ok {
+	if src, ok := m.registry.Source(m.accountSourceID()); ok {
 		return src, true
 	}
 	list := m.registry.SourceList()
@@ -835,6 +848,16 @@ func (m *model) primarySource() (source.Source, bool) {
 		return nil, false
 	}
 	return list[0], true
+}
+
+// primarySourceID names the source the shell currently speaks to. Nothing in
+// the UI is bound to a concrete provider: whichever source the account belongs
+// to is the primary one.
+func (m *model) primarySourceID() music.SourceID {
+	if src, ok := m.primarySource(); ok {
+		return src.ID()
+	}
+	return m.accountSourceID()
 }
 
 // catalogSource returns the catalogue surface of the primary source. Shell code
@@ -958,19 +981,24 @@ func (m *model) installPluginFrom(path string) {
 		m.notify("插件管理器未就绪")
 		return
 	}
+	m.logPlugin("add source: %q", path)
 	dir, cleanup, err := m.preparePluginSource(path)
 	if err != nil {
+		m.logPlugin("add source failed: %v", err)
 		m.notify("添加失败：" + err.Error())
 		return
 	}
+	m.logPlugin("resolved plugin root: %q", dir)
 	defer cleanup()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	entry, updated, err := m.plugins.Install(ctx, dir)
 	if err != nil {
+		m.logPlugin("install failed: %v", err)
 		m.notify("添加失败：" + err.Error())
 		return
 	}
+	m.logPlugin("installed %s updated=%v", entry.ID(), updated)
 	label := entry.Name()
 	if v := entry.Manifest.Version; v != "" {
 		label += " " + v
@@ -993,9 +1021,12 @@ func (m *model) installPluginFrom(path string) {
 // preparePluginSource turns a .zip package or folder into a plugin directory.
 // The returned cleanup removes any temporary extraction directory.
 func (m *model) preparePluginSource(path string) (string, func(), error) {
+	if strings.EqualFold(filepath.Ext(path), ".lnk") {
+		return "", func() {}, fmt.Errorf("这是 Windows 快捷方式（%s），请选择实际的 .zip 文件", path)
+	}
 	info, err := os.Stat(path)
 	if err != nil {
-		return "", func() {}, err
+		return "", func() {}, fmt.Errorf("读取所选文件失败（%s）：%w", path, err)
 	}
 	if info.IsDir() {
 		root, err := plugin.PluginRoot(path)
@@ -1019,6 +1050,24 @@ func (m *model) preparePluginSource(path string) (string, func(), error) {
 		return "", func() {}, err
 	}
 	return root, cleanup, nil
+}
+
+// logPlugin appends plugin management events to <profile>/logs/plugin.log so
+// a failing install can be diagnosed without a debugger.
+func (m *model) logPlugin(format string, args ...any) {
+	if m.store == nil {
+		return
+	}
+	dir := filepath.Join(m.store.Dir(), "logs")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	file, err := os.OpenFile(filepath.Join(dir, "plugin.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = file.Close() }()
+	fmt.Fprintf(file, "%s %s\n", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
 }
 
 // refreshPlugins re-reads the plugin directories after an install/removal.
