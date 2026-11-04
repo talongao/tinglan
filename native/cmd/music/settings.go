@@ -496,8 +496,7 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 		}
 	}
 	if m.pill(c, importPluginID, rect(x+200, rowY+12, 108, 34), "导入插件", false) {
-		m.pluginPath.SetText("")
-		m.dialog = "import-plugin"
+		m.choosePluginFolder()
 	}
 	if m.pill(c, openPluginsID, rect(x+w-132, rowY+12, 132, 34), "打开插件文件夹", false) {
 		m.openPluginFolder()

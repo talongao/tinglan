@@ -27,6 +27,9 @@ type Manifest struct {
 	// assigned by the host, so user-supplied manifests cannot collide.
 	ID      string `json:"id,omitempty"`
 	Builtin bool   `json:"builtin,omitempty"`
+	// Digest fingerprints the files copied at install time so importing the
+	// same plugin twice is detected before anything is written.
+	Digest string `json:"digest,omitempty"`
 }
 
 // DescriptorFile is the host-written cache of the plugin descriptor.

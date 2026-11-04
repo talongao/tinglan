@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -401,4 +402,23 @@ func TestManagerInstallsPluginWithAssignedID(t *testing.T) {
 		t.Fatal("installed plugin not registered")
 	}
 	manager.Disable(registry, entry.ID())
+}
+
+func TestManagerRejectsDuplicateInstall(t *testing.T) {
+	ctx := context.Background()
+	src := t.TempDir()
+	writeFakePlugin(t, src)
+	src = filepath.Join(src, "fake")
+	manager := NewManager(t.TempDir(), storage.New(t.TempDir()), nil)
+	first, err := manager.Install(ctx, src)
+	if err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	second, err := manager.Install(ctx, src)
+	if !errors.Is(err, ErrDuplicate) {
+		t.Fatalf("second install err = %v", err)
+	}
+	if second.ID() != first.ID() {
+		t.Fatalf("duplicate returned %q, want %q", second.ID(), first.ID())
+	}
 }

@@ -420,8 +420,7 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 			m.paintImportDialog(c, size)
 		case "new-playlist":
 			m.paintNewPlaylistDialog(c, size)
-		case "import-plugin":
-			m.paintImportPluginDialog(c, size)
+
 		case "add-playlist":
 			m.paintAddToPlaylistDialog(c, size)
 		case "account-switch":

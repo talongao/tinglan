@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/vivaui/viva/app"
 	"os"
 	"os/exec"
 	"runtime"
@@ -888,6 +889,45 @@ func (m *model) loadPlugins() {
 	}
 	m.pluginEntries = m.plugins.List()
 	m.refreshAllSourceAuth()
+}
+
+// choosePluginFolder asks the system picker for a plugin directory and installs it.
+func (m *model) choosePluginFolder() {
+	path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: "选择外置音源目录"})
+	if errors.Is(err, app.ErrCanceled) || (err == nil && strings.TrimSpace(path) == "") {
+		return
+	}
+	if err != nil {
+		m.notify("无法打开选择器：" + err.Error())
+		return
+	}
+	m.installPluginFrom(path)
+}
+
+// installPluginFrom copies a chosen directory into the app's sources folder.
+func (m *model) installPluginFrom(path string) {
+	if m.plugins == nil {
+		m.notify("插件管理器未就绪")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	entry, err := m.plugins.Install(ctx, path)
+	if errors.Is(err, plugin.ErrDuplicate) {
+		m.refreshPlugins()
+		m.notify(entry.Name() + " 已经导入过了（ID " + string(entry.ID()) + "）")
+		if !m.sourceEnabled(entry.ID()) {
+			m.askEnablePlugin(entry.ID())
+		}
+		return
+	}
+	if err != nil {
+		m.notify("导入失败：" + err.Error())
+		return
+	}
+	m.refreshPlugins()
+	m.notify("已导入 " + entry.Name() + "（ID " + string(entry.ID()) + "）")
+	m.askEnablePlugin(entry.ID())
 }
 
 // refreshPlugins re-reads the plugin directories after an install/removal.
