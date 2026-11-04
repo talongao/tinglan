@@ -97,7 +97,11 @@ func uiCheckCommand(stdout, _ io.Writer, _ []string) error {
 		_ = os.WriteFile(filepath.Join(qa, fmt.Sprintf("ui-%d.txt", plan.count)), output, 0o644)
 		text := string(output)
 		if err != nil || errorLine.MatchString(text) || problems.MatchString(text) {
-			return fmt.Errorf("native UI check failed for %d; see out/native/qa/ui-%d.txt", plan.count, plan.count)
+			detail := strings.TrimSpace(text)
+			if len(detail) > 400 {
+				detail = detail[:400]
+			}
+			return fmt.Errorf("native UI check failed for %d (err=%v, output=%q); see out/native/qa/ui-%d.txt", plan.count, err, detail, plan.count)
 		}
 		report.Layouts = append(report.Layouts, layout{Tracks: plan.count, Checks: len(passed.FindAllString(text, -1))})
 	}
