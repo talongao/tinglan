@@ -28,7 +28,7 @@ type lyricsOnly struct{ s *lyricsStub }
 
 func (l lyricsOnly) Lyrics(ctx context.Context, ref source.TrackRef) ([]lyrics.Line, error) {
 	l.s.ref = ref
-	return []lyrics.Line{{Time: 0, Text: "hello " + ref.ID}}, nil
+	return []lyrics.Line{{Time: 0, Text: "hello " + ref.ID, Words: []lyrics.Word{{Time: 0, Text: "hello"}, {Time: .4, Text: ref.ID}}}}, nil
 }
 
 func raw(s string) json.RawMessage { return json.RawMessage(s) }
@@ -75,8 +75,14 @@ func TestLyricsUnwrapsRefParam(t *testing.T) {
 	if stub.ref.ID != "t1" || stub.ref.Source != music.SourceHuawei {
 		t.Fatalf("ref = %+v, want source huawei id t1", stub.ref)
 	}
-	if string(msg.Result) == "" {
-		t.Fatalf("empty lyrics result")
+	// Word timings must survive the wire: that is what makes the shared lyric
+	// format useful for every provider, not just the built-in one.
+	var lines []lyrics.Line
+	if err := json.Unmarshal(msg.Result, &lines); err != nil {
+		t.Fatalf("lyrics result: %v", err)
+	}
+	if len(lines) != 1 || len(lines[0].Words) != 2 || lines[0].Words[1].Time != .4 || lines[0].Words[1].Text != "t1" {
+		t.Fatalf("lyrics words = %+v", lines)
 	}
 
 	cancel()

@@ -226,3 +226,18 @@ func TestImportRoutesPlaylistCollection(t *testing.T) {
 		t.Fatalf("playlist import hit %q, want playlist detail", gotPath)
 	}
 }
+
+func TestResolveReportsPreviewStreamAsPreviewAccess(t *testing.T) {
+	adapter := adapterWith(&Session{token: "t", snsUserID: "u"}, func(*http.Request) (*http.Response, error) {
+		return response(`{"result":{"resultCode":"000000"},"fileURL":"https://hw.tingmall.com/preview/01/092/1092974-MP3-64K-FTD-P.mp3","playQuality":"1","type":"audio/mpeg"}`, 200), nil
+	})
+	got, err := adapter.Library().Resolve(context.Background(), source.ResolveRequest{
+		Track: music.Track{ID: "1092974", Source: music.SourceHuawei},
+	})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if got.Access != music.AccessPreview || got.Evidence != "preview-stream" {
+		t.Fatalf("access = %v (%s), want preview", got.Access, got.Evidence)
+	}
+}

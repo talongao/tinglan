@@ -550,24 +550,48 @@ func manualModels(values []string) []jev.Model {
 	return out
 }
 
+// trackLyricsKey identifies the song, not the source binding: one lyric cache
+// entry per canonical row so switching source keeps the words on screen.
 func (m *model) trackLyricsKey(track music.Track) string {
-	if row, ok := m.canonicalFor(track); ok {
-		if links := row.SortedLinks(); len(links) > 0 {
-			return lyricsCacheKey(links[0])
-		}
+	if row, ok := m.canonicalFor(track); ok && row.ID != "" {
+		return "row:" + row.ID
 	}
 	return string(m.primarySourceID()) + ":" + track.ID
 }
 
-// trackOffsetKey identifies one queue row, not one source binding. Lyrics text
-// may be shared per link, but the user's offset belongs to the canonical row.
+// trackOffsetKey identifies the song on one source. Masters differ between
+// platforms, so an offset the user tuned on one source must not silently shift
+// the words when playback falls back to another.
 func (m *model) trackOffsetKey(track music.Track) string {
+	row := ""
 	if m.local != nil {
-		if row, ok := m.local.Row(track.ID); ok {
-			return row.ID
+		if found, ok := m.local.Row(track.ID); ok {
+			row = found.ID
 		}
 	}
-	return string(m.primarySourceID()) + ":" + track.ID
+	if row == "" {
+		row = string(m.primarySourceID()) + ":" + track.ID
+	}
+	if source := track.Source.String(); source != "" {
+		return row + "|" + source
+	}
+	return row
+}
+
+// storedLyricOffset prefers the offset saved for this source, then the older
+// per-song one, so adjusting the words once still works after an upgrade.
+func (m *model) storedLyricOffset(track music.Track) float64 {
+	if m.store == nil {
+		return 0
+	}
+	exact := m.trackOffsetKey(track)
+	if value, ok := m.store.LyricOffsetSaved(exact); ok {
+		return value
+	}
+	if at := strings.IndexByte(exact, '|'); at > 0 {
+		return m.store.LyricOffset(exact[:at])
+	}
+	return 0
 }
 
 func (m *model) removeLocalFavorite(id string) {

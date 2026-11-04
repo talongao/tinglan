@@ -9,11 +9,16 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"tinglan/native/internal/lyrics"
 )
 
 type LyricDocument struct {
 	Text, Source string
 	SavedAt      time.Time
+	// Lines keeps word-level timing when the source supplied it. Text stays in
+	// place for plain documents so older caches keep working.
+	Lines []lyrics.Line `json:"lines,omitempty"`
 }
 
 type LyricStats struct {
@@ -55,6 +60,23 @@ func (s *Store) LyricOffset(id string) float64 {
 	}
 	return clamp(offsets[lyricKey(id)], -10, 10, 0)
 }
+
+// LyricOffsetSaved reports whether an offset was stored for exactly this key.
+// Callers use it to fall back to a broader key without guessing.
+func (s *Store) LyricOffsetSaved(id string) (float64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var offsets map[string]float64
+	if s.read("lyric-offsets.json", &offsets) != nil {
+		return 0, false
+	}
+	value, ok := offsets[lyricKey(id)]
+	if !ok {
+		return 0, false
+	}
+	return clamp(value, -10, 10, 0), true
+}
+
 func (s *Store) SaveLyricOffset(id string, value float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,7 +105,7 @@ func lyricKey(id string) string {
 func (s *Store) SaveLyrics(id string, doc LyricDocument, local bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(doc.Text) > 512*1024 || id == "" {
+	if len(doc.Text) > 512*1024 || len(doc.Lines) > 5000 || id == "" {
 		return errors.New("invalid lyric document")
 	}
 	doc.SavedAt = time.Now()

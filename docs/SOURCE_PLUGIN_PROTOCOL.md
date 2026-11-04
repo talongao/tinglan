@@ -222,9 +222,11 @@ Next 非空表示下一页，空表示遍历结束；Partial 表示不完整；R
 当前 canonical 导入循环尚未据 Partial/RemoteDeleted 实现完整保护与删除处理；
 插件遇到不完整分页必须返回错误，不能只置 Partial 后期待宿主阻止发布。
 
-**歌词实际格式：** 返回行数组 `[{time:0,text:"歌词",translation?,romanization?,words:[{time:0,text:"字"}]}]`，
-time 为秒。当前宿主发 `{ref:{source,id}}`，Go SDK 却直接把 params 解到 TrackRef，存在拆包不一致；
-手写插件按 `{ref}` 读取，使用当前 Go SDK 的作者不能假定该路径已正确传递 ID。lyricText/lyricUrl 为另一条播放结果通道。
+**歌词格式：** 返回行数组 `[{time,text,translation?,romanization?,words?}]`，`time` 为行开始秒数（浮点，相对音频开头）；
+`words` 为可选的逐字数组 `[{time,text}]`，`time` 同样是绝对秒数而非行内偏移。这是宿主与所有音源共享的唯一种逐字格式，
+插件自行解析平台文档（华为 `.hmrc`、TTML、增强 LRC 等）后必须转换到该结构，宿主不解析任何平台私有歌词格式。
+没有歌词返回 `[]`，不要用错误表达"这首没词"。SDK 的 `source.lyrics.get` 已修正为从 `{ref:{...}}` 拆包（并兼容裸 TrackRef）；
+`lyricText`/`lyricUrl` 是播放结果里的旧通道，保留兼容，但逐字只有走本方法才能被渲染。
 
 ## 9. 错误与超时
 

@@ -4,6 +4,7 @@ import (
 	"github.com/vivaui/viva/ui"
 	"time"
 	"tinglan/native/internal/icons"
+	"tinglan/native/internal/music"
 )
 
 type transportLayout struct{ cover, play, previous, next, progress ui.Rect }
@@ -151,7 +152,10 @@ func (m *model) paintTransport(c *ui.Canvas, size ui.Size, t float32) {
 	if m.settings.Quality == "lossless" {
 		quality = "无损"
 	}
-	if m.pill(c, qualityID, rect(size.Width-242, y, 48, 28), quality, false) {
+	if m.currentAccess == music.AccessPreview {
+		quality = "试听"
+	}
+	if m.pill(c, qualityID, rect(size.Width-242, y, 48, 28), quality, m.currentAccess == music.AccessPreview) {
 		m.toggleTransportMenu("quality")
 	}
 	if m.pill(c, lyricsID, rect(size.Width-184, y, 34, 28), "词", false) {

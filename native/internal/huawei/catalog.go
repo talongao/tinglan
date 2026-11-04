@@ -38,8 +38,8 @@ func (a *SourceAdapter) Library() source.LibrarySource { return a }
 // Catalog exposes the provider catalogue through neutral types.
 func (a *SourceAdapter) Catalog() source.CatalogSource { return huaweiCatalog{a: a} }
 
-// Lyrics is not migrated yet; the UI still reads lyrics through its own path.
-func (a *SourceAdapter) Lyrics() source.LyricsSource { return huaweiLyrics{} }
+// Lyrics reads the provider lyric, preferring the word-by-word document.
+func (a *SourceAdapter) Lyrics() source.LyricsSource { return huaweiLyrics{a: a} }
 
 // Manage exposes the provider writes the shell still performs: listening
 // reports and edits to an owned remote playlist.
@@ -218,10 +218,39 @@ func (c huaweiCatalog) History(ctx context.Context, request source.PageRequest) 
 	return source.Page[music.Track]{Items: musicTracks(tracks)}, nil
 }
 
-type huaweiLyrics struct{}
+type huaweiLyrics struct{ a *SourceAdapter }
 
-func (huaweiLyrics) Lyrics(context.Context, source.TrackRef) ([]lyrics.Line, error) {
-	return nil, source.NewError(music.SourceHuawei, "lyrics", source.KindUnsupported, errors.New("lyrics still read through the desktop shell"))
+// Lyrics resolves the track first: the provider hands lyric addresses out with
+// the playback response, never from the catalogue.
+func (h huaweiLyrics) Lyrics(ctx context.Context, ref source.TrackRef) ([]lyrics.Line, error) {
+	session := h.a.currentSession()
+	if session == nil {
+		return nil, source.NewError(music.SourceHuawei, "lyrics", source.KindLogin, errors.New("music session missing"))
+	}
+	playback, err := h.a.client.ResolvePlayback(ctx, session, ref.ID, "standard")
+	if err != nil {
+		return nil, classify("lyrics", err)
+	}
+	var lines []lyrics.Line
+	if playback.WordURL != "" {
+		if raw, err := h.a.client.fetchText(ctx, playback.WordURL, 512*1024); err == nil {
+			lines = parseHMRC(raw)
+		}
+	}
+	if playback.LyricURL != "" {
+		if raw, err := h.a.client.fetchText(ctx, playback.LyricURL, 512*1024); err == nil {
+			plain := lyrics.Parse(raw)
+			if len(lines) == 0 {
+				lines = plain
+			} else {
+				lines = mergeTranslations(lines, plain)
+			}
+		}
+	}
+	if len(lines) == 0 {
+		return nil, source.NewError(music.SourceHuawei, "lyrics", source.KindNotFound, errors.New("no lyrics for this track"))
+	}
+	return lines, nil
 }
 
 func musicTracks(in []Track) []music.Track {

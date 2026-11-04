@@ -576,9 +576,7 @@ func (m *model) playCurrent() {
 	m.lyricOffset = 0
 	m.currentAccess = music.AccessUnknown
 	m.playedLink = music.SourceLink{}
-	if m.store != nil {
-		m.lyricOffset = m.store.LyricOffset(m.trackOffsetKey(*track))
-	}
+	m.lyricOffset = m.storedLyricOffset(*track)
 	m.audioState = audio.State{}
 	m.resolvedDuration = 0
 	m.durationMismatch = false

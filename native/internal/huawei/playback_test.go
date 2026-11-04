@@ -55,3 +55,23 @@ func TestPlaybackRejectsDifferentTrack(t *testing.T) {
 		}
 	}
 }
+
+func TestPlaybackMarksPreviewStream(t *testing.T) {
+	c := newClient(transportFunc(func(*http.Request) (*http.Response, error) {
+		return response(`{"result":{"resultCode":"000000"},"fileURL":"https://hw.tingmall.com/preview/01/092/1092974-MP3-64K-FTD-P.mp3","playQuality":"1","type":"audio/mpeg","songInfo":{"duration":"0"}}`, 200), nil
+	}))
+	p, err := c.ResolvePlayback(context.Background(), &Session{token: "fixture", snsUserID: "fixture"}, "track", "standard")
+	if err != nil || !p.Preview {
+		t.Fatalf("preview stream not detected: %v %+v", err, p)
+	}
+}
+
+func TestPlaybackFullStreamIsNotPreview(t *testing.T) {
+	c := newClient(transportFunc(func(*http.Request) (*http.Response, error) {
+		return response(`{"result":{"resultCode":"000000"},"fileURL":"https://audio.dbankcdn.cn/a","playQuality":"1","type":"audio/mpeg","auditionTime":30000,"songInfo":{"duration":"258"}}`, 200), nil
+	}))
+	p, err := c.ResolvePlayback(context.Background(), &Session{token: "fixture", snsUserID: "fixture"}, "track", "standard")
+	if err != nil || p.Preview {
+		t.Fatalf("full stream flagged as preview: %v %+v", err, p)
+	}
+}

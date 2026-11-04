@@ -13,12 +13,14 @@ import (
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/playback"
 	"tinglan/native/internal/resource"
+	"tinglan/native/internal/source"
 	"tinglan/native/internal/storage"
 )
 
 type cachedResolve struct {
 	playback music.Playback
 	link     music.SourceLink
+	access   music.Access
 	at       time.Time
 }
 
@@ -70,7 +72,7 @@ func (m *model) resolveCurrent() {
 			cached, hit := m.resolveCache[cacheKey]
 			m.resolveMu.Unlock()
 			if hit && time.Since(cached.at) < 5*time.Minute && cached.playback.URL != "" {
-				resolved = playback.Result{Playback: cached.playback, Link: cached.link, Access: music.AccessFull}
+				resolved = playback.Result{Playback: cached.playback, Link: cached.link, Access: cached.access}
 			} else {
 				resolved, r.err = m.resolver.Resolve(ctx, row, quality)
 				if r.err == nil {
@@ -78,7 +80,7 @@ func (m *model) resolveCurrent() {
 					if m.resolveCache == nil {
 						m.resolveCache = make(map[string]cachedResolve)
 					}
-					m.resolveCache[cacheKey] = cachedResolve{playback: resolved.Playback, link: resolved.Link, at: time.Now()}
+					m.resolveCache[cacheKey] = cachedResolve{playback: resolved.Playback, link: resolved.Link, access: resolved.Access, at: time.Now()}
 					m.resolveMu.Unlock()
 				}
 			}
@@ -97,17 +99,27 @@ func (m *model) resolveCurrent() {
 		// on the critical path (the third-party fallback can take seconds).
 		text := r.playback.LyricText
 		r.lyricSource = sourceLabel(r.link.Source.String())
-		key := lyricsCacheKey(r.link)
+		key := m.trackLyricsKey(*track)
 		cached := false
 		if store != nil {
 			if doc, err := store.LoadLyrics(key); err == nil {
 				text, r.lyricSource, cached = doc.Text, doc.Source, true
+				if len(doc.Lines) > 0 {
+					r.lyrics = doc.Lines
+				}
 			}
 		}
-		if text != "" {
+		if len(r.lyrics) == 0 && text != "" {
 			r.lyrics, _ = lyrics.ParseAny(text)
 		}
 		m.postPlayback(r)
+		// Word-by-word lyrics are provider specific; the adapter normalises
+		// them, so the shell never parses a provider document itself.
+		if len(r.lyrics) == 0 && !cached {
+			if lines, label := m.sourceLyrics(ctx, r.link); len(lines) > 0 {
+				r.lyrics, r.lyricSource = lines, label
+			}
+		}
 		if !cached && text == "" && r.playback.LyricURL != "" {
 			if data, err := resource.New().Bytes(ctx, r.playback.LyricURL, 512*1024); err == nil {
 				text, _ = lyrics.Decode(data)
@@ -116,16 +128,33 @@ func (m *model) resolveCurrent() {
 		if fallbackEnabled && len(r.lyrics) == 0 && ctx.Err() == nil && text == "" {
 			text, r.lyricSource = lyrics.Fallback(ctx, query)
 		}
-		if text != "" {
+		if text != "" && len(r.lyrics) == 0 {
 			r.lyrics, _ = lyrics.ParseAny(text)
 		}
 		if !cached && len(r.lyrics) > 0 && store != nil {
-			_ = store.SaveLyrics(key, storage.LyricDocument{Text: text, Source: r.lyricSource}, false)
+			_ = store.SaveLyrics(key, storage.LyricDocument{Text: text, Source: r.lyricSource, Lines: r.lyrics}, false)
 		}
 		if len(r.lyrics) > 0 {
 			m.postPlayback(playbackResult{generation: generation, lyricsOnly: true, lyrics: r.lyrics, lyricSource: r.lyricSource})
 		}
 	}()
+}
+
+// sourceLyrics asks the owning source for the lyric through the contract. The
+// adapter is responsible for turning its provider document into timed lines.
+func (m *model) sourceLyrics(ctx context.Context, link music.SourceLink) ([]lyrics.Line, string) {
+	if m.registry == nil || link.Source == "" || link.TrackID == "" {
+		return nil, ""
+	}
+	src, ok := m.registry.Source(link.Source)
+	if !ok || src == nil {
+		return nil, ""
+	}
+	lines, err := src.Lyrics().Lyrics(ctx, source.TrackRef{Source: link.Source, ID: link.TrackID})
+	if err != nil || len(lines) == 0 {
+		return nil, ""
+	}
+	return lines, sourceLabel(link.Source.String())
 }
 
 // openRemote keeps the blocking HTTP probe off the main thread and creates the
@@ -254,7 +283,7 @@ func (m *model) applyPlaybackResults() {
 		m.audioRunning = true
 		m.startedAt = time.Now()
 		if r.playback.Access == music.AccessPreview {
-			m.setStatus("所有音源都只提供试听，正在播放试听片段。")
+			m.setStatus("只能试听：平台没有提供完整音源，可能需要会员。")
 		} else {
 			m.setStatus("")
 		}

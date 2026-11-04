@@ -184,6 +184,13 @@ func (m *model) cover(c *ui.Canvas, raw string, b ui.Rect) bool {
 	return false
 }
 
+// coverCacheLimit is generous enough to hold a full visible page (rows plus the
+// page hero) so painting never evicts an image it is about to draw again.
+const (
+	coverCacheLimit = 160
+	coverCacheTrim  = 120
+)
+
 func coverPresentationVersion(b ui.Rect) uint32 {
 	w := uint32(max(1, min(65535, math.Round(float64(b.Width)))))
 	h := uint32(max(1, min(65535, math.Round(float64(b.Height)))))
@@ -235,7 +242,10 @@ func (m *model) applyCovers() {
 		if m.covers == nil {
 			m.covers = make(map[string]ui.Bitmap)
 		}
-		if len(m.covers) >= 16 {
+		// Evict in batches below the cap: the favourites and artist pages paint
+		// more covers than a small cache holds, and evicting one entry per
+		// insert made every frame re-request the same images (visible flicker).
+		for len(m.covers) >= coverCacheLimit {
 			old := ""
 			age := ^uint64(0)
 			for key := range m.covers {
@@ -243,9 +253,15 @@ func (m *model) applyCovers() {
 					old, age = key, m.coverUsed[key]
 				}
 			}
+			if old == "" {
+				break
+			}
 			delete(m.covers, old)
 			delete(m.stageCovers, old)
 			delete(m.coverUsed, old)
+			if len(m.covers) <= coverCacheTrim {
+				break
+			}
 		}
 		delete(m.coverRetry, r.url)
 		m.touchCover(r.url)

@@ -142,6 +142,11 @@ func (a *SourceAdapter) Resolve(ctx context.Context, request source.ResolveReque
 		return music.Playback{}, classify("resolve", err)
 	}
 	access, evidence := accessFromDurations(request.Track.Duration, playback.Duration)
+	// A trial stream is decisive even when no reference duration exists: every
+	// track imported from Huawei currently has no duration at all.
+	if playback.Preview {
+		access, evidence = music.AccessPreview, "preview-stream"
+	}
 	return music.Playback{
 		URL: playback.URL, Quality: playback.Quality, Access: access, Evidence: evidence,
 		Duration: playback.Duration, LyricURL: playback.LyricURL, LyricText: playback.LyricText,

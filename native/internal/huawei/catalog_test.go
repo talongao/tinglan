@@ -149,13 +149,39 @@ func TestAuthStatusStaysLocal(t *testing.T) {
 	}
 }
 
-func TestLyricsReportsUnsupported(t *testing.T) {
-	adapter := catalogAdapter(&Session{token: "t", snsUserID: "owner"}, func(*http.Request) (*http.Response, error) {
-		t.Fatal("huawei lyrics are not wired yet")
+func TestLyricsNeedsASession(t *testing.T) {
+	adapter := catalogAdapter(nil, func(*http.Request) (*http.Response, error) {
+		t.Fatal("lyrics must not reach the network without a session")
 		return nil, nil
 	})
-	if _, err := adapter.Lyrics().Lyrics(context.Background(), source.TrackRef{Source: music.SourceHuawei, ID: "h1"}); source.KindOf(err) != source.KindUnsupported {
+	if _, err := adapter.Lyrics().Lyrics(context.Background(), source.TrackRef{Source: music.SourceHuawei, ID: "h1"}); source.KindOf(err) != source.KindLogin {
 		t.Fatalf("lyrics kind = %v (%v)", source.KindOf(err), err)
+	}
+}
+
+func TestLyricsReadsWordByWordDocument(t *testing.T) {
+	adapter := catalogAdapter(&Session{token: "t", snsUserID: "owner"}, func(r *http.Request) (*http.Response, error) {
+		switch {
+		case r.URL.Path == "/music-play-service/v3/service/file/bycontentcode":
+			return response(`{"result":{"resultCode":"000000"},"fileURL":"https://hw.tingmall.com/a.mp3","songInfo":{"contentID":"h1"},
+				"lyrics":"{\"lineByLineLyric\":\"https://lyric.tingmall.com/h1.lrc\",\"wordByWordLyric\":\"https://music-pics-drcn.dbankcdn.cn/h1.hmrc\"}"}`, 200), nil
+		case r.URL.Path == "/h1.hmrc":
+			return response("[0,2000]<0,300>晴<300,300>天\n", 200), nil
+		case r.URL.Path == "/h1.lrc":
+			return response("[00:00.00]晴天\n[00:00.10]Sunny Day\n", 200), nil
+		}
+		t.Fatalf("unexpected path %s", r.URL.Path)
+		return nil, nil
+	})
+	lines, err := adapter.Lyrics().Lyrics(context.Background(), source.TrackRef{Source: music.SourceHuawei, ID: "h1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 1 || lines[0].Text != "晴天" || len(lines[0].Words) != 2 {
+		t.Fatalf("lines = %+v", lines)
+	}
+	if lines[0].Words[1].Time != 0.3 {
+		t.Fatalf("word time = %v", lines[0].Words[1].Time)
 	}
 }
 
