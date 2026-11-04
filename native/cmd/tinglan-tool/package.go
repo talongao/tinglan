@@ -379,7 +379,6 @@ func nsisScript(cfg nsisConfig) string {
 	shortcut := "$SMPROGRAMS\\Tinglan\\" + name + ".lnk"
 	return "Unicode true\n" +
 		"!include \"MUI2.nsh\"\n" +
-		"!include \"FileFunc.nsh\"\n" +
 		"!define MUI_ICON \"" + nsisEscape(cfg.Icon) + "\"\n" +
 		"!define MUI_UNICON \"" + nsisEscape(cfg.Icon) + "\"\n" +
 		"Name \"" + name + "\"\n" +
@@ -402,7 +401,7 @@ func nsisScript(cfg nsisConfig) string {
 		" WriteUninstaller \"$INSTDIR\\Uninstall.exe\"\n" +
 		" CreateDirectory \"$SMPROGRAMS\\Tinglan\"\n" +
 		" CreateDirectory \"$INSTDIR\\upgrade-backup\"\n" +
-		" ${Locate} \"$SMPROGRAMS\\Tinglan\" \"/M=*.lnk\" \"BackupLegacyShortcut\"\n" +
+		legacyShortcutScript(cfg.Name) +
 		" CreateShortcut \"" + shortcut + "\" \"$INSTDIR\\" + cfg.Files[0] + "\"\n" +
 		" CreateShortcut \"$SMPROGRAMS\\Tinglan\\Uninstall.lnk\" \"$INSTDIR\\Uninstall.exe\"\n" +
 		" WriteRegStr HKCU \"Software\\HuaweiMusicViva\" \"InstallDir\" \"$INSTDIR\"\n" +
@@ -420,14 +419,59 @@ func nsisScript(cfg nsisConfig) string {
 		" RMDir \"$INSTDIR\"\n" +
 		" DeleteRegKey HKCU \"Software\\HuaweiMusicViva\"\n" +
 		" DeleteRegKey HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva\"\n" +
-		"SectionEnd\n" +
-		"\n" +
-		"Function BackupLegacyShortcut\n" +
-		" StrCmp $R9 \"Uninstall.lnk\" done\n" +
-		" StrCmp $R9 \"" + name + ".lnk\" done\n" +
-		" Rename \"$SMPROGRAMS\\Tinglan\\$R9\" \"$INSTDIR\\upgrade-backup\\$R9.bak\"\n" +
-		"done:\n" +
-		"FunctionEnd\n"
+		"SectionEnd\n"
+}
+
+// legacyShortcutScript emits the upgrade step that moves Start-Menu shortcuts
+// left behind by older installers (their names were UTF-8 bytes decoded as
+// latin1/windows-1252) into upgrade-backup, exactly like package.mjs did.
+func legacyShortcutScript(display string) string {
+	var out strings.Builder
+	for i, name := range legacyShortcutNames(display) {
+		link := "$SMPROGRAMS\\Tinglan\\" + nsisEscape(name) + ".lnk"
+		fmt.Fprintf(&out, " IfFileExists \"%s\" 0 +2\n", link)
+		fmt.Fprintf(&out, " Rename \"%s\" \"$INSTDIR\\upgrade-backup\\legacy-shortcut-%d.lnk.bak\"\n", link, i)
+	}
+	return out.String()
+}
+
+// legacyShortcutNames returns the mojibake spellings older installers created
+// for the display name: the same bytes read as latin1 and as windows-1252.
+func legacyShortcutNames(display string) []string {
+	raw := []byte(display)
+	latin1 := make([]rune, 0, len(raw))
+	cp1252 := make([]rune, 0, len(raw))
+	for _, b := range raw {
+		latin1 = append(latin1, rune(b))
+		cp1252 = append(cp1252, cp1252Rune(b))
+	}
+	seen := map[string]bool{display: true}
+	var names []string
+	for _, name := range []string{string(latin1), string(cp1252)} {
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+// cp1252Rune maps the 0x80-0x9F range that windows-1252 differs on; all other
+// bytes are identical to latin1.
+func cp1252Rune(b byte) rune {
+	table := map[byte]rune{
+		0x80: 0x20ac, 0x82: 0x201a, 0x83: 0x0192, 0x84: 0x201e, 0x85: 0x2026,
+		0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02c6, 0x89: 0x2030, 0x8a: 0x0160,
+		0x8b: 0x2039, 0x8c: 0x0152, 0x8e: 0x017d, 0x91: 0x2018, 0x92: 0x2019,
+		0x93: 0x201c, 0x94: 0x201d, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,
+		0x98: 0x02dc, 0x99: 0x2122, 0x9a: 0x0161, 0x9b: 0x203a, 0x9c: 0x0153,
+		0x9e: 0x017e, 0x9f: 0x0178,
+	}
+	if r, ok := table[b]; ok {
+		return r
+	}
+	return rune(b)
 }
 
 // utf16le encodes text as UTF-16LE, the format NSIS LicenseData reads as-is.

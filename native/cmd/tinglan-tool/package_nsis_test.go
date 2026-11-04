@@ -53,3 +53,25 @@ func TestNSISScriptEscapesDollarAndQuote(t *testing.T) {
 		t.Fatalf("quote not escaped: %s", script)
 	}
 }
+
+func TestNSISScriptBacksUpLegacyShortcuts(t *testing.T) {
+	cfg := nsisConfig{Name: "听澜", Icon: "i.ico", Output: "o.exe", InstallDir: "d", Notice: "n", Payload: filepath.FromSlash("/tmp/p"), Files: []string{"tinglan.exe"}}
+	script := nsisScript(cfg)
+	legacy := legacyShortcutNames("听澜")
+	if len(legacy) != 2 {
+		t.Fatalf("legacy names = %d, want latin1 and windows-1252 spellings", len(legacy))
+	}
+	for i, name := range legacy {
+		link := "$SMPROGRAMS\\Tinglan\\" + nsisEscape(name) + ".lnk"
+		want := `Rename "` + link + `" "$INSTDIR\upgrade-backup\legacy-shortcut-` + string(rune('0'+i)) + `.lnk.bak"`
+		if !strings.Contains(script, want) {
+			t.Fatalf("missing legacy backup line %q", want)
+		}
+		if !strings.Contains(script, `IfFileExists "`+link+`"`) {
+			t.Fatalf("missing IfFileExists guard for %q", link)
+		}
+	}
+	if !strings.Contains(script, `CreateDirectory "$INSTDIR\upgrade-backup"`) {
+		t.Fatal("installer must create the upgrade-backup directory")
+	}
+}
