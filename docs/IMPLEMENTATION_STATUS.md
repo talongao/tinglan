@@ -354,3 +354,24 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 - 临时 Go overlay 注入单项 `TestDocumentationExample`，用真实 Manager 完成该提取样例的
   探测/导入/缓存/启用/搜索/停用，通过（1 test）；未修改仓库代码。
 - 本轮未做 GUI、真实账号或 Windows 实机验收，未访问私人会话；仅文档改动，未提交、未推送。
+
+### 2026-11-04：音源添加、插件身份与按平台发布
+
+- 设置 → 音源 的入口改为「添加音源」：优先选择 `.zip` 包（自动解压、拒绝绝对路径/`..`/符号链接，
+  上限 4096 文件 / 256 MiB），另保留「从文件夹添加…」；安装流程仍先探测 descriptor 再复制。
+- 插件身份改由作者在 `source.json` 维护稳定 `id`（`[a-z0-9_-]{1,40}`），可选 `version` 仅用于展示；
+  再次添加同 `id` 视为更新（停旧进程、替换文件、保留启用与授权、自动重启），不再由宿主分配 id、不用摘要判重。
+- 首次启用弹一次授权并记录；之后启动、开关不再重复提示；新添加的插件仍提示一次。
+- 插件仓库目录迁移到仓库根 `plugins/<id>/`（与 `native/` 平级）；官方插件 `builtin: true` 由 CI 现场编译，
+  其他插件按源码/脚本打包。新增 `tinglan-tool plugins [platform]`，输出
+  `release/plugins/<id>-<version>-<platform>.zip` 与 `SHA256SUMS`；CI 三平台各自产出插件包，
+  Release 与安装包一起发布并合并校验和。
+- verified（离线）：`go build ./...`、`go vet ./...`、`go test ./...`、`tinglan-tool ui-check`、
+  `tinglan-tool plugins darwin-arm64` 生成 `huawei-1.0.0-darwin-arm64.zip`（含 bin/source.json/descriptor.json）；
+  `internal/plugin` 新增 zip 解压/根目录/越界拒绝测试。
+- verified（单元/离线）：`TestManagerConsentIsRemembered`（授权跨 Manager 重启保留、按 id 隔离）、
+  `internal/plugin` 的 zip 解压/单层目录/越界路径/空包测试；`go build/vet/test ./...`、`ui-check` 全绿；
+  重建后的 app 设置→音源显示「添加音源」「从文件夹添加」「打开音源文件夹」，点击「添加音源」弹出系统选择器
+  （标题「添加音源」），未完成选择即关闭。
+- 未验证：Windows 实机与插件包安装、zip 选择后的导入/更新真实流程、首次授权只弹一次的真实观察。
+  未提交、未推送。

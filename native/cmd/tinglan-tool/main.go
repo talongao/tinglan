@@ -15,6 +15,7 @@
 //	icons      — compile native/assets/lucide/*.svg into internal/icons/icons.go
 //	             and regenerate cmd/music/app_name.go
 //	licenses   — write THIRD_PARTY_NOTICES.txt
+//	plugins    — package plugins/ into release/plugins/*.zip
 //	ui-check   — headless UI regression run
 package main
 
@@ -43,6 +44,7 @@ commands:
   assets                     copy the committed PNG masters into internal/icons
   icons                      compile native/assets/lucide/*.svg and refresh app_name.go
   licenses [--out PATH]      write THIRD_PARTY_NOTICES.txt
+  plugins                    package plugins/ into release/plugins/*.zip
   ui-check                   headless UI regression run (no Node)
 
 environment:
@@ -64,6 +66,7 @@ var commands = map[string]commandFunc{
 	"assets":     assetsCommand,
 	"icons":      iconsCommand,
 	"licenses":   licensesCommand,
+	"plugins":    pluginsCommand,
 	"ui-check":   uiCheckCommand,
 }
 

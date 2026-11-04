@@ -497,3 +497,30 @@ func TestManagerLaunchesInterpreterEntry(t *testing.T) {
 	}
 	manager.Disable(registry, "fake")
 }
+
+// TestManagerConsentIsRemembered proves the enable warning is shown once: the
+// decision survives a manager restart because it lives in the encrypted store.
+func TestManagerConsentIsRemembered(t *testing.T) {
+	store := storage.New(t.TempDir())
+	root := t.TempDir()
+	manager := NewManager(root, store, nil)
+	if manager.Consented("fake") {
+		t.Fatal("fresh manager reported consent")
+	}
+	if err := manager.MarkConsented("fake"); err != nil {
+		t.Fatalf("MarkConsented: %v", err)
+	}
+	if !manager.Consented("fake") {
+		t.Fatal("consent not visible in the same manager")
+	}
+	restarted := NewManager(root, store, nil)
+	if err := restarted.LoadEnabled(context.Background(), source.NewRegistry()); err != nil {
+		t.Fatalf("LoadEnabled: %v", err)
+	}
+	if !restarted.Consented("fake") {
+		t.Fatal("consent was not restored from storage")
+	}
+	if restarted.Consented("other") {
+		t.Fatal("consent leaked to another plugin id")
+	}
+}

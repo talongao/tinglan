@@ -130,7 +130,13 @@ func (m *model) confirmWrite() {
 	}
 	if kind == "plugin-enable" {
 		m.dialog = ""
-		m.enablePlugin(music.SourceID(id))
+		id := music.SourceID(id)
+		if m.plugins != nil {
+			if err := m.plugins.MarkConsented(id); err != nil {
+				m.notify("无法记录授权：" + err.Error())
+			}
+		}
+		m.enablePlugin(id)
 		return
 	}
 	if kind == "import-remote" {

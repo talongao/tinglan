@@ -67,3 +67,4 @@ native/cmd/music/icon_windows_*.syso
 
 # Generated architecture diagrams (Archify) are versioned; local build outputs are not
 /native/music
+/native/tinglan-tool

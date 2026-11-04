@@ -443,6 +443,10 @@ func (m *model) toggleSourceRow(row sourceRow) {
 		m.disablePlugin(row.id)
 		return
 	}
+	if m.plugins != nil && m.plugins.Consented(row.id) {
+		m.enablePlugin(row.id)
+		return
+	}
 	m.askEnablePlugin(row.id)
 }
 
@@ -894,19 +898,35 @@ func (m *model) loadPlugins() {
 }
 
 // choosePluginFolder asks the system picker for a plugin directory and installs it.
+// choosePluginBundle asks for a .zip plugin package and installs it.
+func (m *model) choosePluginBundle() {
+	if !m.beginPluginPick() {
+		return
+	}
+	paths, err := app.OpenFiles(app.OpenFileOptions{
+		Title:   "添加音源",
+		Filters: []app.FileFilter{{Name: "音源包", Pattern: "*.zip"}},
+	})
+	m.endPluginPick()
+	if errors.Is(err, app.ErrCanceled) || (err == nil && len(paths) == 0) {
+		return
+	}
+	if err != nil {
+		m.notify("无法打开选择器：" + err.Error())
+		return
+	}
+	m.installPluginFrom(paths[0])
+}
+
+// choosePluginFolder is the development path: install straight from a folder.
 func (m *model) choosePluginFolder() {
 	// The native modal runs inside the click handler and keeps pumping click
 	// events; a second click can arrive while it is open, so guard re-entry.
-	if m.pluginPicking {
+	if !m.beginPluginPick() {
 		return
 	}
-	if !m.pluginPickAt.IsZero() && time.Since(m.pluginPickAt) < 500*time.Millisecond {
-		return
-	}
-	m.pluginPicking = true
-	path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: "选择外置音源目录"})
-	m.pluginPicking = false
-	m.pluginPickAt = time.Now()
+	path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: "从文件夹添加音源"})
+	m.endPluginPick()
 	if errors.Is(err, app.ErrCanceled) || (err == nil && strings.TrimSpace(path) == "") {
 		return
 	}
@@ -917,17 +937,39 @@ func (m *model) choosePluginFolder() {
 	m.installPluginFrom(path)
 }
 
-// installPluginFrom copies a chosen directory into the app's sources folder.
+func (m *model) beginPluginPick() bool {
+	if m.pluginPicking {
+		return false
+	}
+	if !m.pluginPickAt.IsZero() && time.Since(m.pluginPickAt) < 500*time.Millisecond {
+		return false
+	}
+	m.pluginPicking = true
+	return true
+}
+
+func (m *model) endPluginPick() {
+	m.pluginPicking = false
+	m.pluginPickAt = time.Now()
+}
+
+// installPluginFrom installs a plugin from a directory or a .zip package.
 func (m *model) installPluginFrom(path string) {
 	if m.plugins == nil {
 		m.notify("插件管理器未就绪")
 		return
 	}
+	dir, cleanup, err := m.preparePluginSource(path)
+	if err != nil {
+		m.notify("添加失败：" + err.Error())
+		return
+	}
+	defer cleanup()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	entry, updated, err := m.plugins.Install(ctx, path)
+	entry, updated, err := m.plugins.Install(ctx, dir)
 	if err != nil {
-		m.notify("导入失败：" + err.Error())
+		m.notify("添加失败：" + err.Error())
 		return
 	}
 	label := entry.Name()
@@ -945,8 +987,39 @@ func (m *model) installPluginFrom(path string) {
 		}
 		return
 	}
-	m.notify("已导入 " + label + "（ID " + string(entry.ID()) + "）")
+	m.notify("已添加 " + label)
 	m.askEnablePlugin(entry.ID())
+}
+
+// preparePluginSource turns a .zip package or folder into a plugin directory.
+// The returned cleanup removes any temporary extraction directory.
+func (m *model) preparePluginSource(path string) (string, func(), error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", func() {}, err
+	}
+	if info.IsDir() {
+		root, err := plugin.PluginRoot(path)
+		return root, func() {}, err
+	}
+	if !strings.EqualFold(filepath.Ext(path), ".zip") {
+		return "", func() {}, errors.New("请选择 .zip 音源包或插件文件夹")
+	}
+	tmp, err := os.MkdirTemp("", "tinglan-plugin-")
+	if err != nil {
+		return "", func() {}, err
+	}
+	cleanup := func() { _ = os.RemoveAll(tmp) }
+	if err := plugin.ExtractZip(path, tmp); err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	root, err := plugin.PluginRoot(tmp)
+	if err != nil {
+		cleanup()
+		return "", func() {}, err
+	}
+	return root, cleanup, nil
 }
 
 // refreshPlugins re-reads the plugin directories after an install/removal.

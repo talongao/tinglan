@@ -1,6 +1,6 @@
 # 项目工作规则
 
-- 当前 roadmap：Windows 可用性验证与相关缺陷修复仍是发布门槛；用户已于 2026-10-31 将“多源收藏（华为音乐作为其中一源，首期接入网易云）”纳入 roadmap。第一阶段（华为源 + 多源通用能力）与数据库 v3 实施（SQLite 23 表、收录音乐、歌单、导入 dialog、搜索 tabs、TTML、去 Node）代码已完成并有本地里程碑提交（未推送），macOS 已实机验证登录、播放与插件，Windows 尚未实机验收；网易云适配器暂不实现。不额外扩张范围。日常改动留在 develop；用户已于 2026-10-30 明确授权将 PR #7 合并 main 并发布本次测试版，后续合并和发布仍需用户授权。CI 成功不代替 Windows 实机验收。
+- 当前 roadmap：Windows 可用性验证与相关缺陷修复仍是发布门槛；外置音源支持作者维护 id、zip 添加与按平台发布插件包；用户已于 2026-10-31 将“多源收藏（华为音乐作为其中一源，首期接入网易云）”纳入 roadmap。第一阶段（华为源 + 多源通用能力）与数据库 v3 实施（SQLite 23 表、收录音乐、歌单、导入 dialog、搜索 tabs、TTML、去 Node）代码已完成并有本地里程碑提交（未推送），macOS 已实机验证登录、播放与插件，Windows 尚未实机验收；网易云适配器暂不实现。不额外扩张范围。日常改动留在 develop；用户已于 2026-10-30 明确授权将 PR #7 合并 main 并发布本次测试版，后续合并和发布仍需用户授权。CI 成功不代替 Windows 实机验收。
 
 - 听澜（Tinglan）是 Go + Viva 原生华为音乐第三方桌面客户端。旧 Electron/React 客户端与工具已移除，不恢复旧技术栈。
 - 开工先读 README.md、docs/IMPLEMENTATION_STATUS.md、docs/API_CONTRACT.md、docs/authorized-feature-validation.md。历史方案/验证记录保留作参考，与当前状态冲突时以当前实现和最新用户要求为准。
@@ -18,4 +18,4 @@
 - 二进制公开分发仅通过 GitHub Release；main 合并触发三平台构建，全成功后以 v<version>-build.<run_number> 标签发布 Latest，不覆盖历史版本。手动运行仅允许 develop。发布说明必须保留未签名、非官方、OAuth 身份不属于本项目以及未验平台边界。
 - 不擅自提交、推送、发布、公开仓库或删除研究现场。合成测试/截图不能当作私人账号证据，真实截图需用户授权。
 - 维护简短、可核对的 docs/IMPLEMENTATION_STATUS.md，明确区分实现、离线测试与实机验收。不要引入复杂框架、后端服务或云端凭据代理。
-- 外置音源由宿主管理在应用数据目录 `sources/<id>/`；交付清单只写启动配置，能力由握手 descriptor 提供。修改插件接口时同步 `docs/SOURCE_PLUGIN_PROTOCOL.md` 与 `docs/PLUGIN_GUIDE.md`，从指南提取示例做离线握手/搜索验证；脚本插件的可选运行时不属于宿主构建依赖。
+- 外置音源仓库目录为仓库根 `plugins/<id>/`（与 `native/` 平级，不再放在 `native/plugins`）；官方插件标 `builtin: true`，由 CI 编译成对应平台二进制，第三方插件按源码/脚本打包为 zip。`tinglan-tool plugins [platform]` 生成 `release/plugins/<id>-<version>-<platform>.zip` 与 `SHA256SUMS`，Release 必须随安装包一起发布。外置音源由宿主管理在应用数据目录 `sources/<id>/`；交付清单只写启动配置，能力由握手 descriptor 提供。修改插件接口时同步 `docs/SOURCE_PLUGIN_PROTOCOL.md` 与 `docs/PLUGIN_GUIDE.md`，从指南提取示例做离线握手/搜索验证；脚本插件的可选运行时不属于宿主构建依赖。

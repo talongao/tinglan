@@ -48,19 +48,21 @@ type Manager struct {
 	store  *storage.Store
 	logger source.Logger
 
-	mu      sync.Mutex
-	plugins map[music.SourceID]*Plugin
-	enabled map[music.SourceID]bool
+	mu        sync.Mutex
+	plugins   map[music.SourceID]*Plugin
+	enabled   map[music.SourceID]bool
+	consented map[music.SourceID]bool
 }
 
 // NewManager prepares the plugin root; plugins live under <app data>/sources.
 func NewManager(root string, store *storage.Store, logger source.Logger) *Manager {
 	return &Manager{
-		roots:   []string{root},
-		store:   store,
-		logger:  logger,
-		plugins: map[music.SourceID]*Plugin{},
-		enabled: map[music.SourceID]bool{},
+		roots:     []string{root},
+		store:     store,
+		logger:    logger,
+		plugins:   map[music.SourceID]*Plugin{},
+		enabled:   map[music.SourceID]bool{},
+		consented: map[music.SourceID]bool{},
 	}
 }
 
@@ -187,6 +189,7 @@ func (m *Manager) Disable(registry *source.Registry, id music.SourceID) error {
 // LoadEnabled starts every previously enabled plugin and registers it.
 func (m *Manager) LoadEnabled(ctx context.Context, registry *source.Registry) []string {
 	m.loadEnabledState()
+	m.loadConsentState()
 	// Sources shipped with the app start once, until the user disables them.
 	for _, entry := range m.List() {
 		id := entry.ID()
@@ -300,6 +303,56 @@ func firstLine(text string) string {
 }
 
 const enabledSecret = "plugin.enabled"
+
+// consentSecret remembers which plugins the user already agreed to run. The
+// warning is shown once per plugin, not every time it is enabled.
+const consentSecret = "plugin.consent"
+
+// Consented reports whether the user has already accepted this plugin once.
+func (m *Manager) Consented(id music.SourceID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.consented[id]
+}
+
+// MarkConsented records the user's decision so the warning is not repeated.
+func (m *Manager) MarkConsented(id music.SourceID) error {
+	if m.store == nil {
+		return errors.New("plugin consent storage unavailable")
+	}
+	m.mu.Lock()
+	m.consented[id] = true
+	ids := make([]string, 0, len(m.consented))
+	for key := range m.consented {
+		ids = append(ids, string(key))
+	}
+	m.mu.Unlock()
+	sort.Strings(ids)
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	return m.store.SaveSecret(consentSecret, raw)
+}
+
+func (m *Manager) loadConsentState() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.store == nil {
+		return
+	}
+	raw, err := m.store.LoadSecret(consentSecret)
+	if err != nil {
+		return
+	}
+	var ids []string
+	if json.Unmarshal(raw, &ids) != nil {
+		return
+	}
+	for _, id := range ids {
+		m.consented[music.SourceID(id)] = true
+	}
+}
 
 func (m *Manager) loadEnabledState() {
 	m.mu.Lock()

@@ -119,6 +119,17 @@ jobs:
       - name: Package
         working-directory: native
         run: go run ./cmd/tinglan-tool package ${{ matrix.platform }} ${{ matrix.arch }}
+      - name: Package plugins
+        working-directory: native
+        shell: bash
+        run: |
+          case "${{ matrix.id }}" in
+            macos-arm64) target=darwin-arm64 ;;
+            macos-x64) target=darwin-x64 ;;
+            windows-x64) target=windows-x64 ;;
+            *) echo "unknown matrix target"; exit 1 ;;
+          esac
+          go run ./cmd/tinglan-tool plugins "$target"
       - name: Check Windows installation
         if: runner.os == 'Windows'
         shell: pwsh
@@ -132,6 +143,13 @@ jobs:
         with:
           name: tinglan-${{ matrix.id }}-unsigned
           path: release/native/${{ matrix.directory }}/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload plugin packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinglan-${{ matrix.id }}-plugins
+          path: release/plugins/*
           if-no-files-found: error
           retention-days: 14
       - name: Upload failure diagnostics
@@ -187,6 +205,10 @@ jobs:
         with:
           pattern: tinglan-*-unsigned
           path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tinglan-*-plugins
+          path: plugin-artifacts
       - name: Verify all three installers
         run: |
           set -euo pipefail
@@ -197,7 +219,17 @@ jobs:
             find "$dir" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.exe' \) -exec cp {} release-assets/ \;
             cat "$dir/SHA256SUMS" >> release-assets/SHA256SUMS
           done
-          test "$(find release-assets -type f | wc -l)" -eq 4
+          found=0
+          while IFS= read -r -d '' bundle; do
+            (cd "$(dirname "$bundle")" && sha256sum --check SHA256SUMS)
+            cp "$bundle" release-assets/
+            found=$((found+1))
+          done < <(find plugin-artifacts -name '*.zip' -print0)
+          test "$found" -eq 3
+          for sums in plugin-artifacts/*/SHA256SUMS; do
+            cat "$sums" >> release-assets/SHA256SUMS
+          done
+          test "$(find release-assets -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.exe' \) | wc -l)" -eq 3
       - name: Publish immutable build as latest
         env:
           GH_TOKEN: ${{ github.token }}

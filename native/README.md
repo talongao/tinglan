@@ -24,13 +24,13 @@ go run ./cmd/tinglan-tool ui-check   # 无头界面回归
 
 ## 外置音源插件
 
-第三方作者从[插件开发指南](../docs/PLUGIN_GUIDE.md)开始：完整 Node 示例无需 Go 或 npm，可离线验证握手与搜索，再从「设置 → 音源 → 导入插件」安装。宿主工具链不依赖 Node；脚本插件的解释器由用户另外安装。
+第三方作者从[插件开发指南](../docs/PLUGIN_GUIDE.md)开始：完整 Node 示例无需 Go 或 npm，可离线验证握手与搜索，再从「设置 → 音源 → 添加音源」选择打包好的 `.zip` 安装。宿主工具链不依赖 Node；脚本插件的解释器由用户另外安装。
 
 插件是独立进程，通过 stdin/stdout 上的 Content-Length JSON-RPC 2.0 通信，stderr 用于日志。`source.json` 只描述启动入口；宿主探测 `initialize` 返回的 descriptor，分配 ID，复制到应用数据目录 `sources/<id>/` 并缓存 `descriptor.json`。导入探测本身会启动插件，插件不是沙箱程序。
 
 实现位于 `internal/plugin/`，协议与当前限制见 [SOURCE_PLUGIN_PROTOCOL.md](../docs/SOURCE_PLUGIN_PROTOCOL.md)，业务语义见 [SOURCE_CONTRACT.md](../docs/SOURCE_CONTRACT.md)。`internal/plugin/sdk/` 和 `wire/` 是仓库内部 Go 包，尚无可供外部模块直接引用的公开 SDK。可导入的脚本样例在 `internal/plugin/testdata/node-source-plugin/`。
 
-华为源进程入口是 `cmd/huawei-source/`，清单与预置描述在 `plugins/huawei/`；macOS 应用内位于 `Contents/Resources/sources/huawei/`，默认启用。第三方插件安装不修改应用包。当前不支持宿主二维码展示、自动更新或热重载，Windows 插件全流程仍待实机验收。
+华为源进程入口是 `cmd/huawei-source/`，清单与预置描述在仓库根目录 `plugins/huawei/`；macOS 应用内位于 `Contents/Resources/sources/huawei/`，默认启用。第三方插件安装不修改应用包。当前不支持宿主二维码展示、自动更新或热重载，Windows 插件全流程仍待实机验收。
 
 ## 离线验证
 

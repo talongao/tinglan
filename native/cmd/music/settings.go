@@ -35,6 +35,7 @@ var sourceLogoutID = tree.Sub(shell, tree.Name("source-logout"))
 var pluginSettings = tree.Sub(shell, tree.Name("plugin-settings"))
 var openPluginsID = tree.ID(shell, "open-plugins")
 var importPluginID = tree.ID(shell, "import-plugin")
+var importPluginFolderID = tree.ID(shell, "import-plugin-folder")
 
 func (m *model) settingsHeight() float32 {
 	if m.settingsTab == 0 {
@@ -501,14 +502,19 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 			m.openImportDialog("favorites")
 		}
 	}
-	if m.pill(c, importPluginID, rect(x+200, rowY+12, 108, 34), "导入插件", false) {
-		m.choosePluginFolder()
+	if m.pill(c, importPluginID, rect(x+200, rowY+12, 112, 34), "添加音源", false) {
+		m.choosePluginBundle()
 	}
-	if m.pill(c, openPluginsID, rect(x+w-132, rowY+12, 132, 34), "打开插件文件夹", false) {
+	if m.pill(c, openPluginsID, rect(x+w-132, rowY+12, 132, 34), "打开音源文件夹", false) {
 		m.openPluginFolder()
 	}
+	folder := rect(x+200, rowY+52, 120, 20)
+	m.text(c, "从文件夹添加…", rect(folder.X, folder.Y, folder.Width, folder.Height), 11, 400, m.muted())
+	if hit(c, importPluginFolderID, folder, "从文件夹添加") {
+		m.choosePluginFolder()
+	}
 	if m.importStatus != "" {
-		m.text(c, m.importStatus, rect(x+2, rowY+54, w-4, 22), 11, 400, m.muted())
+		m.text(c, m.importStatus, rect(x+2, rowY+76, w-4, 22), 11, 400, m.muted())
 	}
 }
 
