@@ -50,43 +50,6 @@ type pluginsManifest struct {
 	Entry   map[string]json.RawMessage `json:"entry"`
 }
 
-// stageBundledPlugins copies the official (builtin) plugins into the Windows
-// payload so a fresh install ships a working Huawei source instead of falling
-// back to the in-process development source.
-func stageBundledPlugins(root, dest string, stdout, stderr io.Writer) (bool, error) {
-	entries, err := os.ReadDir(filepath.Join(root, "plugins"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
-	staged := false
-	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		dir := filepath.Join(root, "plugins", entry.Name())
-		raw, err := os.ReadFile(filepath.Join(dir, "source.json"))
-		if err != nil {
-			continue
-		}
-		var manifest pluginsManifest
-		if err := json.Unmarshal(raw, &manifest); err != nil || !manifest.Builtin || manifest.ID == "" {
-			continue
-		}
-		target := filepath.Join(dest, manifest.ID)
-		if err := os.MkdirAll(target, 0o755); err != nil {
-			return staged, err
-		}
-		if err := stagePlugin(root, dir, manifest, "windows", "amd64", target, stdout, stderr); err != nil {
-			return staged, err
-		}
-		staged = true
-	}
-	return staged, nil
-}
-
 // pluginsCommand packages every plugin under <repo>/plugins for release.
 //
 // A plugin whose manifest says builtin is an official Go source: its binary is

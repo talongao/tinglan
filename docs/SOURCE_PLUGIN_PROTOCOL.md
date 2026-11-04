@@ -282,8 +282,9 @@ SDK 版本不兼容分支目前回 -32002（历史实现），不应据此修改
 - 运行时由插件作者和用户负责：宿主不内置 Node/Python，也不做 shebang 探测。
   启用路径的启动错误包含 command，握手失败可能附带 stderr 首行；导入探测错误目前不保证附带 stderr。
 
-- 内置插件可在清单里固定身份：`"id": "huawei"`、`"builtin": true`；随应用分发，
-  启动时默认启用。当前持久化只保存启用 ID 集合，内置源的显式停用尚不能可靠跨重启保留。
+- 官方插件在清单里固定身份：`"id": "huawei"`、`"builtin": true`，以 Release 资产（zip）分发，
+  宿主不再把它打进安装包或应用包——新装机器默认没有任何音源，由用户自己添加。
+  当前持久化只保存启用 ID 集合，官方源的显式停用尚不能可靠跨重启保留。
 - **身份由插件作者维护**：清单必须带稳定的 `id`（`[a-z0-9_-]{1,40}`），一经发布不要更改。
   `系统设置 → 音源 → 导入插件` 打开系统目录选择器（不手填路径），宿主按清单 `id` 启动一次做探测，
   把目录复制到 `<数据目录>/sources/<id>/` 并写入 `descriptor.json`。
@@ -394,9 +395,10 @@ SDK 版本不兼容分支目前回 -32002（历史实现），不应据此修改
 
 - `native/cmd/huawei-source` 是随应用分发的插件进程：`native/internal/plugin/sdk`（插件侧协议）
   与 `native/internal/plugin/wire`（帧与 JSON-RPC 基础）用于仓库内插件；外部模块受 Go internal 规则限制，尚无公开 SDK；
-  `native/plugins/huawei/source.json` 声明 `builtin: true`、按平台的入口；能力与资源域来自握手，预置 descriptor.json 用于停用展示。
-- `tinglan-tool mac-app` 把插件构建到 `Tinglan.app/Contents/Resources/sources/huawei/`；
-  宿主启动时把该目录加入 Manager 根，Builtin 插件默认启用；跨重启停用状态的限制见 §10。
+  `plugins/huawei/source.json` 声明 `builtin: true`、按平台的入口；能力与资源域来自握手，预置 descriptor.json 用于停用展示。
+- `tinglan-tool plugins` 把每个官方插件编译成对应平台的 zip（`release/plugins/<id>-<version>-<platform>.zip`），
+  随 Release 一起发布；`tinglan-tool mac-app` 只构建宿主，不复制任何插件，
+  用户通过「添加音源」安装到 `<数据目录>/sources/<id>/`；跨重启停用状态的限制见 §10。
 - 登录完全走协议：插件 `source.auth.login` 内部嵌套 `host.webview.open` 打开系统登录窗口，
   回调 URL 返回后在插件进程内做 code exchange，再把会话写进 `host.session`；宿主不再持有 provider 会话。
 - 旧版本地登录在首次启动时迁移：宿主读取旧会话，按插件 `Auth().Status()` 的账号指纹比对，

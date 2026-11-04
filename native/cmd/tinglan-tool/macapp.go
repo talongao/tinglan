@@ -132,25 +132,6 @@ func macApp(root string, stdout, stderr io.Writer) error {
 	}, stdout, stderr); err != nil {
 		return err
 	}
-	// The Huawei source ships as a preinstalled external plugin. Keeping it in
-	// the bundle means the host can load every source through one protocol.
-	pluginDir := filepath.Join(contents, "Resources", "sources", "huawei")
-	if err := os.MkdirAll(filepath.Join(pluginDir, "bin"), 0o755); err != nil {
-		return err
-	}
-	if err := runCommand(commandSpec{
-		Dir:  filepath.Join(root, "native"),
-		Name: goBinary(),
-		Args: []string{"build", "-trimpath", "-ldflags=-s -w", "-o", filepath.Join(pluginDir, "bin", "huawei-source"), "./cmd/huawei-source"},
-	}, stdout, stderr); err != nil {
-		return err
-	}
-	if err := copyFile(filepath.Join(root, "plugins", "huawei", "descriptor.json"), filepath.Join(pluginDir, "descriptor.json")); err != nil {
-		return err
-	}
-	if err := copyFile(filepath.Join(root, "plugins", "huawei", "source.json"), filepath.Join(pluginDir, "source.json")); err != nil {
-		return err
-	}
 	// Replacing the executable updates the file mtime but not the bundle
 	// directory's, so Finder keeps showing the first build's date. Touch the
 	// bundle after every successful build so "Date Modified" is truthful.

@@ -30,7 +30,7 @@ go run ./cmd/tinglan-tool ui-check   # 无头界面回归
 
 实现位于 `internal/plugin/`，协议与当前限制见 [SOURCE_PLUGIN_PROTOCOL.md](../docs/SOURCE_PLUGIN_PROTOCOL.md)，业务语义见 [SOURCE_CONTRACT.md](../docs/SOURCE_CONTRACT.md)。`internal/plugin/sdk/` 和 `wire/` 是仓库内部 Go 包，尚无可供外部模块直接引用的公开 SDK。可导入的脚本样例在 `internal/plugin/testdata/node-source-plugin/`。
 
-华为源进程入口是 `cmd/huawei-source/`，清单与预置描述在仓库根目录 `plugins/huawei/`；macOS 应用内位于 `Contents/Resources/sources/huawei/`，默认启用。第三方插件安装不修改应用包。当前不支持宿主二维码展示、自动更新或热重载，Windows 插件全流程仍待实机验收。
+华为源进程入口是 `cmd/huawei-source/`，清单与预置描述在仓库根目录 `plugins/huawei/`。安装包与应用包都不再内置音源，华为源和第三方插件一样由用户通过「添加音源」安装到应用数据目录的 `sources/<id>/`。当前不支持宿主二维码展示、自动更新或热重载，Windows 插件全流程仍待实机验收。
 
 ## 离线验证
 

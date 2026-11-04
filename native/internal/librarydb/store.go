@@ -686,3 +686,92 @@ func (d *DB) FinishMigration(ctx context.Context, id, state, phase string) error
 	}
 	return tx.Commit()
 }
+
+// repairPlaylistFavoritesKey names the one-time cleanup that drops favorites
+// membership from rows a playlist mirror created. Mirroring a playlist used to
+// favorite every member, so 我的收藏 could list songs the account never
+// favorited; the members themselves stay in 收录音乐.
+const repairPlaylistFavoritesKey = "playlist-favorites-repair-v1"
+
+// RepairPlaylistFavorites removes favorites membership that a playlist mirror
+// created by accident. Mirroring a playlist used to favorite every member, so
+// 我的收藏 could list songs the account never favorited; the members themselves
+// stay in 收录音乐 and in the playlist.
+//
+// The rule is deliberately narrow, because favorites carry no "who added me"
+// column:
+//   - the track is a member of an imported playlist,
+//   - no favorites import ever recorded it (no active origin of kind
+//     'favorites'), so the platform snapshot never contained it,
+//   - the profile never migrated legacy favorites JSON; those rows only have a
+//     generic 'local' origin and must not be touched.
+//
+// A favorite the user clicked in the UI and that also sits in an imported
+// playlist can match too; losing that membership is recoverable by clicking the
+// heart again, while leaving the pollution in place is not.
+func (d *DB) RepairPlaylistFavorites(ctx context.Context, profileID string) (int64, bool, error) {
+	state, err := d.MigrationState(ctx, repairPlaylistFavoritesKey, "v1")
+	if err != nil {
+		return 0, false, err
+	}
+	if state == "done" {
+		return 0, false, nil
+	}
+	var imported int
+	if err := d.sql.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM imports WHERE profile_id=? AND kind='favorites' AND last_success_at IS NOT NULL`,
+		profileID).Scan(&imported); err != nil {
+		return 0, false, fmt.Errorf("librarydb: check favorites import: %w", err)
+	}
+	if imported == 0 {
+		return 0, false, nil
+	}
+	var legacy int
+	if err := d.sql.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM data_migrations WHERE migration_key='canonical-favorites-json'`,
+	).Scan(&legacy); err != nil {
+		return 0, false, fmt.Errorf("librarydb: check legacy migration: %w", err)
+	}
+	if legacy > 0 {
+		return 0, false, nil
+	}
+	if err := d.BeginMigration(ctx, repairPlaylistFavoritesKey, repairPlaylistFavoritesKey, "v1", `[]`); err != nil {
+		return 0, false, err
+	}
+	tx, err := d.sql.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
+		DELETE FROM favorites WHERE profile_id=? AND track_id IN (
+			SELECT f.track_id FROM favorites f
+			WHERE f.profile_id=?
+			  AND EXISTS (
+			    SELECT 1 FROM playlist_tracks pt
+			    JOIN playlists p ON p.id=pt.playlist_id
+			    WHERE pt.track_id=f.track_id AND p.kind='imported')
+			  AND NOT EXISTS (
+			    SELECT 1 FROM source_identities si
+			    JOIN source_bindings b ON b.identity_id=si.id
+			    JOIN binding_origins bo ON bo.binding_id=b.id
+			    WHERE si.home_track_id=f.track_id AND bo.active=1
+			      AND bo.origin_kind='favorites'))`, profileID, profileID)
+	if err != nil {
+		return 0, false, fmt.Errorf("librarydb: repair favorites: %w", err)
+	}
+	dropped, _ := res.RowsAffected()
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM member_refs WHERE owner_kind='favorites' AND owner_id=?
+		  AND anchor_track_id NOT IN (SELECT track_id FROM favorites WHERE profile_id=?)`,
+		profileID, profileID); err != nil {
+		return 0, false, fmt.Errorf("librarydb: repair favorite refs: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, err
+	}
+	if err := d.FinishMigration(ctx, repairPlaylistFavoritesKey, "done", "published"); err != nil {
+		return dropped, true, err
+	}
+	return dropped, true, nil
+}

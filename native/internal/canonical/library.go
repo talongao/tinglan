@@ -124,6 +124,11 @@ func (l *Library) load(ctx context.Context) error {
 	if err := l.migrateLegacy(ctx); err != nil {
 		return err
 	}
+	// Mirroring a playlist used to favorite its members; drop that pollution
+	// once, keeping the rows in 收录音乐.
+	if _, _, err := l.db.RepairPlaylistFavorites(ctx, librarydb.DefaultProfile); err != nil {
+		return err
+	}
 	rows, seq, err := l.db.Load(ctx, librarydb.DefaultProfile)
 	if err != nil {
 		return err

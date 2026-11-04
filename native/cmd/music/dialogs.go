@@ -196,13 +196,12 @@ func (m *model) addToPlaylist(playlistID string) {
 	row, ok := m.canonicalRow(track.ID)
 	if !ok {
 		judge, policy := m.matchJudge()
-		added, err := m.local.Add(context.Background(), track, judge, policy)
-		if err != nil {
+		// Collecting a song for a playlist must not favorite it.
+		if _, err := m.local.AddToLibrary(context.Background(), track, judge, policy); err != nil {
 			m.notify("加入收录失败")
 			return
 		}
-		_ = added
-		if refreshed, found := m.local.RowForLink(music.SourceHuawei, track.ID); found {
+		if refreshed, found := m.local.RowForLink(track.Source, track.ID); found {
 			row, ok = refreshed, true
 		}
 	}
@@ -651,15 +650,17 @@ func (m *model) runPlaylistUpdate(p librarydb.Playlist) {
 			for _, track := range page.Tracks {
 				row, found := m.local.RowForLink(track.Source, track.ID)
 				if !found {
-					if _, err := m.local.Add(ctx, track, judge, policy); err != nil {
+					// A playlist member belongs to 收录音乐, not to 我的收藏:
+					// mirroring a playlist must never favorite its songs.
+					id, err := m.local.AddToLibrary(ctx, track, judge, policy)
+					if err != nil {
 						m.postSource(sourceResult{kind: "playlist-done", err: err, message: p.ID})
 						return
 					}
-					row, found = m.local.RowForLink(track.Source, track.ID)
+					ids = append(ids, id)
+					continue
 				}
-				if found {
-					ids = append(ids, row.ID)
-				}
+				ids = append(ids, row.ID)
 			}
 			cursor += len(page.Tracks)
 			if page.Done() || len(page.Tracks) == 0 {

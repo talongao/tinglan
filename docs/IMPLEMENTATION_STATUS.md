@@ -408,3 +408,26 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   `out/native/Tinglan.app` 重建后仅由 `Contents/Resources/sources/huawei` 提供华为音源
   （插件进程 `huawei-source` 在跑），收藏页 965 行正常。Windows 仅交叉编译与 CI 产物，
   未实机验收；本轮未做真实账号写操作。
+
+### 2026-11-04：不内置任何音源、歌单镜像不再收藏、组合下划线报上游
+
+- 方向反转：安装包与 `Tinglan.app` **不再内置官方插件**。删除 `package.go` 的
+  `stageBundledPlugins`/NSIS `File /r`/`RMDir /r`、`macapp.go` 的插件构建与复制；
+  全新 profile 只创建 `library.sqlite3`，没有 `sources/` 目录，设置页音源列表为空，
+  用户通过「添加音源」自行安装（华为源的 zip 由 Release 分发）。
+  取代上文「安装包内置官方插件」的做法；`plugins/huawei/` 仍留在仓库，只作为发布源。
+- 歌单镜像不再写收藏：`runPlaylistUpdate` 与 `addToPlaylist` 改用 `AddToLibrary`
+  （只收录、不设置 `Favorite`）。此前每次镜像歌单都会把成员塞进「我的收藏」，
+  用户看到 944 首收藏里混进只在歌单里的歌（959 = 944 + 15）。
+  回归测试 `cmd/music/playlist_favorite_test.go`。
+- 一次性清理 `librarydb.RepairPlaylistFavorites`：只删「属于导入歌单、且从未出现在任何一次
+  收藏快照（无 active `favorites` origin）、且该 profile 没有迁移过旧版收藏 JSON」的行；
+  成员本身留在收录音乐与歌单里。守卫与行为见 `internal/librarydb/repair_test.go` 三个用例。
+- Windows 搜索框组合下划线：确认由 Viva 的 `internal/platform/windows/ime_windows.go`
+  在 `Composing` 时按 `input.Y + min(input.Height-2, FontSize*1.3)` 绘制，
+  文本框较高时落在字形中部；宿主无 API 可关。已报上游
+  [vivaui/viva#118](https://github.com/vivaui/viva/issues/118)。
+- 验证（macOS）：`go build/vet/test ./...` 全绿（含新增 5 个用例）、`tinglan-tool ui-check`
+  0 问题、`mac-app` 重建后 `Contents/Resources` 无 `sources/` 且启动后无插件进程；
+  Windows 仅 `CGO_ENABLED=0` 交叉编译（`cmd/music`、`cmd/huawei-source`）通过，待 CI 与实机。
+  本轮未做真实账号写操作。
