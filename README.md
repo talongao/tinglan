@@ -123,7 +123,7 @@ go run ./cmd/tinglan-tool ui-check
 
 反馈时写清系统版本、复现步骤和预期表现；截图请避开账号信息。不要提交 Token、Cookie、授权码或私人数据。项目不接受绕过付费限制、音频解密或引入其他平台音源的改动。
 
-开发资料：[原生开发说明](native/README.md) · [实现状态](docs/IMPLEMENTATION_STATUS.md) · [迁移记录](docs/VIVA_MIGRATION.md) · [接口契约](docs/API_CONTRACT.md) · [验证记录](docs/authorized-feature-validation.md)
+开发资料：[原生开发说明](native/README.md) · [音源插件开发指南](docs/PLUGIN_GUIDE.md) · [实现状态](docs/IMPLEMENTATION_STATUS.md) · [迁移记录](docs/VIVA_MIGRATION.md) · [接口契约](docs/API_CONTRACT.md) · [验证记录](docs/authorized-feature-validation.md)
 
 ## 社区
 

@@ -340,3 +340,9 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   「导入插件 → 系统选择器 → 授权启用 → 设置页出现 → 搜索页页签 → 搜索结果」全流程；
   安装后的清单 id 由宿主分配（如 `node-3df1`），进程为 `node .../sources/node-3df1/main.mjs`。
 - 搜索结果行的来源徽标改为读取插件的 `Descriptor.ShortName`，不再把所有临时行都画成「华」。
+
+### 2026-11-04：插件开发文档
+
+- 新增 [PLUGIN_GUIDE.md](PLUGIN_GUIDE.md)：从最小 Node 插件开始的开发指南，
+  覆盖 `source.json`、Content-Length 帧、生命周期、方法表、数据格式、宿主服务、
+  错误码、安装/升级/卸载、调试、安全边界与常见问题；README 与协议文档已加链接。
