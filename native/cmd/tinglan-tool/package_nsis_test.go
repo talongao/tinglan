@@ -75,3 +75,17 @@ func TestNSISScriptBacksUpLegacyShortcuts(t *testing.T) {
 		t.Fatal("installer must create the upgrade-backup directory")
 	}
 }
+
+func TestNSISScriptUsesFinishLaunchCheckbox(t *testing.T) {
+	cfg := nsisConfig{Name: "听澜", Icon: "i.ico", Output: "o.exe", InstallDir: "d", Notice: "license.txt", Payload: filepath.FromSlash("/tmp/p"), Files: []string{"tinglan.exe"}}
+	script := nsisScript(cfg)
+	for _, want := range []string{
+		`!define MUI_FINISHPAGE_RUN "$INSTDIR\tinglan.exe"`,
+		`!define MUI_FINISHPAGE_RUN_TEXT "打开听澜"`,
+		`!insertmacro MUI_PAGE_LICENSE "license.txt"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("missing %q", want)
+		}
+	}
+}

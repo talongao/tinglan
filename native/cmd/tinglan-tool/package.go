@@ -317,7 +317,7 @@ func packageNSIS(root, output, payload string, stdout, stderr io.Writer) error {
 		Output:     artifact,
 		InstallDir: "$LOCALAPPDATA\\Programs\\Tinglan",
 		Version:    version,
-		Notice:     filepath.Join(payload, "NOTICE.txt"),
+		Notice:     license,
 		Payload:    payload,
 		Files:      []string{executableName("win32"), "LICENSE", "THIRD_PARTY_NOTICES.txt", "icon.LICENSE.txt", "NOTICE.txt", "SHA256SUMS"},
 	})
@@ -390,6 +390,8 @@ func nsisScript(cfg nsisConfig) string {
 		"!insertmacro MUI_PAGE_LICENSE \"" + nsisEscape(cfg.Notice) + "\"\n" +
 		"!insertmacro MUI_PAGE_DIRECTORY\n" +
 		"!insertmacro MUI_PAGE_INSTFILES\n" +
+		"!define MUI_FINISHPAGE_RUN \"$INSTDIR\\" + cfg.Files[0] + "\"\n" +
+		"!define MUI_FINISHPAGE_RUN_TEXT \"打开" + nsisEscape(cfg.Name) + "\"\n" +
 		"!insertmacro MUI_PAGE_FINISH\n" +
 		"!insertmacro MUI_UNPAGE_CONFIRM\n" +
 		"!insertmacro MUI_UNPAGE_INSTFILES\n" +
