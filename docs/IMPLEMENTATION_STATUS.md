@@ -390,3 +390,21 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   `TestManagerConsentIsRemembered`（跨重启保留、按 id 隔离）、`TestManagerUpdatesPluginWithSameID`。
 - 未验证：Windows 插件编译与安装（CI 需 mingw + 实机）、真实第三方插件作者环境、重复添加走 UI 的「已更新」提示
   （同 id 更新由单元测试覆盖）。
+
+### 2026-11-04：所有音源统一走插件协议
+
+- 删除进程内华为源：移除 `native/internal/sources/builtin`、`cmd/music` 的 dev fallback 与
+  interactive `SignIn` 兜底；`cmd/music` 只与 `source.Source` 契约交互，`internal/huawei`
+  仅服务 `cmd/huawei-source` 插件二进制。设置页音源行完全由插件管理器提供。
+- 插件错误码贯通：`internal/plugin/sdk` 的 `classifyFailure` 把 `*source.Error` 的 Kind
+  映射为 -32001..-32009（此前一律 -32010 → 前端只能显示「请检查网络」）；线上消息只带
+  `op: kind`，不带底层细节，避免把签名 URL / token 带进 UI 或日志。
+- 空快照保护：远端返回空列表而本地仍有成员时不再覆盖本地副本——
+  `runPlaylistUpdate` 报「平台返回空歌单，可能是登录已失效；本地副本已保留」，
+  收藏导入报「平台返回空收藏，可能是登录已失效；本地收藏已保留」。
+- 安装包内置官方插件（`stageBundledPlugins` + NSIS `File /r`/`RMDir /r`）、插件以
+  `-H=windowsgui` 构建、登录窗口按 DPI 缩放，见 run 41795343335 的 Windows 产物。
+- 验证（macOS 实机 + 离线）：`go build/vet/test ./...` 全绿、`tinglan-tool ui-check` 0 问题、
+  `out/native/Tinglan.app` 重建后仅由 `Contents/Resources/sources/huawei` 提供华为音源
+  （插件进程 `huawei-source` 在跑），收藏页 965 行正常。Windows 仅交叉编译与 CI 产物，
+  未实机验收；本轮未做真实账号写操作。

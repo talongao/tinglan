@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -623,6 +624,10 @@ func (m *model) updateImportedPlaylist(p librarydb.Playlist) {
 	m.runPlaylistUpdate(p)
 }
 
+// errRemoteEmpty marks a remote collection that came back empty while the local
+// copy still has members.
+var errRemoteEmpty = errors.New("remote collection returned no members")
+
 func (m *model) runPlaylistUpdate(p librarydb.Playlist) {
 	src, ok := m.registry.Source(music.SourceID(p.Source))
 	if !ok {
@@ -660,6 +665,13 @@ func (m *model) runPlaylistUpdate(p librarydb.Playlist) {
 			if page.Done() || len(page.Tracks) == 0 {
 				break
 			}
+		}
+		// A remote playlist that suddenly reports zero members is almost always
+		// an expired or wrong-account session, not a real empty list. Publishing
+		// it would erase the local copy, so keep the copy and report instead.
+		if len(ids) == 0 && p.TrackCount > 0 {
+			m.postSource(sourceResult{kind: "playlist-done", err: errRemoteEmpty, message: p.ID})
+			return
 		}
 		if err := m.local.ReplaceImportedMembers(ctx, p.ID, ids, remote.Name, remote.Description, remote.CoverURL); err != nil {
 			m.postSource(sourceResult{kind: "playlist-done", err: err, message: p.ID})

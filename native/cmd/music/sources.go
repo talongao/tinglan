@@ -21,7 +21,6 @@ import (
 	"tinglan/native/internal/playback"
 	"tinglan/native/internal/plugin"
 	"tinglan/native/internal/source"
-	"tinglan/native/internal/sources/builtin"
 	"tinglan/native/internal/storage"
 )
 
@@ -52,7 +51,6 @@ type sourceState struct {
 	jevError      string
 	jevTestStatus string
 	jevCache      *jev.ModelCache
-	devSource     builtin.Interactive
 	plugins       *plugin.Manager
 	pluginEntries []plugin.Entry
 	pluginBusy    bool
@@ -88,7 +86,6 @@ func (m *model) openLocalLibrary() {
 	m.local = library
 	m.registry = source.NewRegistry()
 	m.loadPlugins()
-	m.registerDevFallback()
 	m.seedLegacySession()
 	m.initResourceClient()
 	m.resolver = playback.New(m.registry)
@@ -101,31 +98,6 @@ func (m *model) openLocalLibrary() {
 	}
 	m.installLocalLibrary()
 	m.refreshPlaylists()
-}
-
-// registerDevFallback keeps `go run ./cmd/music` and the test suite usable when
-// the bundled plugin is absent. The shipped app always has the plugin, so this
-// adapter is never registered in a release build.
-// registerDevFallback keeps `go run` and the test binary usable without a
-// packaged plugin. A shipped app always carries the plugin, so silently
-// falling back to the in-process adapter there would hide a packaging bug and
-// put provider code back inside the shell.
-func (m *model) registerDevFallback() {
-	if m.registry == nil {
-		return
-	}
-	if _, ok := m.registry.Source(music.SourceHuawei); ok {
-		return
-	}
-	if os.Getenv("TINGLAN_DEV_SOURCE") != "1" {
-		if info, err := os.Stat(bundledPluginRoot()); err == nil && info.IsDir() {
-			return
-		}
-	}
-	fallback := builtin.Huawei(func() *source.Session { return m.session })
-	if err := m.registry.RegisterSource(fallback); err == nil {
-		m.devSource = fallback
-	}
 }
 
 func (m *model) installLocalLibrary() {
@@ -384,10 +356,22 @@ func (m *model) applySourceResults() {
 			}
 			m.importing = false
 			m.importCancel = nil
+			// Zero changes across every bucket means the platform returned an
+			// empty snapshot: keep the local library and say so instead of
+			// reporting a successful import of nothing.
+			if result.result.Added+result.result.Merged+result.result.Refreshed == 0 && len(m.tracks) > 0 {
+				m.importStatus = "平台返回空收藏，可能是登录已失效；本地收藏已保留"
+				m.notify("平台返回空收藏，请重新登录后再试")
+				continue
+			}
 			m.importStatus = fmt.Sprintf("%s 导入完成：新增 %d · 合并 %d · 更新 %d", sourceLabel(result.message), result.result.Added, result.result.Merged, result.result.Refreshed)
 			m.installLocalLibrary()
 			m.notify(fmt.Sprintf("%s 导入完成：新增 %d 首", sourceLabel(result.message), result.result.Added))
 		case "playlist-done":
+			if errors.Is(result.err, errRemoteEmpty) {
+				m.notify("平台返回空歌单，可能是登录已失效；本地副本已保留")
+				continue
+			}
 			if result.err != nil {
 				m.notify("歌单更新失败：" + friendlySourceError(result.err))
 				continue
@@ -536,6 +520,18 @@ func friendlySourceError(err error) string {
 			return "该音源不支持此操作"
 		case source.KindCanceled:
 			return "已取消"
+		case source.KindNetwork:
+			return "网络连接失败，请检查网络后重试"
+		case source.KindTransient:
+			return "音源暂时不可用，请稍后重试"
+		case source.KindNotFound:
+			return "平台上已找不到这首内容"
+		case source.KindProtocol:
+			return "音源返回了无法识别的数据"
+		case source.KindAuthRequired:
+			return "登录已失效，请重新登录"
+		case source.KindUnavailable:
+			return "音源当前不可用，请稍后重试"
 		}
 	}
 	return "请检查网络后重试"
@@ -704,10 +700,8 @@ func (m *model) trackAvailable(t music.Track) bool {
 
 // sourceLoginable reports whether a source can start an interactive login.
 func (m *model) sourceLoginable(id music.SourceID) bool {
-	if entry, ok := m.pluginEntry(id); ok {
-		return len(entry.LoginKinds()) > 0
-	}
-	return m.devSource != nil && id == music.SourceHuawei
+	entry, ok := m.pluginEntry(id)
+	return ok && len(entry.LoginKinds()) > 0
 }
 
 func (m *model) registrySource(id music.SourceID) (source.Source, bool) {

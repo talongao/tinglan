@@ -127,16 +127,6 @@ func (m *model) runSourceLogin(ctx context.Context) (*source.Session, error) {
 	if !ok {
 		return nil, fmt.Errorf("音源未初始化")
 	}
-	if interactive, ok := src.(interface {
-		SignIn(context.Context) (*source.Session, error)
-	}); ok && m.devSource != nil {
-		session, err := interactive.SignIn(ctx)
-		if err != nil {
-			return nil, err
-		}
-		m.loginSaved = m.store != nil && m.store.SaveSession(session) == nil
-		return session, nil
-	}
 	attempt := fmt.Sprintf("attempt-%d", time.Now().UnixNano())
 	result, err := src.Auth().Login(ctx, source.LoginRequest{Kind: source.LoginWebView, AttemptID: attempt})
 	if err != nil {

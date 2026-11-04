@@ -347,6 +347,27 @@ func (l *Library) Import(ctx context.Context, src source.Source, collection sour
 		}
 		cursor = page.Next
 	}
+	// An empty snapshot from a source that already contributed local tracks is
+	// far more likely an expired or wrong-account session than a user who
+	// really deleted everything. Publishing it would drop every binding for
+	// that source, so fail the run and keep the local library intact.
+	if len(fetched) == 0 {
+		l.mu.Lock()
+		local := 0
+		for _, track := range l.doc.Tracks {
+			for _, link := range track.Links {
+				if link.Source == src.ID() {
+					local++
+					break
+				}
+			}
+		}
+		l.mu.Unlock()
+		if local > 0 {
+			l.failRun(runID, importRecord.ID)
+			return result, source.NewError(src.ID(), "import", source.KindLogin, errors.New("empty snapshot from a source with local tracks"))
+		}
+	}
 	if err := l.db.SetRunState(ctx, runID, librarydb.RunReady, ""); err != nil {
 		return result, err
 	}

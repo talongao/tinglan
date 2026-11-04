@@ -11,6 +11,7 @@ import (
 	"github.com/vivaui/viva/ui"
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
+	"tinglan/native/internal/source/sourcetest"
 )
 
 func TestSpaceShortcutAndTextEntry(t *testing.T) {
@@ -121,6 +122,10 @@ func TestSourceSettingsTab(t *testing.T) {
 	m.enableDemo(2)
 	openProfileForTest(t, m, t.TempDir())
 	m.openLocalLibrary()
+	fake := &sourcetest.Fake{SourceID: music.SourceHuawei}
+	if err := m.registry.RegisterSource(fake); err != nil {
+		t.Fatalf("register source: %v", err)
+	}
 	var canvas ui.Canvas
 	d, err := app.NewDriver(config(m), &canvas)
 	if err != nil {

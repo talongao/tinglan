@@ -149,6 +149,48 @@ func (p *Plugin) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 }
 
+// classifyFailure keeps the classified source error kind on the wire. Without
+// this the host only sees -32010 and shows every failure as "check your
+// network", even when the real cause is an expired session.
+func classifyFailure(err error) (int, string) {
+	var rpcErr *wire.Error
+	if errors.As(err, &rpcErr) {
+		return rpcErr.Code, rpcErr.Message
+	}
+	var sourceErr *source.Error
+	if errors.As(err, &sourceErr) {
+		code := -32010
+		switch sourceErr.Kind {
+		case source.KindLogin:
+			code = -32001
+		case source.KindNotFound:
+			code = -32002
+		case source.KindRateLimit:
+			code = -32003
+		case source.KindUnsupported:
+			code = -32004
+		case source.KindNetwork:
+			code = -32005
+		case source.KindPermission:
+			code = -32006
+		case source.KindTransient:
+			code = -32007
+		case source.KindProtocol:
+			code = -32008
+		case source.KindCanceled:
+			code = -32009
+		}
+		message := string(sourceErr.Kind)
+		if sourceErr.Op != "" {
+			message = sourceErr.Op + ": " + message
+		}
+		// The underlying error can carry signed URLs or tokens, so only the
+		// classified kind travels over the wire; plugins log details locally.
+		return code, message
+	}
+	return -32010, err.Error()
+}
+
 func (p *Plugin) handle(ctx context.Context, c *conn, host *Host, msg wire.Message) {
 	id := msg.IDString()
 	ctx, cancel := context.WithCancel(ctx)
@@ -158,12 +200,8 @@ func (p *Plugin) handle(ctx context.Context, c *conn, host *Host, msg wire.Messa
 
 	result, err := p.dispatch(ctx, host, msg.Method, msg.Params)
 	if err != nil {
-		code := -32010
-		var rpcErr *wire.Error
-		if errors.As(err, &rpcErr) {
-			code = rpcErr.Code
-		}
-		_ = c.respondError(id, code, err.Error())
+		code, message := classifyFailure(err)
+		_ = c.respondError(id, code, message)
 		return
 	}
 	if result == nil {
