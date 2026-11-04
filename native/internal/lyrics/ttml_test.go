@@ -87,6 +87,46 @@ func TestParseTTMLRoles(t *testing.T) {
 	}
 }
 
+func TestParseTTMLAcceptsAppleRolePrefix(t *testing.T) {
+	doc := `<tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+		<p begin="0s" end="2.6s">
+			<span begin="0s" end="0.3s">晴</span>
+			<span begin="0.3s" end="0.6s">天</span>
+			<span ttm:role="x-translation" begin="0s" end="2.6s">Sunny Day</span>
+		</p>
+	</div></body></tt>`
+	lines, err := ParseTTML(doc)
+	if err != nil {
+		t.Fatalf("ParseTTML: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("lines = %+v", lines)
+	}
+	if lines[0].Text != "晴天" || lines[0].Translation != "Sunny Day" {
+		t.Fatalf("line = %+v", lines[0])
+	}
+	if len(lines[0].Words) != 2 || lines[0].Words[1].Time != 0.3 {
+		t.Fatalf("words = %+v", lines[0].Words)
+	}
+}
+
+func TestParseTTMLKeepsWordTimesInsideParent(t *testing.T) {
+	doc := `<tt><body><div><p begin="10s" dur="4s"><span begin="1s" dur="0.5s">a</span><span begin="9s" dur="3s">b</span></p></div></body></tt>`
+	lines, err := ParseTTML(doc)
+	if err != nil {
+		t.Fatalf("ParseTTML: %v", err)
+	}
+	if len(lines) != 1 || len(lines[0].Words) != 2 {
+		t.Fatalf("lines = %+v", lines)
+	}
+	if got := lines[0].Words[1].Time; got != 14 {
+		t.Fatalf("clamped word start = %v, want 14", got)
+	}
+	if got := lines[0].Words[1].Time; got > lines[0].Words[1].Time {
+		t.Fatalf("word starts after it ends: %+v", lines[0].Words[1])
+	}
+}
+
 func TestParseTTMLRejectsSeqTiming(t *testing.T) {
 	doc := `<tt xmlns="http://www.w3.org/ns/ttml"><body><div timeContainer="seq"><p begin="0s">x</p></div></body></tt>`
 	if _, err := ParseTTML(doc); !errors.Is(err, ErrTTMLSeqTiming) {

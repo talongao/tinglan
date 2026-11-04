@@ -225,7 +225,9 @@ Next 非空表示下一页，空表示遍历结束；Partial 表示不完整；R
 **歌词格式：** 返回行数组 `[{time,text,translation?,romanization?,words?}]`，`time` 为行开始秒数（浮点，相对音频开头）；
 `words` 为可选的逐字数组 `[{time,text}]`，`time` 同样是绝对秒数而非行内偏移。这是宿主与所有音源共享的唯一种逐字格式，
 插件自行解析平台文档（华为 `.hmrc`、TTML、增强 LRC 等）后必须转换到该结构，宿主不解析任何平台私有歌词格式。
-没有歌词返回 `[]`，不要用错误表达"这首没词"。SDK 的 `source.lyrics.get` 已修正为从 `{ref:{...}}` 拆包（并兼容裸 TrackRef）；
+没有歌词返回 `[]`，不要用错误表达"这首没词"。平台若是 TTML（Apple 风格）或其他私有格式，
+由插件自行解析成上述结构；`docs/PLUGIN_GUIDE.md` §6.8.1 给出了 TTML 的元素对应、时间容器规则与示例，
+宿主不解析任何平台格式。SDK 的 `source.lyrics.get` 已修正为从 `{ref:{...}}` 拆包（并兼容裸 TrackRef）；
 `lyricText`/`lyricUrl` 是播放结果里的旧通道，保留兼容，但逐字只有走本方法才能被渲染。
 
 ## 9. 错误与超时

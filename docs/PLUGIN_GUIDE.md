@@ -521,6 +521,70 @@ descriptor 只在 `initialize` 返回一次；没有单独的 describe 方法。
 - 没有歌词返回 `[]`，不要返回错误；只有平台明确拒绝（未登录、区域限制）才返回错误码。
 - 宿主会按曲库行缓存这份结果，同一首歌切换音源时复用，所以逐字时间要尽量与音频开头对齐。
 
+#### 6.8.1 若平台的歌词是 TTML
+
+有些平台（Apple 系风格）直接给 TTML，插件自己解析即可，宿主不需要也不要求 TTML。
+转换时按下面的规则做，结果才和本机 `.ttml` 导入、其他平台逐字歌词一致。
+
+**元素对应**
+
+| TTML | 含义 | 转成 |
+| --- | --- | --- |
+| `<p>` | 一行 | 一项 `Line` |
+| `<span>` | 一个字/词 | 一项 `Word` |
+| `begin` / `end` / `dur` | 时间 | 秒；`hh:mm:ss.mmm`、`mm:ss.mmm`、`12.5s`、`500ms` 都接受 |
+| `ttm:role="x-translation"` | 整行译文 | `Line.translation` |
+| `ttm:role="x-transcription"` | 音译 | `Line.romanization` |
+| `timeContainer="seq"` | 顺序时间容器 | 不支持，返回 `[]` 或自行累加后转成绝对时间 |
+
+**时间怎么算**
+
+- `span` 的时间可能相对它所在的 `<p>`（或更外层容器）：标准 TTML 里 `<p begin="10s" dur="4s">`
+  内 `<span begin="1s" dur="0.5s">` 是 **11.0s** 开始，不是 1.0s。Apple Music 导出的文件则直接写
+  绝对时间；判断办法是「子元素起点早于父容器起点 → 一定相对，需要加上父起点」，其余原样保留。
+- 子元素的开始与结束都要落在父容器区间内：晚于父结束的开始时间按父结束算，结束时间同样裁到父结束。
+- `<p>` 内的缩进/换行不会进入歌词文本，跨行写 `<span>` 不影响结果；行内的单个空格会保留。
+- 缺 `end`/`dur` 时，用同一容器里的下一个 `begin` 作为结束；不要在跨容器时借用。
+- 输出必须是**绝对时间**（从音频开头算），单位秒。
+
+**示例**
+
+```xml
+<tt xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:tts="http://www.w3.org/ns/ttml#styling">
+  <body>
+    <div>
+      <p begin="0s" end="2.6s">
+        <span begin="0s" end="0.3s">晴</span>
+        <span begin="0.3s" end="0.6s">天</span>
+        <span ttm:role="x-translation" begin="0s" end="2.6s">Sunny Day</span>
+      </p>
+    </div>
+  </body>
+</tt>
+```
+
+```json
+[
+  {
+    "time": 0,
+    "text": "晴天",
+    "translation": "Sunny Day",
+    "words": [
+      { "time": 0, "text": "晴" },
+      { "time": 0.3, "text": "天" }
+    ]
+  }
+]
+```
+
+**注意事项**
+
+- 译文/音译是行的属性，不要混进 `words`；同一行有多个译文时用换行拼接。
+- 行文本要和 `words` 拼出来的字一致，宿主用行文本排版、用 `words` 决定高亮位置，两者不一致就会错位。
+- 文档上限 512 KiB；超过就当没有歌词返回 `[]`，不要返回超大 JSON。
+- 宿主自带的 TTML 解析器（`native/internal/lyrics/ttml.go`）只用于本机 `.ttml` 文件导入，
+  不会处理插件返回的内容——插件返回的必须是上面这种 `Line` 数组。
+
 ### 6.9 manage（兼容）
 
 当前壳不主动向平台写数据，以下方法可不实现：

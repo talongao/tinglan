@@ -147,7 +147,8 @@ func ParseTTML(raw string) ([]Line, error) {
 					}
 					text = strings.TrimSpace(text)
 					if text != "" {
-						pending.addWord(ttmlWord{start: begin, end: endOf(begin, dur, parent), text: text})
+						start, end := clampSpan(begin, endOf(begin, dur, parent), parent)
+						pending.addWord(ttmlWord{start: start, end: end, text: text})
 					}
 					continue
 				}
@@ -219,8 +220,13 @@ type ttmlLine struct {
 }
 
 func (l *ttmlLine) addText(text string) {
-	if strings.TrimSpace(text) == "" && l.body.Len() == 0 {
-		return
+	if strings.TrimSpace(text) == "" {
+		// Indentation between spans must not leak into the sung text; a single
+		// space inside a line still separates Latin words.
+		if strings.ContainsAny(text, "\n\r") || l.body.Len() == 0 {
+			return
+		}
+		text = " "
 	}
 	l.body.WriteString(text)
 	if len(l.words) > 0 || l.wordBuf.Len() > 0 {
@@ -317,6 +323,24 @@ func currentRole(stack []ttmlContainer) string {
 	return ""
 }
 
+// clampSpan keeps word times inside the enclosing time container so malformed
+// documents cannot produce a word that starts after it ends.
+func clampSpan(begin, end, parentEnd float64) (float64, float64) {
+	if parentEnd <= 0 {
+		return begin, end
+	}
+	if begin > parentEnd {
+		begin = parentEnd
+	}
+	if end < begin {
+		end = begin
+	}
+	if end > parentEnd {
+		end = parentEnd
+	}
+	return begin, end
+}
+
 func endOf(begin, dur, parentEnd float64) float64 {
 	end := begin + dur
 	if dur <= 0 {
@@ -394,6 +418,8 @@ func ttmlRole(attrs []xml.Attr) string {
 			if idx := strings.Index(value, ":"); idx >= 0 {
 				value = value[idx+1:]
 			}
+			// Apple writes x-translation / x-transcription; accept both.
+			value = strings.TrimPrefix(value, "x-")
 			switch value {
 			case "translation", "transcription", "romanization":
 				return value
