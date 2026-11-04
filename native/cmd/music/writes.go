@@ -244,7 +244,10 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 			detail += "\n" + entry.Dir
 		}
 		m.text(c, detail, rect(b.X+24, b.Y+60, 410, 40), 11, 400, m.muted())
-		m.text(c, "外置音源是第三方程序，以你的用户权限运行。启用前请确认来源可信；它会申请自己的登录会话，本机曲库与其它音源的绑定不会共享给它。", rect(b.X+24, b.Y+96, 410, 70), 12, 400, m.secondary())
+		if summary := capabilitySummary(entry.Descriptor.Capabilities); summary != "" {
+			m.text(c, "能力："+summary, rect(b.X+24, b.Y+96, 410, 20), 11, 400, m.muted())
+		}
+		m.text(c, "外置音源是第三方程序，以你的用户权限运行。启用前请确认来源可信；它会申请自己的登录会话，本机曲库与其它音源的绑定不会共享给它。", rect(b.X+24, b.Y+120, 410, 70), 12, 400, m.secondary())
 	} else if m.dialog == "delete" {
 		m.text(c, "删除后无法撤销。仅删除当前选中的自建歌单。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
 	} else if m.dialog == "delete-local" {

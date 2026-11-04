@@ -1097,6 +1097,31 @@ func (m *model) pluginEntry(id music.SourceID) (plugin.Entry, bool) {
 	return plugin.Entry{}, false
 }
 
+// capabilitySummary renders the capabilities a plugin reported during the
+// handshake so the consent dialog can say what the plugin actually does.
+func capabilitySummary(caps source.Capabilities) string {
+	var parts []string
+	if caps.Search {
+		parts = append(parts, "搜索")
+	}
+	if caps.Playlist {
+		parts = append(parts, "歌单")
+	}
+	if caps.Resolve {
+		parts = append(parts, "播放解析")
+	}
+	if caps.Lyrics {
+		parts = append(parts, "歌词")
+	}
+	if caps.Import {
+		parts = append(parts, "导入")
+	}
+	if len(caps.LoginKinds) > 0 {
+		parts = append(parts, "登录")
+	}
+	return strings.Join(parts, " · ")
+}
+
 // askEnablePlugin opens the consent dialog. Enabling a plugin is an explicit
 // user decision because the process runs with the user's privileges.
 func (m *model) askEnablePlugin(id music.SourceID) {
