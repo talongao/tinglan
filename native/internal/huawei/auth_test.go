@@ -130,7 +130,7 @@ func TestExchangeAndValidation(t *testing.T) {
 			}
 			return response(`{"result":{"resultCode":"000000"},"token":"private-music-token","snsUserID":"synthetic-user","expireTime":"20261101000000"}`, 200), nil
 		case 3:
-			if !strings.Contains(string(body), `"targetSnsUserID":"synthetic-user"`) || !strings.Contains(r.Header.Get("Authorization"), "token=private-music-token") {
+			if strings.Contains(string(body), "targetSnsUserID") || !strings.Contains(r.Header.Get("Authorization"), "token=private-music-token") {
 				t.Fatal("incorrect validation request")
 			}
 			return response(`{"result":{"resultCode":"000000"},"favoriteInfos":[]}`, 200), nil
