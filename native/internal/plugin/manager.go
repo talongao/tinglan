@@ -248,24 +248,18 @@ func (m *Manager) find(id music.SourceID) (Entry, bool) {
 
 func (m *Manager) start(ctx context.Context, entry Entry) (*Plugin, error) {
 	manifest := entry.Manifest
-	relative, ok := manifest.EntryPath()
+	spec, ok := manifest.EntryFor()
 	if !ok {
 		return nil, fmt.Errorf("插件 %s 不支持当前平台（%s）", entry.ID(), PlatformKey())
 	}
-	binary, err := secureJoin(entry.Dir, relative)
+	command, args, err := entryCommand(entry.Dir, spec)
 	if err != nil {
 		return nil, err
-	}
-	if binary, err = filepath.Abs(binary); err != nil {
-		return nil, err
-	}
-	if info, err := os.Stat(binary); err != nil || info.IsDir() {
-		return nil, fmt.Errorf("插件入口不存在：%s", relative)
 	}
 	host := NewHost(entry.ID(), m.store, m.logger)
-	proc, err := StartProcess(ctx, entry.Dir, binary, nil, nil, host)
+	proc, err := StartProcess(ctx, entry.Dir, command, args, specEnv(spec), host)
 	if err != nil {
-		return nil, fmt.Errorf("启动插件失败：%w", err)
+		return nil, fmt.Errorf("启动插件失败（%s）：%w", command, err)
 	}
 	plugin, err := NewPlugin(ctx, manifest, entry.ID(), proc, host)
 	if err != nil {
@@ -395,16 +389,16 @@ func (m *Manager) Probe(ctx context.Context, dir string) (source.Descriptor, err
 	if err != nil {
 		return source.Descriptor{}, err
 	}
-	relative, ok := manifest.EntryPath()
+	spec, ok := manifest.EntryFor()
 	if !ok {
 		return source.Descriptor{}, fmt.Errorf("插件不支持当前平台（%s）", PlatformKey())
 	}
-	binary, err := secureJoin(dir, relative)
+	command, args, err := entryCommand(dir, spec)
 	if err != nil {
 		return source.Descriptor{}, err
 	}
 	host := NewHost("", m.store, m.logger)
-	proc, err := StartProcess(ctx, dir, binary, nil, nil, host)
+	proc, err := StartProcess(ctx, dir, command, args, specEnv(spec), host)
 	if err != nil {
 		return source.Descriptor{}, fmt.Errorf("启动插件失败：%w", err)
 	}
@@ -618,4 +612,56 @@ func pluginDigest(dir string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// entryCommand turns a manifest entry into an executable command. Plain string
+// entries are resolved inside the plugin directory; object entries name an
+// interpreter (looked up on PATH) plus arguments, MCP style.
+func entryCommand(dir string, spec EntrySpec) (string, []string, error) {
+	if !spec.Interpreter() {
+		binary, err := secureJoin(dir, spec.Command)
+		if err != nil {
+			return "", nil, err
+		}
+		info, err := os.Stat(binary)
+		if err != nil || info.IsDir() {
+			return "", nil, fmt.Errorf("插件入口不存在：%s", spec.Command)
+		}
+		if info.Mode()&0o111 == 0 {
+			return "", nil, fmt.Errorf("插件入口没有执行权限：%s（脚本类插件请用 command/args 指定解释器）", spec.Command)
+		}
+		return binary, nil, nil
+	}
+	command := spec.Command
+	if !filepath.IsAbs(command) && strings.ContainsRune(command, filepath.Separator) {
+		resolved, err := secureJoin(dir, command)
+		if err != nil {
+			return "", nil, err
+		}
+		command = resolved
+	}
+	args := make([]string, 0, len(spec.Args))
+	for _, arg := range spec.Args {
+		if !filepath.IsAbs(arg) {
+			if resolved, err := secureJoin(dir, arg); err == nil {
+				if _, statErr := os.Stat(resolved); statErr == nil {
+					arg = resolved
+				}
+			}
+		}
+		args = append(args, arg)
+	}
+	return command, args, nil
+}
+
+func specEnv(spec EntrySpec) []string {
+	if len(spec.Env) == 0 {
+		return nil
+	}
+	env := make([]string, 0, len(spec.Env))
+	for key, value := range spec.Env {
+		env = append(env, key+"="+value)
+	}
+	sort.Strings(env)
+	return env
 }

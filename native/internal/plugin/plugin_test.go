@@ -136,7 +136,7 @@ func writeFakePlugin(t *testing.T, root string) Manifest {
 	manifest := Manifest{
 		SchemaVersion: 1,
 		ID:            "fake",
-		Entry:         map[string]string{PlatformKey(): "bin/plugin"},
+		Entry:         map[string]EntrySpec{PlatformKey(): {Command: "bin/plugin"}},
 	}
 	raw, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -421,4 +421,46 @@ func TestManagerRejectsDuplicateInstall(t *testing.T) {
 	if second.ID() != first.ID() {
 		t.Fatalf("duplicate returned %q, want %q", second.ID(), first.ID())
 	}
+}
+
+func TestManagerLaunchesInterpreterEntry(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "fake")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := Manifest{
+		SchemaVersion: 1,
+		ID:            "fake",
+		Entry: map[string]EntrySpec{"any": {
+			Command: "/bin/sh",
+			Args:    []string{"-c", "TINGLAN_TEST_PLUGIN=1 exec " + exe},
+		}},
+	}
+	raw, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ManifestFile), raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(root, storage.New(t.TempDir()), nil)
+	registry := source.NewRegistry()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := manager.Enable(ctx, registry, "fake"); err != nil {
+		t.Fatalf("enable interpreter entry: %v", err)
+	}
+	src, ok := registry.Source("fake")
+	if !ok {
+		t.Fatal("source not registered")
+	}
+	if desc := src.Describe(); desc.Name == "" {
+		t.Fatalf("descriptor = %+v", desc)
+	}
+	manager.Disable(registry, "fake")
 }

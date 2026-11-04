@@ -323,3 +323,13 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 - 门禁：`go build/vet/test ./...`、`tinglan-tool ui-check`（0 问题）、Windows `CGO_ENABLED=0` 交叉编译通过；
   macOS 实机验证导入、分配 ID、启用/停用与登录按钮出现。
 - 未验证：Windows 实机、导入插件的图标资源（当前回退 shortName 文本）。
+
+## 2026-11-04：插件入口支持 MCP 式 command/args/env
+
+- `source.json` 的 `entry` 现在接受字符串（插件目录内可执行文件）或对象 `{command,args,env}`，
+  并支持 `any` 作为跨平台回退键；协议本身无变化。
+- 字符串形式的入口会校验执行权限；对象形式按 PATH/绝对路径启动，相对 `args` 在插件目录内解析，
+  绝对或含 `..` 的 `args` 拒绝。
+- 内置华为源与示例插件仍用二进制；脚本类第三方插件（如 `node main.mjs`、`uv run main.py`）
+  需要用户自备运行时，启动失败会在错误里带上 command 与 stderr 首行。
+- 新增 `TestManagerLaunchesInterpreterEntry`：用 `/bin/sh -c` 启动插件并完成握手、注册。

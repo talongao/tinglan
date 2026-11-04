@@ -20,8 +20,8 @@ import (
 // initialize handshake, then caches them in descriptor.json so a disabled
 // plugin still renders in settings.
 type Manifest struct {
-	SchemaVersion int               `json:"schemaVersion"`
-	Entry         map[string]string `json:"entry"`
+	SchemaVersion int                  `json:"schemaVersion"`
+	Entry         map[string]EntrySpec `json:"entry"`
 	// ID is only honoured for plugins shipped inside the app bundle, where the
 	// identity must stay stable across upgrades. Imported plugins get an id
 	// assigned by the host, so user-supplied manifests cannot collide.
@@ -30,6 +30,42 @@ type Manifest struct {
 	// Digest fingerprints the files copied at install time so importing the
 	// same plugin twice is detected before anything is written.
 	Digest string `json:"digest,omitempty"`
+}
+
+// EntrySpec describes how to launch a plugin on one platform. It accepts both
+// the MCP-style object form and the legacy plain string form:
+//
+//	"darwin-arm64": "bin/huawei-source"
+//	"any":          {"command": "node", "args": ["main.mjs"]}
+//
+// When Args is empty and Command is relative, the command is resolved inside
+// the plugin directory. With Args set, Command is looked up on PATH (or used
+// as-is when absolute) and relative args that exist inside the plugin
+// directory are resolved there.
+type EntrySpec struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+// Interpreter reports whether the entry launches a separate runtime.
+func (e EntrySpec) Interpreter() bool { return len(e.Args) > 0 }
+
+func (e *EntrySpec) UnmarshalJSON(raw []byte) error {
+	var command string
+	if err := json.Unmarshal(raw, &command); err == nil {
+		e.Command = command
+		e.Args = nil
+		e.Env = nil
+		return nil
+	}
+	type plain EntrySpec
+	var spec plain
+	if err := json.Unmarshal(raw, &spec); err != nil {
+		return fmt.Errorf("entry: %w", err)
+	}
+	*e = EntrySpec(spec)
+	return nil
 }
 
 // DescriptorFile is the host-written cache of the plugin descriptor.
@@ -65,9 +101,20 @@ func (m Manifest) Validate() error {
 	if len(m.Entry) == 0 {
 		return errors.New("missing entry")
 	}
-	for _, path := range m.Entry {
-		if !insideDir(path) {
-			return fmt.Errorf("entry %q escapes the plugin directory", path)
+	for _, spec := range m.Entry {
+		if strings.TrimSpace(spec.Command) == "" {
+			return errors.New("entry command is empty")
+		}
+		if !spec.Interpreter() && !insideDir(spec.Command) {
+			return fmt.Errorf("entry %q escapes the plugin directory", spec.Command)
+		}
+		for _, arg := range spec.Args {
+			if filepath.IsAbs(arg) {
+				return fmt.Errorf("entry arg %q must be relative", arg)
+			}
+			if strings.Contains(arg, "..") {
+				return fmt.Errorf("entry arg %q escapes the plugin directory", arg)
+			}
 		}
 	}
 	return nil
@@ -103,12 +150,14 @@ func SaveDescriptor(dir string, descriptor source.Descriptor) error {
 
 // EntryPath resolves the executable for the current platform. macOS arm64 and
 // amd64 map to darwin-arm64/darwin-x64; Windows uses windows-x64.
-func (m Manifest) EntryPath() (string, bool) {
-	path, ok := m.Entry[PlatformKey()]
-	if !ok {
-		return "", false
+// EntryFor returns the launch spec for the current platform, falling back to
+// a platform-independent "any" entry.
+func (m Manifest) EntryFor() (EntrySpec, bool) {
+	if spec, ok := m.Entry[PlatformKey()]; ok {
+		return spec, true
 	}
-	return path, true
+	spec, ok := m.Entry["any"]
+	return spec, ok
 }
 
 // PlatformKey is the manifest entry key for the running host.
