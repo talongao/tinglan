@@ -56,6 +56,8 @@ type sourceState struct {
 	plugins       *plugin.Manager
 	pluginEntries []plugin.Entry
 	pluginBusy    bool
+	pluginPicking bool
+	pluginPickAt  time.Time
 
 	jevModelField    flex.Field
 	jevEndpointField flex.Field
@@ -893,7 +895,18 @@ func (m *model) loadPlugins() {
 
 // choosePluginFolder asks the system picker for a plugin directory and installs it.
 func (m *model) choosePluginFolder() {
+	// The native modal runs inside the click handler and keeps pumping click
+	// events; a second click can arrive while it is open, so guard re-entry.
+	if m.pluginPicking {
+		return
+	}
+	if !m.pluginPickAt.IsZero() && time.Since(m.pluginPickAt) < 500*time.Millisecond {
+		return
+	}
+	m.pluginPicking = true
 	path, err := app.OpenDirectory(app.OpenDirectoryOptions{Title: "选择外置音源目录"})
+	m.pluginPicking = false
+	m.pluginPickAt = time.Now()
 	if errors.Is(err, app.ErrCanceled) || (err == nil && strings.TrimSpace(path) == "") {
 		return
 	}
