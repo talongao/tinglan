@@ -484,6 +484,9 @@ func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, bool, erro
 	if string(desc.ID) != id {
 		return Entry{}, false, fmt.Errorf("插件自报 id %q 与 source.json 的 %q 不一致", desc.ID, id)
 	}
+	if err := os.MkdirAll(m.Root(), 0o700); err != nil {
+		return Entry{}, false, fmt.Errorf("创建插件目录失败（%s）：%w", m.Root(), err)
+	}
 	dest := filepath.Join(m.Root(), id)
 	previous, existed := m.entry(id)
 	updated := existed

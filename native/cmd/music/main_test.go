@@ -6,7 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
+	"tinglan/native/internal/source/sourcetest"
 )
 
 func TestFailedAndStaleLoginPreserveCurrentSession(t *testing.T) {
@@ -60,9 +62,20 @@ func TestCancelDoesNotExchangeOrReplaceSession(t *testing.T) {
 	m.close()
 }
 
-func TestFreshInstallRestorationIsNotInteractiveLogin(t *testing.T) {
+func TestFreshInstallSkipsSessionRestoration(t *testing.T) {
 	m := newModel()
 	openProfileForTest(t, m, t.TempDir())
+	m.restoreSession()
+	if m.restoring || m.busy || m.session != nil {
+		t.Fatal("restore ran even though no source is installed")
+	}
+	m.close()
+}
+
+func TestRestorationSettlesLoggedOutWithoutSourceSession(t *testing.T) {
+	m := newModel()
+	openProfileForTest(t, m, t.TempDir())
+	m.registry.RegisterSource(&sourcetest.Fake{SourceID: music.SourceHuawei})
 	m.restoreSession()
 	if m.busy || !m.restoring {
 		t.Fatal("restore incorrectly displays cancel login")

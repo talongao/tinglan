@@ -62,6 +62,11 @@ func (m *model) restoreSession() {
 	if m.demo || m.store == nil {
 		return
 	}
+	// No installed source means there is nothing to sign in to: skip the
+	// restore probe entirely instead of showing a login prompt.
+	if m.registry == nil || len(m.registry.SourceList()) == 0 {
+		return
+	}
 	m.restoring = true
 	m.setStatus("正在恢复登录状态…")
 	generation := m.generation
