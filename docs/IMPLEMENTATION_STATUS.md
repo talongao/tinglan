@@ -431,3 +431,12 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   0 问题、`mac-app` 重建后 `Contents/Resources` 无 `sources/` 且启动后无插件进程；
   Windows 仅 `CGO_ENABLED=0` 交叉编译（`cmd/music`、`cmd/huawei-source`）通过，待 CI 与实机。
   本轮未做真实账号写操作。
+
+### 2026-11-04：卸载删除用户数据、插件安装错误分步提示
+
+- Windows 卸载脚本新增 `RMDir /r "$APPDATA\tinglan"` 与
+  `RMDir /r "$APPDATA\huawei-music-desktop"`：卸载时连同本地曲库、音源、登录状态一起删除
+  （由 `TestNSISScriptCoversInstallAndUninstall` 断言）。这是破坏性的；升级安装不会触发。
+- 插件安装失败改为分步说明：`读取插件目录失败`/`探测插件失败`/`复制插件文件失败`/
+  `替换旧插件目录失败`/`安装插件到 … 失败`/`安装后无法启动插件`；入口路径缺失时带上
+  `插件入口不可用：<路径>`，不再只抛 `GetFileAttributesEx …` 这类系统错误。

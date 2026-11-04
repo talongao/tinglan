@@ -30,6 +30,8 @@ func TestNSISScriptCoversInstallAndUninstall(t *testing.T) {
 		`CreateShortcut "$SMPROGRAMS\Tinglan\听澜.lnk" "$INSTDIR\tinglan.exe"`,
 		`WriteRegStr HKCU "Software\HuaweiMusicViva" "InstallDir" "$INSTDIR"`,
 		`Delete "$INSTDIR\LICENSE"`,
+		`RMDir /r "$APPDATA\tinglan"`,
+		`RMDir /r "$APPDATA\huawei-music-desktop"`,
 		`RMDir "$INSTDIR"`,
 		`!insertmacro MUI_LANGUAGE "SimpChinese"`,
 	}

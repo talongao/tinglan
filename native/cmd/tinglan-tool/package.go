@@ -418,6 +418,8 @@ func nsisScript(cfg nsisConfig) string {
 		" Delete \"" + shortcut + "\"\n" +
 		" Delete \"$SMPROGRAMS\\Tinglan\\Uninstall.lnk\"\n" +
 		" RMDir \"$SMPROGRAMS\\Tinglan\"\n" +
+		" RMDir /r \"$APPDATA\\tinglan\"\n" +
+		" RMDir /r \"$APPDATA\\huawei-music-desktop\"\n" +
 		" RMDir \"$INSTDIR\"\n" +
 		" DeleteRegKey HKCU \"Software\\HuaweiMusicViva\"\n" +
 		" DeleteRegKey HKCU \"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HuaweiMusicViva\"\n" +

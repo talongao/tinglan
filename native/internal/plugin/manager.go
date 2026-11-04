@@ -470,7 +470,7 @@ func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, bool, erro
 	}
 	info, err := os.Stat(srcDir)
 	if err != nil || !info.IsDir() {
-		return Entry{}, false, errors.New("不是有效的插件目录")
+		return Entry{}, false, fmt.Errorf("读取插件目录失败（%s）：%w", srcDir, err)
 	}
 	manifest, err := LoadManifest(srcDir)
 	if err != nil {
@@ -478,7 +478,7 @@ func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, bool, erro
 	}
 	desc, err := m.Probe(ctx, srcDir)
 	if err != nil {
-		return Entry{}, false, err
+		return Entry{}, false, fmt.Errorf("探测插件失败：%w", err)
 	}
 	id := manifest.ID
 	if string(desc.ID) != id {
@@ -496,17 +496,22 @@ func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, bool, erro
 	}
 	defer os.RemoveAll(tmp)
 	if err := copyPluginTree(srcDir, tmp); err != nil {
-		return Entry{}, false, err
+		return Entry{}, false, fmt.Errorf("复制插件文件失败：%w", err)
 	}
 	cached := descriptorRecord(id, desc)
 	if err := SaveDescriptor(tmp, cached); err != nil {
-		return Entry{}, false, err
+		return Entry{}, false, fmt.Errorf("写入插件描述失败：%w", err)
 	}
 	if err := os.RemoveAll(dest); err != nil {
-		return Entry{}, false, err
+		return Entry{}, false, fmt.Errorf("替换旧插件目录失败（%s）：%w", dest, err)
 	}
 	if err := os.Rename(tmp, dest); err != nil {
-		return Entry{}, false, err
+		return Entry{}, false, fmt.Errorf("安装插件到 %s 失败：%w", dest, err)
+	}
+	if spec, ok := manifest.EntryFor(); ok {
+		if _, _, err := entryCommand(dest, spec); err != nil {
+			return Entry{}, false, fmt.Errorf("安装后无法启动插件：%w", err)
+		}
 	}
 	enabled := existed && previous.Enabled
 	return Entry{Manifest: manifest, Descriptor: cached, Dir: dest, Enabled: enabled}, updated, nil
@@ -615,7 +620,7 @@ func entryCommand(dir string, spec EntrySpec) (string, []string, error) {
 	if !spec.Interpreter() {
 		binary, err := secureJoin(dir, spec.Command)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("插件入口不可用：%s（%w）", spec.Command, err)
 		}
 		info, err := os.Stat(binary)
 		if err != nil || info.IsDir() {
@@ -636,7 +641,7 @@ func entryCommand(dir string, spec EntrySpec) (string, []string, error) {
 	if !filepath.IsAbs(command) && strings.ContainsRune(command, filepath.Separator) {
 		resolved, err := secureJoin(dir, command)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("插件入口不可用：%s（%w）", command, err)
 		}
 		command = resolved
 	}
