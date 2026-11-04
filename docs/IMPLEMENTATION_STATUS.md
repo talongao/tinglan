@@ -312,16 +312,16 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
 
 ## 2026-11-04：插件清单元数据精简与导入流程
 
-- 插件 `source.json` 收敛为「怎么启动」：`schemaVersion`、按平台的 `entry`，内置插件额外带 `id` 与 `builtin`。
-  能力、名称、图标、资源域改由插件 `initialize` 自报，宿主缓存到 `descriptor.json`，停用时设置页仍可展示。
-- 新增「音源 → 导入插件」：打开系统目录选择器（无需手填路径）；对目录做内容摘要，重复导入直接提示并复用
-  已有条目；首次导入时宿主启动一次读取描述符，按名称分配 `slug-随机 ID`，
-  复制到 `<数据目录>/sources/<id>/` 并重写清单 id；同名插件不会冲突，插件也无法改名冒充其它源。
-  握手新增 `assignedId`，SDK 用它覆盖描述符 id。
+- 插件 `source.json` 收敛为「身份 + 怎么启动」：`schemaVersion`、作者维护的稳定 `id`、可选 `version`、按平台的 `entry`，
+  内置插件额外带 `builtin`。能力、名称、图标、资源域仍由插件 `initialize` 自报并缓存到 `descriptor.json`。
+  缺 `id` 或 `descriptor.id` 与清单不一致会拒绝导入。
+- 新增「音源 → 导入插件」：打开系统目录选择器（无需手填路径）；宿主按清单 `id` 探测并复制到
+  `<数据目录>/sources/<id>/`。**再次导入同一个 `id` 即更新**：停旧进程、替换文件、保留启用状态并自动重启，
+  不会产生第二个副本；可选 `version` 显示在设置页并用于更新提示。
 - 列表行整行置灰（标题、艺人、专辑、徽标、按钮同时变灰），未启用任何音源的曲目不再只灰标题。
 - 华为预置插件随包携带 `descriptor.json`；`mac-app` 一并复制。示例插件同步改为精简清单。
 - 门禁：`go build/vet/test ./...`、`tinglan-tool ui-check`（0 问题）、Windows `CGO_ENABLED=0` 交叉编译通过；
-  macOS 实机验证导入、分配 ID、启用/停用与登录按钮出现。
+  macOS 实机验证导入、启用/停用与登录按钮出现；按 id 更新的流程有单测覆盖。
 - 未验证：Windows 实机、导入插件的图标资源（当前回退 shortName 文本）。
 
 ## 2026-11-04：插件入口支持 MCP 式 command/args/env

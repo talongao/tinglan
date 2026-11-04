@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -374,19 +373,21 @@ func TestManageMethodsForwardToPlugin(t *testing.T) {
 	}
 }
 
-func TestManagerInstallsPluginWithAssignedID(t *testing.T) {
+func TestManagerInstallsPluginWithAuthorID(t *testing.T) {
 	ctx := context.Background()
 	src := t.TempDir()
 	writeFakePlugin(t, src)
 	src = filepath.Join(src, "fake")
-	root := t.TempDir()
-	manager := NewManager(root, storage.New(t.TempDir()), nil)
-	entry, err := manager.Install(ctx, src)
+	manager := NewManager(t.TempDir(), storage.New(t.TempDir()), nil)
+	entry, updated, err := manager.Install(ctx, src)
 	if err != nil {
 		t.Fatalf("install: %v", err)
 	}
-	if entry.ID() == "" || entry.ID() == "fake" {
-		t.Fatalf("assigned id = %q", entry.ID())
+	if updated {
+		t.Fatal("first install reported as update")
+	}
+	if string(entry.ID()) != "fake" {
+		t.Fatalf("id = %q, want the id from source.json", entry.ID())
 	}
 	if entry.Name() != "测试音源" {
 		t.Fatalf("name = %q", entry.Name())
@@ -404,22 +405,54 @@ func TestManagerInstallsPluginWithAssignedID(t *testing.T) {
 	manager.Disable(registry, entry.ID())
 }
 
-func TestManagerRejectsDuplicateInstall(t *testing.T) {
+func TestManagerUpdatesPluginWithSameID(t *testing.T) {
 	ctx := context.Background()
 	src := t.TempDir()
 	writeFakePlugin(t, src)
 	src = filepath.Join(src, "fake")
 	manager := NewManager(t.TempDir(), storage.New(t.TempDir()), nil)
-	first, err := manager.Install(ctx, src)
+	first, _, err := manager.Install(ctx, src)
 	if err != nil {
 		t.Fatalf("first install: %v", err)
 	}
-	second, err := manager.Install(ctx, src)
-	if !errors.Is(err, ErrDuplicate) {
-		t.Fatalf("second install err = %v", err)
+	second, updated, err := manager.Install(ctx, src)
+	if err != nil {
+		t.Fatalf("second install: %v", err)
 	}
-	if second.ID() != first.ID() {
-		t.Fatalf("duplicate returned %q, want %q", second.ID(), first.ID())
+	if !updated || second.ID() != first.ID() {
+		t.Fatalf("second install = (%q, updated=%v), want (%q, true)", second.ID(), updated, first.ID())
+	}
+	entries := manager.List()
+	count := 0
+	for _, entry := range entries {
+		if entry.ID() == first.ID() {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("installed copies of %q = %d, want 1", first.ID(), count)
+	}
+}
+
+func TestManagerRejectsMissingID(t *testing.T) {
+	src := t.TempDir()
+	writeFakePlugin(t, src)
+	src = filepath.Join(src, "fake")
+	raw, err := os.ReadFile(filepath.Join(src, "source.json"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	delete(manifest, "id")
+	raw, _ = json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(src, "source.json"), raw, 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if _, _, err := NewManager(t.TempDir(), storage.New(t.TempDir()), nil).Install(context.Background(), src); err == nil {
+		t.Fatal("install without id should fail")
 	}
 }
 

@@ -22,14 +22,14 @@ import (
 type Manifest struct {
 	SchemaVersion int                  `json:"schemaVersion"`
 	Entry         map[string]EntrySpec `json:"entry"`
-	// ID is only honoured for plugins shipped inside the app bundle, where the
-	// identity must stay stable across upgrades. Imported plugins get an id
-	// assigned by the host, so user-supplied manifests cannot collide.
-	ID      string `json:"id,omitempty"`
+	// ID is the plugin's stable identity, maintained by its author. The host
+	// uses it to tell an update from a different plugin: importing a manifest
+	// with an id that is already installed replaces that copy instead of
+	// creating a second one.
+	ID string `json:"id"`
+	// Version is for display and update prompts only; identity stays the id.
+	Version string `json:"version,omitempty"`
 	Builtin bool   `json:"builtin,omitempty"`
-	// Digest fingerprints the files copied at install time so importing the
-	// same plugin twice is detected before anything is written.
-	Digest string `json:"digest,omitempty"`
 }
 
 // EntrySpec describes how to launch a plugin on one platform. It accepts both
@@ -95,8 +95,8 @@ func (m Manifest) Validate() error {
 	if m.SchemaVersion != 1 {
 		return fmt.Errorf("unsupported schemaVersion %d", m.SchemaVersion)
 	}
-	if m.ID != "" && !validID(m.ID) {
-		return fmt.Errorf("invalid plugin id %q", m.ID)
+	if !validID(m.ID) {
+		return fmt.Errorf("source.json 缺少合法的 id（%q）", m.ID)
 	}
 	if len(m.Entry) == 0 {
 		return errors.New("missing entry")

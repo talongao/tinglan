@@ -1,7 +1,8 @@
 {
   "schemaVersion": 1,
-  "builtin": true,
   "id": "huawei",
+  "version": "1.0.0",
+  "builtin": true,
   "entry": {
     "darwin-arm64": "bin/huawei-source",
     "darwin-x64": "bin/huawei-source",

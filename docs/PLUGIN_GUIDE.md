@@ -30,6 +30,7 @@
 
 1. **一个插件 = 一个子进程。** 宿主启动它，之后只通过 stdin/stdout 上的 JSON-RPC 2.0 通信。
 2. **能力由插件自述。** 握手时返回 descriptor，告诉宿主自己支持搜索、导入、播放解析等；宿主据此显示入口，不支持的入口不出现。
+   **身份由作者维护。** `source.json` 里的 `id` 是插件身份，一经发布不要更改；宿主用它判断「这是同一个插件的新版本」，再次导入同一 `id` 就是更新。
 3. **调用是双向的。** 宿主调用 `source.*`，插件可以反向调用 `host.*`（弹登录窗口、读写会话、写日志）。
 
 宿主内部用 Go 接口 `source.Source` 表达这些能力；插件协议就是它的 JSON 投影。
@@ -45,11 +46,15 @@
 ```json
 {
   "schemaVersion": 1,
+  "id": "example-node",
+  "version": "1.0.0",
   "entry": {
     "any": { "command": "node", "args": ["main.mjs"] }
   }
 }
 ```
+
+`id` 是必填的插件身份（`[a-z0-9_-]{1,40}`），由作者维护、发布后不要改；宿主用它区分“同一个插件的新版本”和“另一个插件”，再次导入同一个 `id` 会原地更新。`version` 可选，只用于显示和更新提示。
 
 `entry` 的每一项支持两种形式：
 
@@ -184,7 +189,7 @@ Content-Length: 137\r\n
 
 | 字段 | 含义 |
 | --- | --- |
-| `assignedId` | 宿主确认的插件身份。导入探测时为空串；正式启用时是最终 ID |
+| `assignedId` | 宿主确认的插件身份，等于 `source.json` 的 `id`；探测与正式启用都传该值 |
 | `protocolVersion` | 宿主支持的主版本范围 |
 | `hostServices` | 宿主提供的服务组 |
 | `limits` | 会话存储限制（单值 / 总量 / 键数） |
@@ -224,7 +229,7 @@ Content-Length: 137\r\n
 | 字段 | 必须 | 含义 |
 | --- | --- | --- |
 | `protocolVersion` | 是 | 必须为 `1` |
-| `descriptor.id` | 是 | 正式启用时必须等于 `assignedId`；探测时返回稳定的非空 id |
+| `descriptor.id` | 是 | 必须等于 `source.json` 的 `id`（也等于 `assignedId`）；返回别的值宿主会拒绝加载 |
 | `descriptor.name` | 是 | 展示名 |
 | `descriptor.shortName` | 否 | 徽标 1~2 字，空则取 `name` 前两字 |
 | `descriptor.accent` | 否 | `#RRGGBB` |
@@ -257,18 +262,20 @@ Content-Length: 137\r\n
 ### 4.4 拒绝启用
 
 - `protocolVersion` ≠ 1；
-- `descriptor.id` 为空，或正式启用时与 `assignedId` 不一致；
+- `source.json` 缺少合法的 `id`，或 `descriptor.id` 与该 `id` 不一致；
 - `descriptor.name` 为空；
 - `requiredHostServices` 超出宿主能力。
 
-### 4.5 身份从哪来
+### 4.5 身份从哪来（作者维护，宿主不分配）
 
 宿主不信任 `source.json` 的展示信息：
 
-1. 导入时以空 `assignedId` 启动一次做**探测**，读 descriptor，按名称生成 ID（如 `node-4656`），把目录复制到 `sources/<id>/` 并缓存 `descriptor.json`。
-2. 正式启动时把最终 ID 作为 `assignedId` 传入，插件必须接受。
+1. 导入时以 `source.json` 的 `id` 作为 `assignedId` 启动一次做**探测**，读 descriptor，把目录复制到 `sources/<id>/` 并缓存 `descriptor.json`。
+2. 正式启动时把同一个 `id` 作为 `assignedId` 传入，插件必须接受。
+3. 再次导入同一个 `id` 视为**更新**：停掉正在运行的进程、替换文件、保留启用状态并自动重启；不会出现第二个副本。
+4. 新版本可以用可选的 `version` 字段（如 `"1.0.0"`）标示，仅用于显示和更新提示，不参与身份判断。
 
-插件不能把 ID 写死，只能把它当作本次运行的身份。
+`source.json` 的 `id` 与握手返回的 `descriptor.id` 必须是同一个值；宿主会把 `assignedId`（也等于它）传回，插件直接采用即可。
 
 ---
 
@@ -585,7 +592,7 @@ descriptor 只在 `initialize` 返回一次；没有单独的 describe 方法。
 
 - `host.auth.present`（宿主二维码窗口）：返回 `-32004`；纯 HTTP 扫码目前只能走 `host.webview.open`。
 - `host.webview.close`：只回空结果。
-- 升级/热重载：重新导入生成新实例，旧实例不自动更新。
+- 升级/热重载：再次导入同一个 `id` 即更新，宿主会停掉旧进程、替换文件、保留启用状态并自动重启。
 
 ---
 
@@ -660,7 +667,7 @@ def call(msg):
     return read_frame()
 
 init = call({"jsonrpc": "2.0", "id": "h:1", "method": "initialize",
-             "params": {"assignedId": "test-id", "protocolVersion": {"min": 1, "max": 1},
+             "params": {"assignedId": "guide1", "protocolVersion": {"min": 1, "max": 1},
                         "hostServices": ["session", "webview", "log"], "hostVersion": "1.0"}})
 print("descriptor:", init["result"]["descriptor"])
 proc.stdin.write(frame({"jsonrpc": "2.0", "method": "initialized", "params": {"generation": 1}}))

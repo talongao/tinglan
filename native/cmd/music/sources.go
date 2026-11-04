@@ -925,21 +925,27 @@ func (m *model) installPluginFrom(path string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	entry, err := m.plugins.Install(ctx, path)
-	if errors.Is(err, plugin.ErrDuplicate) {
-		m.refreshPlugins()
-		m.notify(entry.Name() + " 已经导入过了（ID " + string(entry.ID()) + "）")
-		if !m.sourceEnabled(entry.ID()) {
-			m.askEnablePlugin(entry.ID())
-		}
-		return
-	}
+	entry, updated, err := m.plugins.Install(ctx, path)
 	if err != nil {
 		m.notify("导入失败：" + err.Error())
 		return
 	}
+	label := entry.Name()
+	if v := entry.Manifest.Version; v != "" {
+		label += " " + v
+	}
 	m.refreshPlugins()
-	m.notify("已导入 " + entry.Name() + "（ID " + string(entry.ID()) + "）")
+	if updated {
+		m.notify("已更新 " + label)
+		if m.sourceEnabled(entry.ID()) {
+			// The old process was stopped so its files could be replaced.
+			if err := m.plugins.Enable(context.Background(), m.registry, entry.ID()); err != nil {
+				m.notify("插件重启失败：" + err.Error())
+			}
+		}
+		return
+	}
+	m.notify("已导入 " + label + "（ID " + string(entry.ID()) + "）")
 	m.askEnablePlugin(entry.ID())
 }
 

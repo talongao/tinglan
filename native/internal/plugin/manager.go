@@ -2,9 +2,6 @@ package plugin
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +10,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"tinglan/native/internal/music"
 	"tinglan/native/internal/source"
@@ -402,7 +398,7 @@ func (m *Manager) Probe(ctx context.Context, dir string) (source.Descriptor, err
 	if err != nil {
 		return source.Descriptor{}, fmt.Errorf("启动插件失败：%w", err)
 	}
-	plugin, err := NewPlugin(ctx, manifest, "", proc, host)
+	plugin, err := NewPlugin(ctx, manifest, music.SourceID(manifest.ID), proc, host)
 	if err != nil {
 		_ = proc.Close()
 		return source.Descriptor{}, err
@@ -413,96 +409,80 @@ func (m *Manager) Probe(ctx context.Context, dir string) (source.Descriptor, err
 
 // Install imports a plugin directory into the managed root. The host assigns
 // the source id so two plugins authored on the same machine cannot collide.
-// ErrDuplicate means the same plugin files are already installed.
-var ErrDuplicate = errors.New("plugin already installed")
-
-func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, error) {
+func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, bool, error) {
 	srcDir, err := filepath.Abs(srcDir)
 	if err != nil {
-		return Entry{}, err
+		return Entry{}, false, err
 	}
 	info, err := os.Stat(srcDir)
 	if err != nil || !info.IsDir() {
-		return Entry{}, errors.New("不是有效的插件目录")
+		return Entry{}, false, errors.New("不是有效的插件目录")
 	}
-	digest, err := pluginDigest(srcDir)
+	manifest, err := LoadManifest(srcDir)
 	if err != nil {
-		return Entry{}, err
-	}
-	for _, existing := range m.List() {
-		sum := existing.Manifest.Digest
-		if sum == "" {
-			// Older installs shipped without a digest; fingerprint them now so a
-			// copy of the same directory is still recognised as a duplicate.
-			if computed, err := pluginDigest(existing.Dir); err == nil {
-				sum = computed
-				existing.Manifest.Digest = computed
-				_ = SaveManifest(existing.Dir, existing.Manifest)
-			}
-		}
-		if sum != "" && sum == digest {
-			return existing, fmt.Errorf("%w：%s", ErrDuplicate, existing.Name())
-		}
+		return Entry{}, false, err
 	}
 	desc, err := m.Probe(ctx, srcDir)
 	if err != nil {
-		return Entry{}, err
+		return Entry{}, false, err
 	}
-	id := m.assignID(desc.Name)
+	id := manifest.ID
+	if string(desc.ID) != id {
+		return Entry{}, false, fmt.Errorf("插件自报 id %q 与 source.json 的 %q 不一致", desc.ID, id)
+	}
 	dest := filepath.Join(m.Root(), id)
-	if err := os.MkdirAll(dest, 0o700); err != nil {
-		return Entry{}, err
+	previous, existed := m.entry(id)
+	updated := existed
+	if existed {
+		m.stopForUpdate(id)
 	}
-	if err := copyPluginTree(srcDir, dest); err != nil {
-		_ = os.RemoveAll(dest)
-		return Entry{}, err
+	tmp, err := os.MkdirTemp(m.Root(), "."+id+".new-")
+	if err != nil {
+		return Entry{}, false, err
+	}
+	defer os.RemoveAll(tmp)
+	if err := copyPluginTree(srcDir, tmp); err != nil {
+		return Entry{}, false, err
 	}
 	cached := descriptorRecord(id, desc)
-	if err := SaveDescriptor(dest, cached); err != nil {
-		_ = os.RemoveAll(dest)
-		return Entry{}, err
+	if err := SaveDescriptor(tmp, cached); err != nil {
+		return Entry{}, false, err
 	}
-	manifest, err := LoadManifest(dest)
-	if err != nil {
-		_ = os.RemoveAll(dest)
-		return Entry{}, err
+	if err := os.RemoveAll(dest); err != nil {
+		return Entry{}, false, err
 	}
-	// The copied manifest belongs to the host now: pin the assigned id so a
-	// later plugin update cannot silently rename itself.
-	manifest.ID = id
-	manifest.Digest = digest
-	if err := SaveManifest(dest, manifest); err != nil {
-		_ = os.RemoveAll(dest)
-		return Entry{}, err
+	if err := os.Rename(tmp, dest); err != nil {
+		return Entry{}, false, err
 	}
-	return Entry{Manifest: manifest, Descriptor: cached, Dir: dest, Enabled: false}, nil
+	enabled := existed && previous.Enabled
+	return Entry{Manifest: manifest, Descriptor: cached, Dir: dest, Enabled: enabled}, updated, nil
+}
+
+// stopForUpdate shuts down a running plugin so its files can be replaced.
+func (m *Manager) stopForUpdate(id string) {
+	m.mu.Lock()
+	running := m.plugins[music.SourceID(id)]
+	delete(m.plugins, music.SourceID(id))
+	m.mu.Unlock()
+	if running != nil {
+		_ = running.Close()
+	}
+}
+
+// entry returns the currently installed plugin with the given id.
+func (m *Manager) entry(id string) (Entry, bool) {
+	for _, entry := range m.List() {
+		if string(entry.ID()) == id {
+			return entry, true
+		}
+	}
+	return Entry{}, false
 }
 
 func descriptorRecord(id string, desc source.Descriptor) source.Descriptor {
 	desc.ID = music.SourceID(id)
 	desc.SchemaVersion = 1
 	return desc
-}
-
-// assignID builds a readable, collision-free directory/source id.
-func (m *Manager) assignID(name string) string {
-	base := slug(name)
-	if base == "" {
-		base = "source"
-	}
-	existing := map[string]bool{}
-	for _, entry := range m.List() {
-		existing[string(entry.ID())] = true
-	}
-	for i := 0; i < 100; i++ {
-		suffix := make([]byte, 2)
-		_, _ = rand.Read(suffix)
-		id := fmt.Sprintf("%s-%x", base, suffix)
-		if !existing[id] {
-			return id
-		}
-	}
-	return fmt.Sprintf("%s-%d", base, time.Now().UnixNano())
 }
 
 func slug(name string) string {
@@ -572,46 +552,6 @@ func copyPluginTree(src, dest string) error {
 		}
 		return os.WriteFile(target, data, mode)
 	})
-}
-
-// pluginDigest hashes the plugin tree (paths and bytes) so a second import of
-// the same folder is recognised before anything is copied.
-func pluginDigest(dir string) (string, error) {
-	hash := sha256.New()
-	err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(dir, path)
-		if err != nil {
-			return err
-		}
-		if rel == "." {
-			return nil
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if d.Name() == DescriptorFile || d.Name() == ".DS_Store" {
-			return nil
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		hash.Write([]byte(rel))
-		hash.Write([]byte{0})
-		hash.Write(data)
-		hash.Write([]byte{0})
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // entryCommand turns a manifest entry into an executable command. Plain string

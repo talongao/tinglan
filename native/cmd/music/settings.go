@@ -323,6 +323,7 @@ func (m *model) builtinSources() []source.Source {
 type sourceRow struct {
 	id        music.SourceID
 	name      string
+	version   string
 	enabled   bool
 	loginable bool
 }
@@ -356,6 +357,7 @@ func (m *model) sourceRows() []sourceRow {
 		rows = append(rows, sourceRow{
 			id:        id,
 			name:      entry.Name(),
+			version:   entry.Manifest.Version,
 			enabled:   false,
 			loginable: len(entry.LoginKinds()) > 0,
 		})
@@ -405,6 +407,10 @@ func (m *model) paintSourcesSettings(c *ui.Canvas, x, y, w float32) {
 		m.centerText(c, sourceShortName(row.name), tile, 11, 650, m.ink())
 
 		m.text(c, row.name, rect(x+40, rowY+17, 180, 20), 13, 600, m.ink())
+		if row.version != "" {
+			nameW := m.textWidth(c, row.name, 13, 600)
+			m.text(c, row.version, rect(x+40+nameW+6, rowY+18, 90, 18), 11, 400, m.muted())
+		}
 
 		// Account state is one quiet line, right after the name.
 		account := "账号：未登录"
