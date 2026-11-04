@@ -58,13 +58,13 @@
 - **搜索按音源分页签。** 启用两个以上音源时，搜索页顶部可以选平台；只启用一个时不显示，免得多余点击。结果随滚动继续加载，点歌加入当前队列，不替换已有队列。
 - **播放历史只记在本机。** 不上传、不同步。
 
-![我的歌单与方形封面](docs/assets/tinglan/playlists.png)
+![我的收藏：一首歌一行，右侧是来源与收藏状态](docs/assets/tinglan/favorites.png)
 
 | 搜索喜欢的歌 | 找回刚刚听过的 |
 | --- | --- |
-| ![搜索周杰伦的歌曲](docs/assets/tinglan/search.png) | ![听澜本机播放历史](docs/assets/tinglan/history-dark.png) |
+| ![搜索周杰伦的歌曲，可见搜索范围与来源](docs/assets/tinglan/search.png) | ![听澜本机播放历史](docs/assets/tinglan/history-dark.png) |
 
-> 截图来自较早的构建，列表表头、时长列等细节此后有调整；功能以当前版本为准。
+> 截图取自本机运行界面；曲目与账号内容为示例，功能以当前版本为准。
 
 ## 决策模型（可选）
 
