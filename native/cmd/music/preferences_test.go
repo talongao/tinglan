@@ -122,6 +122,12 @@ func TestSourceSettingsTab(t *testing.T) {
 	m.enableDemo(2)
 	openProfileForTest(t, m, t.TempDir())
 	m.openLocalLibrary()
+	// Windows keeps the SQLite handle open; close it so TempDir cleanup works.
+	t.Cleanup(func() {
+		if m.local != nil {
+			_ = m.local.Close()
+		}
+	})
 	fake := &sourcetest.Fake{SourceID: music.SourceHuawei}
 	if err := m.registry.RegisterSource(fake); err != nil {
 		t.Fatalf("register source: %v", err)

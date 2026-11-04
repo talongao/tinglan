@@ -20,6 +20,12 @@ func TestPlaylistUpdateKeepsCopyWhenRemoteEmpty(t *testing.T) {
 	if m.local == nil {
 		t.Fatal("library not open")
 	}
+	// Windows keeps the SQLite handle open; close it so TempDir cleanup works.
+	t.Cleanup(func() {
+		if m.local != nil {
+			_ = m.local.Close()
+		}
+	})
 	ctx := context.Background()
 	added, err := m.local.AddToLibrary(ctx, music.Track{
 		Source:  music.SourceHuawei,
