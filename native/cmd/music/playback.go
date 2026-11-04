@@ -282,11 +282,7 @@ func (m *model) applyPlaybackResults() {
 		m.player.Play()
 		m.audioRunning = true
 		m.startedAt = time.Now()
-		if r.playback.Access == music.AccessPreview {
-			m.setStatus("只能试听：平台没有提供完整音源，可能需要会员。")
-		} else {
-			m.setStatus("")
-		}
+		m.announceAccess(r)
 		m.pollAudio()
 	}
 }
@@ -346,4 +342,23 @@ func (m *model) checkDuration() {
 		m.durationMismatch = true
 		log.Printf("playback duration mismatch: catalog=%.3fs resolved=%.3fs audio=%.3fs; using audio duration", catalog, m.resolvedDuration, media)
 	}
+}
+
+// announceAccess explains a preview-only stream once per session. Every source
+// has already been tried by the resolver, so repeating the notice per track is
+// noise; full playback clears the line instead.
+func (m *model) announceAccess(r playbackResult) {
+	if r.playback.Access != music.AccessPreview {
+		m.setStatus("")
+		return
+	}
+	if m.previewNoticed {
+		return
+	}
+	m.previewNoticed = true
+	m.setStatus("只能试听：所有音源都没有提供完整音源，可能需要会员。")
+}
+
+func playbackResultForTest(access music.Access) playbackResult {
+	return playbackResult{playback: music.Playback{Access: access}}
 }

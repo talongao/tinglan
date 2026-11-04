@@ -74,6 +74,7 @@ type model struct {
 	resolvedDuration   float64
 	durationMismatch   bool
 	learnedDurationFor string
+	previewNoticed     bool
 	playFailures       int
 	pendingSeek        float64
 	resumeTrackID      string
