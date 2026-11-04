@@ -142,6 +142,13 @@ func webViewAuthorize(ctx context.Context, flow Flow) (result string, resultErr 
 	if hwnd == 0 {
 		return "", errors.New("authorization window initialization failed")
 	}
+	// The Huawei page is laid out in DIPs; a window sized in physical pixels
+	// shrinks to a cramped column on 150% displays, so scale the request.
+	if dpi := win32.GetDpiForWindow(hwnd); dpi > 96 {
+		width := int32(900 * dpi / 96)
+		height := int32(780 * dpi / 96)
+		win32.SetWindowPos(hwnd, 0, 0, 0, width, height, win32.SWP_NOMOVE|win32.SWP_NOZORDER)
+	}
 	w := &authWindow{hwnd: hwnd, ctx: ctx, flow: flow, pending: true}
 	authWindows.Store(hwnd, w)
 	defer authWindows.Delete(hwnd)

@@ -311,6 +311,10 @@ func packageNSIS(root, output, payload string, stdout, stderr io.Writer) error {
 	if err := os.WriteFile(license, utf16le(body), 0o644); err != nil {
 		return err
 	}
+	sources, err := stageBundledPlugins(root, filepath.Join(payload, "sources"), stdout, stderr)
+	if err != nil {
+		return fmt.Errorf("bundle plugins: %w", err)
+	}
 	script := nsisScript(nsisConfig{
 		Icon:       icon,
 		Name:       appmetaDisplayName(),
@@ -320,6 +324,7 @@ func packageNSIS(root, output, payload string, stdout, stderr io.Writer) error {
 		Notice:     license,
 		Payload:    payload,
 		Files:      []string{executableName("win32"), "LICENSE", "THIRD_PARTY_NOTICES.txt", "icon.LICENSE.txt", "NOTICE.txt", "SHA256SUMS"},
+		Sources:    sources,
 	})
 	file := filepath.Join(staging, "installer.nsi")
 	if err := writeFile(file, []byte("\ufeff"+script), 0o644); err != nil {
@@ -357,6 +362,25 @@ type nsisConfig struct {
 	Notice     string
 	Payload    string
 	Files      []string
+	Sources    bool
+}
+
+// sourcesInstall ships the bundled official plugins beside the executable; the
+// host discovers them at <exe>/sources/<id>/source.json.
+func sourcesInstall(cfg nsisConfig) string {
+	if !cfg.Sources {
+		return ""
+	}
+	return " SetOutPath \"$INSTDIR\\sources\"\n" +
+		" File /r \"" + nsisEscape(filepath.Join(cfg.Payload, "sources")) + "\\*.*\"\n" +
+		" SetOutPath \"$INSTDIR\"\n"
+}
+
+func sourcesUninstall(cfg nsisConfig) string {
+	if !cfg.Sources {
+		return ""
+	}
+	return " RMDir /r \"$INSTDIR\\sources\"\n"
 }
 
 // nsisEscape mirrors package.mjs' esc(): dollars double and quotes escape.
@@ -400,6 +424,7 @@ func nsisScript(cfg nsisConfig) string {
 		" SetShellVarContext current\n" +
 		" SetOutPath \"$INSTDIR\"\n" +
 		files.String() +
+		sourcesInstall(cfg) +
 		" WriteUninstaller \"$INSTDIR\\Uninstall.exe\"\n" +
 		" CreateDirectory \"$SMPROGRAMS\\Tinglan\"\n" +
 		" CreateDirectory \"$INSTDIR\\upgrade-backup\"\n" +
@@ -414,6 +439,7 @@ func nsisScript(cfg nsisConfig) string {
 		"Section \"Uninstall\"\n" +
 		" SetShellVarContext current\n" +
 		deletes.String() +
+		sourcesUninstall(cfg) +
 		" Delete \"$INSTDIR\\Uninstall.exe\"\n" +
 		" Delete \"" + shortcut + "\"\n" +
 		" Delete \"$SMPROGRAMS\\Tinglan\\Uninstall.lnk\"\n" +

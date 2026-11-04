@@ -32,12 +32,59 @@ func hostPluginTarget() pluginTarget {
 	}
 }
 
+// pluginBuildFlags keeps Windows plugins on the GUI subsystem so launching a
+// source never flashes a console window; stdin/stdout pipes still work because
+// the host passes its own handles to the child process.
+func pluginBuildFlags(goos string) string {
+	if goos == "windows" {
+		return "-s -w -H=windowsgui"
+	}
+	return "-s -w"
+}
+
 // pluginsManifest is the subset of source.json the packager needs.
 type pluginsManifest struct {
 	ID      string                     `json:"id"`
 	Version string                     `json:"version"`
 	Builtin bool                       `json:"builtin"`
 	Entry   map[string]json.RawMessage `json:"entry"`
+}
+
+// stageBundledPlugins copies the official (builtin) plugins into the Windows
+// payload so a fresh install ships a working Huawei source instead of falling
+// back to the in-process development source.
+func stageBundledPlugins(root, dest string, stdout, stderr io.Writer) (bool, error) {
+	entries, err := os.ReadDir(filepath.Join(root, "plugins"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	staged := false
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		dir := filepath.Join(root, "plugins", entry.Name())
+		raw, err := os.ReadFile(filepath.Join(dir, "source.json"))
+		if err != nil {
+			continue
+		}
+		var manifest pluginsManifest
+		if err := json.Unmarshal(raw, &manifest); err != nil || !manifest.Builtin || manifest.ID == "" {
+			continue
+		}
+		target := filepath.Join(dest, manifest.ID)
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return staged, err
+		}
+		if err := stagePlugin(root, dir, manifest, "windows", "amd64", target, stdout, stderr); err != nil {
+			return staged, err
+		}
+		staged = true
+	}
+	return staged, nil
 }
 
 // pluginsCommand packages every plugin under <repo>/plugins for release.
@@ -175,7 +222,7 @@ func stagePlugin(root, dir string, manifest pluginsManifest, goos, goarch, stage
 		if _, err := os.Stat(command); err != nil {
 			return fmt.Errorf("缺少官方插件入口 %s: %w", command, err)
 		}
-		args := []string{"build", "-trimpath", "-ldflags=-s -w", "-o", target, "./cmd/" + manifest.ID + "-source"}
+		args := []string{"build", "-trimpath", "-ldflags=" + pluginBuildFlags(goos), "-o", target, "./cmd/" + manifest.ID + "-source"}
 		if err := runCommand(commandSpec{
 			Dir:  filepath.Join(root, "native"),
 			Name: goBinary(),
