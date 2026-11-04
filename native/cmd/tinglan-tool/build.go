@@ -108,9 +108,9 @@ func buildPayload(root string, stdout, stderr io.Writer) error {
 	goBin := goBinary()
 
 	if platform == "win32" {
-		// The Windows resource step needs a windres toolchain that is not part of
-		// this macOS host's toolchain; report it clearly instead of skipping.
-		return usageError("build", "Windows payload builds (windres + tools/windows-icon) are not supported by this Go port yet; run native/scripts/build.mjs on Windows")
+		if err := applyWindowsResources(root, goBin, stdout, stderr); err != nil {
+			return err
+		}
 	}
 
 	if err := runCommand(commandSpec{
@@ -150,6 +150,46 @@ func buildPayload(root string, stdout, stderr io.Writer) error {
 	}
 	_, err = fmt.Fprintf(stdout, "Built local %s native binary: %s\n", state, output)
 	return err
+}
+
+// applyWindowsResources ports the windres step of the old build.mjs: render the
+// PNG icon into an .ico, wrap it in an .rc file and compile that into the
+// arch-specific .syso the Go linker picks up.
+func applyWindowsResources(root, goBin string, stdout, stderr io.Writer) error {
+	assets := filepath.Join(root, "out", "native", "windows-resources")
+	if err := os.MkdirAll(assets, 0o755); err != nil {
+		return err
+	}
+	icon := filepath.Join(root, "build", "icon.png")
+	ico := filepath.Join(assets, "app.ico")
+	if err := runCommand(commandSpec{
+		Dir:  filepath.Join(root, "native"),
+		Name: goBin,
+		Args: []string{"run", "./tools/windows-icon", icon, ico},
+	}, stdout, stderr); err != nil {
+		return fmt.Errorf("Windows icon: %w", err)
+	}
+	rc := filepath.Join(assets, "app.rc")
+	line := "1 ICON \"" + strings.ReplaceAll(ico, "\\", "/") + "\"\n"
+	if err := writeFile(rc, []byte(line), 0o644); err != nil {
+		return err
+	}
+	windres := os.Getenv("HWMUSIC_WINDRES")
+	if windres == "" {
+		if cc := os.Getenv("CC"); cc != "" {
+			windres = filepath.Join(filepath.Dir(cc), "windres.exe")
+		} else {
+			windres = "windres"
+		}
+	}
+	target := filepath.Join(root, "native", "cmd", "music", "icon_windows_"+runtime.GOARCH+".syso")
+	if err := runCommand(commandSpec{
+		Name: windres,
+		Args: []string{"-O", "coff", "-i", rc, "-o", target},
+	}, stdout, stderr); err != nil {
+		return fmt.Errorf("Windows resources (set HWMUSIC_WINDRES if windres is not on PATH): %w", err)
+	}
+	return nil
 }
 
 // jsonStringField extracts a top-level string field from a small JSON object
