@@ -1,20 +1,43 @@
-# 听澜音源插件开发指南
+# 写一个听澜音源插件
 
-这份文档写给想给听澜写音源插件的人：从最小可运行的插件开始，逐项说明清单、
-协议、宿主服务、错误处理和调试方式。协议细节以
-[SOURCE_PLUGIN_PROTOCOL.md](SOURCE_PLUGIN_PROTOCOL.md) 为准，本文负责「怎么上手」。
+> 目标：10 分钟做出一个能跑的音源插件，在听澜的搜索页里搜到它返回的歌。
+> 不需要读别的文档；协议速查放在最后。
 
-## 0. 五分钟跑通
+## 你会做出什么
 
-需要的环境：听澜桌面版、Node（或 Go / Python / 任意能读写 stdio 的运行时）。
+一个目录，两个文件：
 
 ```text
 my-source/
-├── source.json     # 清单：告诉宿主怎么启动插件
-└── main.mjs        # 插件实现
+├── source.json   # 告诉听澜怎么启动你的插件
+└── main.mjs      # 插件本体
 ```
 
-`source.json`：
+导入后，听澜的搜索页会多一个你命名的页签；在里面搜索，显示你返回的歌曲。
+
+---
+
+## 第 1 步：确认环境
+
+需要一个 Node（18 以上）。在终端里：
+
+```bash
+node -v
+```
+
+有版本号就继续。没有就先装 Node，或改用任何能读写标准输入输出的语言（Go、Python 都行，
+协议在附录）。
+
+## 第 2 步：建目录
+
+```bash
+mkdir my-source
+cd my-source
+```
+
+## 第 3 步：写 `source.json`
+
+创建 `source.json`，内容完全照抄：
 
 ```json
 {
@@ -25,63 +48,285 @@ my-source/
 }
 ```
 
-启动听澜 → 设置 → 音源 → 导入插件 → 选择 `my-source` 目录 → 授权启用。
-启用成功后会出现在设置页的音源列表里，搜索页出现对应页签。
+这里只做一件事：告诉听澜「用 `node main.mjs` 启动这个插件」。
+`any` 表示所有系统都用这一条；如果某个平台要不同的命令，可以写
+`"darwin-arm64"`、`"windows-x64"` 这样的键覆盖它。
 
-仓库里有一个可以直接用的完整示例：
-[`native/internal/plugin/testdata/node-source-plugin/`](../native/internal/plugin/testdata/node-source-plugin/)。
+> 不要在这里写 `id`。导入时交给听澜分配。
 
-## 1. 插件是什么
+## 第 4 步：写 `main.mjs`
 
-听澜把「音源」抽象成 `Source` 契约（见 [SOURCE_CONTRACT.md](SOURCE_CONTRACT.md)）：
-搜索、歌单、专辑、歌手、历史、导入收藏、播放解析、歌词、写操作。
+创建 `main.mjs`，内容完全照抄（约 90 行，不用改）：
 
-内置的华为音乐也是一个插件，只是它随应用分发（`builtin: true`）。第三方音源
-完全走同一套协议，进程内不加载你的代码，只通过 stdio 上的 JSON-RPC 通信。
+```js
+#!/usr/bin/env node
+// 听澜音源插件最小实现。
+let buffer = Buffer.alloc(0);
 
-几条硬性边界：
-
-- 宿主不做音源切换的「绕过」：插件返回什么地址就播放什么地址，会员/地域限制由
-  各平台自己判定。
-- 插件以你的用户权限运行，没有沙箱。启用前的确认框会显示插件名、路径和说明。
-- 宿主不内置 Node / Python，也不做 shebang 探测；运行时环境由插件作者和用户负责。
-  MCP 生态里 server 写着 `node xxx` / `uv run xxx`，这里也是同样的约定。
-
-## 2. 清单 `source.json`
-
-```json
-{
-  "schemaVersion": 1,
-  "entry": {
-    "darwin-arm64": "bin/my-source",
-    "windows-x64": { "command": "node", "args": ["main.mjs"], "env": { "NODE_ENV": "production" } },
-    "any": "bin/my-source"
+process.stdin.on("data", (chunk) => {
+  buffer = Buffer.concat([buffer, chunk]);
+  for (;;) {
+    const head = buffer.indexOf("\r\n\r\n");
+    if (head < 0) return;
+    const match = /content-length:\s*(\d+)/i.exec(buffer.subarray(0, head).toString());
+    if (!match) { buffer = buffer.subarray(head + 4); continue; }
+    const start = head + 4;
+    const length = Number(match[1]);
+    if (buffer.length < start + length) return;
+    const body = buffer.subarray(start, start + length).toString();
+    buffer = buffer.subarray(start + length);
+    try { handle(JSON.parse(body)); } catch (e) { log(`bad frame: ${e}`); }
   }
+});
+
+function send(message) {
+  const body = JSON.stringify(message);
+  process.stdout.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
+}
+
+function reply(id, result) { send({ jsonrpc: "2.0", id, result }); }
+function fail(id, code, message) { send({ jsonrpc: "2.0", id, error: { code, message } }); }
+
+// 插件自述。shortName 是列表里那个小徽标，1~2 个字。
+const descriptor = {
+  schemaVersion: 1,
+  name: "我的音源",
+  shortName: "我",
+  accent: "#3C873A",
+  capabilities: { search: true },
+};
+
+// 假装这是你从平台 API 拿到的数据。
+const songs = [
+  { id: "s1", title: "第一首歌", artists: [{ id: "a1", name: "某歌手" }] },
+  { id: "s2", title: "第二首歌", artists: [{ id: "a1", name: "某歌手" }] },
+];
+
+function handle(msg) {
+  if (msg.method === undefined) return; // 听澜发来的响应，插件这里用不到
+  const id = msg.id;
+
+  switch (msg.method) {
+    // 握手：听澜问你叫什么、要哪些能力
+    case "initialize": {
+      const assignedId = msg.params?.assignedId;
+      reply(id, {
+        protocolVersion: 1,
+        descriptor: { ...descriptor, id: assignedId }, // id 必须用听澜分配的
+        requiredHostServices: [],
+      });
+      return;
+    }
+
+    case "initialized":
+      return;
+
+    // 登录状态。先不做登录，就报「未登录」
+    case "source.auth.status":
+    case "source.auth.verify":
+      reply(id, { state: "signedOut" });
+      return;
+
+    // 搜索：听澜把关键词给你，你把歌单给它
+    case "source.catalog.search": {
+      const query = String(msg.params?.query ?? "");
+      const items = songs
+        .filter((s) => query === "" || s.title.includes(query))
+        .map((s) => ({ ...s }));
+      reply(id, { items, hasMore: false });
+      return;
+    }
+
+    case "shutdown":
+      reply(id, {});
+      setTimeout(() => process.exit(0), 10);
+      return;
+
+    default:
+      fail(id, -32601, `unsupported method: ${msg.method}`);
+  }
+}
+
+function log(text) {
+  process.stderr.write(`${text}\n`); // 日志只能走 stderr
 }
 ```
 
-| 字段 | 必填 | 说明 |
+### 这段代码在干什么
+
+| 部分 | 作用 |
+| --- | --- |
+| 读帧循环 | 听澜按 `Content-Length` 头发消息，照这个格式拆包 |
+| `initialize` | 握手。告诉听澜插件名、徽标、支持哪些能力 |
+| `source.auth.status` | 上报登录状态；先写死 `signedOut` |
+| `source.catalog.search` | 收到关键词，返回 `items` 数组 |
+| `hasMore` | 还有下一页就 `true`，这是最后一页就 `false` |
+
+三条规则必须遵守：
+
+1. `stdout` 只能写协议帧，不能 `console.log`。
+2. 日志写 `stderr`。
+3. `descriptor.id` 用 `assignedId`，不要自己造。
+
+## 第 5 步：导入并启用
+
+1. 打开听澜 → 左下角 **设置** → **音源**
+2. 点 **导入插件**，在弹出的系统窗口里选中 `my-source` 目录，点 **打开**
+3. 听澜会弹确认框，显示插件名和路径，点 **启用**
+
+**此时你应该看到**：音源列表里出现「我的音源」，行尾开关是开着的。
+
+## 第 6 步：验证
+
+1. 左侧点 **搜索**
+2. 输入框下方出现两个页签，切到 **我的音源**
+3. 输入「第一」，点 **搜索**
+
+**此时你应该看到**：「第一首歌」，右边有蓝色的小徽标「我」。
+
+播放它不会有声音——因为你还没实现「取播放地址」，这一步在下一节。
+
+## 第 7 步：接入你自己的平台
+
+现在把上面两处假数据换掉。
+
+### 1. 换成真实搜索
+
+```js
+async function search(query) {
+  const url = `https://你的平台/api/search?q=${encodeURIComponent(query)}`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` }, // 需要登录时
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+
+  // 把平台的数据结构映射成听澜的 Track
+  return data.songs.map((song) => ({
+    id: String(song.id),
+    title: song.name,
+    artists: song.artists.map((a) => ({ id: String(a.id), name: a.name })),
+    album: { id: String(song.album.id), title: song.album.name },
+    coverUrl: song.album.pic,
+    durationSeconds: song.durationMs / 1000,
+  }));
+}
+```
+
+`handle` 里改成异步：
+
+```js
+case "source.catalog.search": {
+  const query = String(msg.params?.query ?? "");
+  search(query)
+    .then((items) => reply(id, { items, hasMore: false }))
+    .catch((e) => fail(id, -32009, `搜索失败：${e.message}`)); // -32009 = 临时故障
+  return;
+}
+```
+
+几条映射规则：
+
+- `id` 用平台的歌曲 ID（字符串），后面取播放地址还要用它。
+- `source` 字段不用写，听澜会补成你的插件身份。
+- 时长用秒（`durationSeconds`），不是毫秒。
+- 拿不到封面就不写 `coverUrl`，界面显示占位图。
+
+### 2. 加分页（可选）
+
+结果多的时候，把游标还回去：
+
+```js
+reply(id, { items, nextCursor: String(page + 1), hasMore: page < lastPage });
+```
+
+听澜下次会用同一个 `nextCursor` 再来问。最后一页必须 `hasMore: false`。
+
+### 3. 加播放地址
+
+在 `capabilities` 里加 `resolve: true`，然后实现：
+
+```js
+case "source.library.resolve": {
+  const track = msg.params?.track;
+  fetchPlayURL(track.id) // 你的平台 API
+    .then((url) => reply(id, { url, access: "full" }))
+    .catch((e) => fail(id, -32009, `取播放地址失败：${e.message}`));
+  return;
+}
+```
+
+返回的 `url` 只放在内存里传递，听澜不会写盘。
+
+### 4. 加登录（可选）
+
+需要账号才能搜索/播放时，用听澜内嵌的登录窗口拿回调，再自己换 token：
+
+```js
+case "source.auth.login": {
+  const writeToken = msg.params?.writeToken; // 存会话必须带它
+  const result = await host.call("host.webview.open", {
+    attemptId: msg.params?.attemptId,
+    url: "https://你的平台/oauth/authorize?...",
+    allowedDomains: ["你的平台域名"],
+    callbackScheme: "myapp",
+    callbackHost: "callback",
+    callbackPath: "/auth",
+  });
+  if (result.canceled) return reply(id, { succeeded: false });
+  const session = await exchangeCode(result.callbackUrl); // 你自己换 token
+  await host.call("host.session.set", {
+    key: "session",
+    value: Buffer.from(JSON.stringify(session)).toString("base64"),
+    ifRevision: 0,
+    writeToken,
+  });
+  reply(id, { succeeded: true, persisted: true, status: { state: "signedIn" } });
+  return;
+}
+```
+
+这里的 `host.call` 不是现成的：你需要让插件能「发请求给听澜并等响应」，
+也就是把上面的 `send` 和读帧循环配对成带 id 的等待表。完整实现见 Go SDK
+（`native/internal/plugin/sdk/`）或协议文档 §7。字段和错误码见[附录](#宿主服务)。
+
+## 出问题了怎么办
+
+| 你看到的 | 原因 | 怎么办 |
 | --- | --- | --- |
-| `schemaVersion` | 是 | 当前只接受 `1` |
-| `entry` | 是 | 平台键 → 启动方式；平台键缺失时回退 `any` |
-| `id` | 否 | 仅内置插件写死；导入的插件由宿主分配，不要自己写 |
-| `builtin` | 否 | 仅随应用分发的插件为 `true` |
-| `digest` | 否 | 宿主安装后写入，用于重复导入检测，插件不要手写 |
+| `启动插件失败（node）：executable file not found` | 听澜的 PATH 里没有 node | `source.json` 里写 node 的绝对路径，如 `/opt/homebrew/bin/node` |
+| `unsupported protocol 0` | `initialize` 没按格式回 | 检查是否返回了 `protocolVersion` 和 `descriptor` |
+| 设置页有插件，搜索页没页签 | 插件没启用，或 `capabilities.search` 不是 `true` | 先启用；再检查能力声明 |
+| 搜索结果徽标显示「?」 | `shortName` 为空 | 写 1~2 个字 |
+| 搜索一直转圈 | 你忘了回 `reply`，或 `hasMore` 永远 true | 每个请求都必须有回应 |
+| 导入时提示「已经导入过了」 | 同一个插件重复导入 | 直接用已有的那个，或先删旧目录再导入 |
+| 点播放没反应 | 没实现 `resolve` | 见第 7 步第 3 小节 |
 
-平台键：`darwin-arm64`、`darwin-x64`、`windows-x64`、`linux-x64`（`amd64` 归一为 `x64`）。
+手动试插件（不打开听澜）：
 
-启动方式两种：
+```bash
+body='{"jsonrpc":"2.0","id":"1","method":"source.catalog.search","params":{"query":"第一"}}'
+printf 'Content-Length: %d\r\n\r\n%s' "${#body}" "$body" | node main.mjs
+```
 
-- **字符串**：插件目录内的可执行文件，必须是相对路径、不能逃逸目录、必须有执行位。
-- **对象（MCP 式）**：`command` 按 PATH 或绝对路径解析，`args` / `env` 原样传入。
-  相对 `args` 如果在插件目录内存在会转成绝对路径；绝对 `args` 和含 `..` 的 `args` 会被拒绝。
+## 做完之后你应该看到
 
-导入时宿主会启动一次插件读取它的自述（describe），成功后把清单里的 `id` 改写成
-分配的身份（例如 `node-3df1`），同时缓存一份 `descriptor.json` 供停用状态下展示。
+- 设置 → 音源：多一个「我的音源」，开关是开的，可以停用/再启用。
+- 搜索页：输入框下面多一个「我的音源」页签，切过去搜「第一」出现「第一首歌」。
+- 重启听澜：插件仍然在，状态保持启用。
 
-## 3. 通信：stdio + Content-Length + JSON-RPC 2.0
+## 你只需要记住这些
 
-宿主和插件之间只有 stdin/stdout 两条管道。每帧格式与 LSP 相同：
+1. `stdout` 只写帧；日志走 `stderr`。
+2. 握手时用听澜给的 `assignedId` 当 `id`。
+3. 每个请求都要回一条消息，成功 `result`、失败 `error`。
+4. 分页最后一页 `hasMore: false`。
+5. 不要自己写 `source.json` 的 `id`，导入时听澜分配。
+6. 插件以你的用户权限运行，没有沙箱，只装你信得过的插件。
+
+## 附录：协议速查
+
+### 帧格式
 
 ```text
 Content-Length: 123\r\n
@@ -89,93 +334,20 @@ Content-Length: 123\r\n
 {"jsonrpc":"2.0","id":"h:1","method":"initialize","params":{...}}
 ```
 
-- 单帧上限 16 MiB，超限直接断连。
-- 单次调用默认 60 秒超时；超时宿主会发 `$/cancelRequest`，插件应尽快结束。
-- stdout 只能写协议帧；日志写 stderr，宿主会保留最后一段用于报错。
-- 请求 ID 建议宿主用 `h:*`、插件用 `p:*`，方便读日志。
+单帧最大 16 MiB；单次调用默认 60 秒超时。
 
-Node 侧最小读帧实现：
-
-```js
-let buffer = Buffer.alloc(0);
-process.stdin.on("data", (chunk) => {
-  buffer = Buffer.concat([buffer, chunk]);
-  for (;;) {
-    const head = buffer.indexOf("\r\n\r\n");
-    if (head < 0) return;
-    const match = /content-length:\s*(\d+)/i.exec(buffer.subarray(0, head).toString());
-    const start = head + 4;
-    if (buffer.length < start + Number(match[1])) return;
-    const body = buffer.subarray(start, start + Number(match[1])).toString();
-    buffer = buffer.subarray(start + Number(match[1]));
-    handle(JSON.parse(body));
-  }
-});
-function send(payload) {
-  const body = JSON.stringify(payload);
-  process.stdout.write(`Content-Length: ${Buffer.byteLength(body)}\r\n\r\n${body}`);
-}
-```
-
-## 4. 生命周期
+### 方法表
 
 ```text
-宿主 spawn 插件
-   → initialize     宿主说明协议版本、宿主服务、分配给你的 id
-   ← 插件回 descriptor + 必需宿主服务
-   → initialized    通知（无参数）
-   → source.* 调用
-   → shutdown       插件回 {} 后退出
-```
-
-`initialize` 的请求：
-
-```json
-{
-  "protocolVersion": { "min": 1, "max": 1 },
-  "assignedId": "node-3df1",
-  "hostServices": ["session", "webview", "log"],
-  "limits": { "sessionValueBytes": 1048576, "sessionTotalBytes": 8388608, "sessionKeys": 64 },
-  "hostVersion": "1.0"
-}
-```
-
-`initialize` 的响应：
-
-```json
-{
-  "protocolVersion": 1,
-  "descriptor": {
-    "schemaVersion": 1,
-    "id": "node-3df1",
-    "name": "我的音源",
-    "shortName": "我",
-    "accent": "#3C873A",
-    "capabilities": { "search": true, "playlist": true, "import": true, "resolve": true, "lyrics": false }
-  },
-  "requiredHostServices": []
-}
-```
-
-- `id` 必须是宿主给的那个（`assignedId`）；自报不一致会被拒绝启用。
-- `name` 必填；`shortName` 取 1–2 个字符，用于列表徽标；`accent` 是十六进制颜色。
-- `requiredHostServices` 只能要求宿主在 `hostServices` 里声明过的服务。
-
-## 5. 方法
-
-必须实现三个：`source.describe`、`source.auth.status`、`source.catalog.search`。
-其余按 `capabilities` 里声明为 `true` 的实现；没声明的可以返回 `-32601`。
-
-```text
-source.describe               → Descriptor
-source.auth.status            → AuthStatus
-source.auth.verify            → AuthStatus            （联网校验，可返回 unknown）
+source.describe               → Descriptor           （必做）
+source.auth.status            → AuthStatus           （必做）
+source.catalog.search         → Page<Track>          （必做）
+source.auth.verify            → AuthStatus
 source.auth.login             {kind, attemptId, writeToken} → AuthResult
 source.auth.logout            → {}
 source.auth.persistSession    {operationId, writeToken} → {persisted}
 source.library.import         {collection, runId, cursor, limit} → ImportPage
 source.library.resolve        {track, quality} → Playback
-source.catalog.search         {query, cursor, limit} → Page<Track>
 source.catalog.playlists      {kind, cursor, limit} → Page<Playlist>
 source.catalog.playlistDetail {ref, section?, cursor, limit} → PlaylistDetail
 source.catalog.albumDetail    {ref, section?, cursor, limit} → AlbumDetail
@@ -187,62 +359,18 @@ source.manage.updatePlaylistDescription {ref, description} → {}
 source.manage.deletePlaylist  {ref} → {}
 ```
 
-分页统一用不透明游标：
+### 分页
 
 ```json
-{ "items": [ ... ], "nextCursor": "20", "hasMore": true }
+{ "items": [ ... ], "nextCursor": "2", "hasMore": true }
 ```
 
-游标由插件自己定义（`"20"`、base64、时间戳都行），宿主只负责原样回传。
-最后一页必须 `hasMore: false`，导入流程据此判断「跑完了」，否则不会提交。
-
-### 5.1 最小实现（Node）
-
-```js
-function handle(msg) {
-  if (msg.method === undefined) return; // 宿主的响应，忽略
-  const id = msg.id;
-  switch (msg.method) {
-    case "initialize": {
-      const assigned = msg.params?.assignedId;
-      reply(id, {
-        protocolVersion: 1,
-        descriptor: { schemaVersion: 1, id: assigned, name: "我的音源", shortName: "我",
-          capabilities: { search: true } },
-        requiredHostServices: [],
-      });
-      return;
-    }
-    case "initialized":
-      return;
-    case "source.auth.status":
-      reply(id, { state: "signedOut" });
-      return;
-    case "source.catalog.search": {
-      const q = String(msg.params?.query ?? "");
-      reply(id, {
-        items: [{ id: "1", title: `你搜了：${q}`, artists: [{ id: "a", name: "歌手" }] }],
-        hasMore: false,
-      });
-      return;
-    }
-    case "shutdown":
-      reply(id, {});
-      setTimeout(() => process.exit(0), 10);
-      return;
-    default:
-      send({ jsonrpc: "2.0", id, error: { code: -32601, message: "unsupported" } });
-  }
-}
-```
-
-## 6. 数据格式
+游标内容由你定义，听澜只负责原样带回。
 
 ### Track
 
 ```json
 {
-  "source": "node-3df1",
   "id": "platform-track-id",
   "title": "歌名",
   "artists": [{ "id": "artist-id", "name": "歌手" }],
@@ -252,145 +380,38 @@ function handle(msg) {
 }
 ```
 
-- `source` 由宿主覆盖为你被分配的 id，插件写了也会被替换。
-- `rawSource`（适配器原始负载）不会跨进程传输，不要依赖它。
-- 不要设置 `onlySource` / `collected`，那是宿主队列状态。
+### 错误码
 
-### Playlist / Album / Artist
+| code | 含义 | 听澜的表现 |
+| --- | --- | --- |
+| -32001 | 需要登录 | 提示去登录 |
+| -32002 | 无权限 | 说明原因，不重试 |
+| -32003 | 不存在 | 返回上一级 |
+| -32004 | 限流 | 显示重试时间 |
+| -32005 | 未实现该能力 | 隐藏入口 |
+| -32006 | 已取消 | 不提示 |
+| -32007 | 写冲突 | 刷新后重试 |
+| -32008 | 协议错误 | 记日志 |
+| -32009 | 临时故障 | 允许重试 |
+| -32010 | 不可用 | 提示稍后再试 |
+| -32601 | 方法不存在 | 视为未实现 |
 
-```json
-{ "source": "node-3df1", "id": "playlist-id", "kind": "owned", "name": "我的歌单", "trackCount": 20 }
-```
-
-`kind` 取 `owned` / `favorite` / `chart`（歌单）或 `local` / `imported`（本机视角，插件不要用）。
-
-### Playback
-
-```json
-{
-  "url": "https://...",
-  "quality": "lossless",
-  "access": "full",
-  "durationMs": 240000,
-  "expiresAt": "2026-11-04T10:00:00Z"
-}
-```
-
-`access` 取 `full` / `preview` / `unknown`。播放地址只在内存里传递，不落盘。
-
-## 7. 宿主服务
-
-插件可以回调宿主，宿主按当前插件身份做权限隔离：
+### 宿主服务
 
 ```text
 host.session.get    {key} → {value(base64), revision, exists}
 host.session.set    {key, value(base64), ifRevision, writeToken} → {revision}
 host.session.delete {key, ifRevision, writeToken} → {}
 host.session.list   → {keys[]}
-host.webview.open   {attemptId, url, allowedDomains, callbackScheme, callbackHost, callbackPath, requireSessionExport} → {callbackUrl, cookies, canceled}
-host.auth.present   {attemptId, kind, payload, expiresAt} → {}   // 当前返回 -32004
+host.webview.open   {attemptId, url, allowedDomains, callbackScheme, callbackHost, callbackPath} → {callbackUrl, cookies, canceled}
 host.log            {level, message}
 ```
 
-会话存储要点：
+会话值用 base64；单值 ≤1 MiB、每插件 ≤8 MiB、最多 64 个 key。
+`host.auth.present`（二维码展示）目前未实现，会返回 `-32004`。
 
-- 值是任意字节，JSON 里用 base64 传；单值 ≤1 MiB、每插件 ≤8 MiB、最多 64 个 key。
-- `get/list` 不需要令牌；`set/delete` 必须带宿主随登录调用下发的 `writeToken`，
-  插件没有申请令牌的入口。
-- 退出登录由宿主清空整个命名空间，插件不需要自己删。
-- 数据随插件身份隔离，卸载插件会删除。
+### 参考
 
-登录窗口：插件调 `host.webview.open` 后，宿主用内嵌 WKWebView/WebView2 打开授权页，
-拦截指定的回调 scheme，把回调 URL 和 Cookie 返回给插件；插件自己完成 code→token 交换。
-插件不应把登录逻辑交给宿主。
-
-二维码：纯 HTTP 扫码登录的源需要宿主渲染二维码，对应 `host.auth.present`，
-这一项尚未实现（返回 `-32004`），所以目前脚本插件请用 WebView 登录。
-
-## 8. 错误码
-
-插件用 JSON-RPC `error` 返回业务错误，宿主据此决定 UI：
-
-| 场景 | code | 宿主表现 |
-| --- | --- | --- |
-| 需要登录 | -32001 | 提示去登录 |
-| 无权限 | -32002 | 说明原因，不重试 |
-| 不存在 | -32003 | 返回上一级 |
-| 限流 | -32004 | 显示重试时间 |
-| 不支持 | -32005 | 隐藏入口 |
-| 已取消 | -32006 | 不提示 |
-| 写冲突 | -32007 | 刷新后重试 |
-| 协议错误 | -32008 | 记日志 |
-| 临时故障 | -32009 | 允许重试 |
-| 不可用 | -32010 | 提示稍后再试 |
-| 方法不存在 | -32601 | 视为未实现 |
-
-错误信息会展示给用户，写清楚原因，不要只写 `failed`。
-
-## 9. 安装、升级与卸载
-
-- **安装**：设置 → 音源 → 导入插件 → 系统目录选择器。
-- **重复导入**：宿主对插件目录做摘要比对，同一份插件再次导入会提示「已经导入过了」并复用原条目。
-- **启用**：需要用户在确认框里授权；内置插件默认启用，用户可手动停用。
-- **升级**：先用「停用」，把新版本文件覆盖进 `<用户数据目录>/sources/<id>/`，再启用。
-  覆盖后 `source.json` 里的 `id`/`digest` 由宿主维护，保持原值即可。
-- **卸载**：停用后删除 `<用户数据目录>/sources/<id>/` 目录，同时会清掉该插件的会话数据。
-
-macOS 用户数据目录：`~/Library/Application Support/tinglan/native-v1/`。
-Windows：`%APPDATA%\tinglan\native-v1\`。
-
-## 10. 调试
-
-- 插件日志写 stderr；启动失败时宿主会把 `command` 和 stderr 末尾片段带进错误信息。
-- 手动跑协议，不必打开应用：
-
-  ```bash
-  body='{"jsonrpc":"2.0","id":"1","method":"source.auth.status","params":{}}'
-  printf 'Content-Length: %d\r\n\r\n%s' "${#body}" "$body" | node main.mjs
-  ```
-
-- 用 `TINGLAN_PLUGIN_ROOT=<你的插件父目录>` 启动应用或 `go test`，可以额外挂一个插件根目录，
-  不污染用户数据目录。
-- 仓库自带 Go 契约测试可参考：`native/internal/plugin/huawei_plugin_test.go`、
-  `native/internal/plugin/real_sample_test.go`（需 `TINGLAN_PLUGIN_ROOT`）。
-
-## 11. 安全与信任
-
-- 插件是**第三方程序**，以你的用户权限运行，能读写你的网络与文件。宿主不做沙箱隔离，
-  只在启用前显示插件名、路径和授权说明。
-- 宿主对插件自报的 `id` 不信任：安装时分配身份，握手时校验一致，返回的曲目也会被
-  强制改写成宿主身份。
-- 插件不能访问其它插件的会话命名空间，也不能读取宿主里的本地曲库。
-- 不要记录用户凭据到 stderr 或磁盘；凭据放 `host.session`，由宿主加密保存。
-- 发布插件前请自测：登录、退出、重启后恢复、限流、断网、空结果、超长标题。
-
-## 12. 常见问题
-
-**`启动插件失败（node）：exec: "node": executable file not found in $PATH`**
-宿主进程的 PATH 里没有 node。macOS 上从 Finder 启动的应用 PATH 可能与终端不同，
-写绝对路径（`/opt/homebrew/bin/node`）或在 `args` 里显式给解释器路径。
-
-**`unsupported protocol 0`**
-`initialize` 响应不是结构化格式，检查是否返回了 `protocolVersion` 和 `descriptor`。
-
-**插件出现在设置页，但搜索页没有页签**
-只有 `sourceEnabled` 为真的源才会出现在搜索页签；先确认已启用，再看
-`capabilities.search` 是否为 `true`。
-
-**搜索结果没有来源徽标 / 徽标显示问号**
-`descriptor.shortName` 为空。给它 1–2 个字符。
-
-**导入收藏卡在「正在读取」**
-分页最后一页没有返回 `hasMore: false`，宿主会一直认为还有下一页。
-
-**Windows 上脚本插件起不来**
-直接用 `.mjs`/`.py` 不行，Windows 没有 shebang：写
-`{"command":"node","args":["main.mjs"]}` 或 `{"command":"cmd","args":["/c","main.bat"]}`。
-
-## 13. 参考实现
-
-- Go SDK：`native/internal/plugin/sdk/`，内置华为插件 `native/cmd/huawei-source/`
-  用它实现了完整能力（登录、搜索、歌单、导入、解析、写操作）。
-- Node 最小实现：`native/internal/plugin/testdata/node-source-plugin/`。
-- 完整协议：[SOURCE_PLUGIN_PROTOCOL.md](SOURCE_PLUGIN_PROTOCOL.md)。
-- 契约定义：[SOURCE_CONTRACT.md](SOURCE_CONTRACT.md)。
+- 能直接导入的完整示例：[`native/internal/plugin/testdata/node-source-plugin/`](../native/internal/plugin/testdata/node-source-plugin/)
+- 完整协议：[SOURCE_PLUGIN_PROTOCOL.md](SOURCE_PLUGIN_PROTOCOL.md)
+- 契约语义：[SOURCE_CONTRACT.md](SOURCE_CONTRACT.md)
