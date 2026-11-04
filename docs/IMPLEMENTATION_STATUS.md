@@ -375,3 +375,18 @@ Windows CI 验证（2026-10-30）：PR #7 的 Actions 41006196146 三目标均�
   （标题「添加音源」），未完成选择即关闭。
 - 未验证：Windows 实机与插件包安装、zip 选择后的导入/更新真实流程、首次授权只弹一次的真实观察。
   未提交、未推送。
+
+### 2026-11-04：添加音源（zip）、一次性授权与插件发布
+
+- 设置 → 音源 的入口改为「添加音源」（`app.OpenFiles`，过滤 `*.zip`），另保留「从文件夹添加…」供本地开发；
+  zip 解压在 `internal/plugin/zip.go`，拒绝绝对路径、`..` 与符号链接，限制 4096 文件 / 256 MiB。
+- 首次启用弹一次授权（名称、路径、以用户权限运行），确认后写入 `plugin.consent`；之后启动、开关、重新启用不再提示。
+- 插件仓库目录移到仓库根 `plugins/<id>/`（与 `native/` 平级）；`tinglan-tool plugins [platform]` 打包
+  `release/plugins/<id>-<version>-<platform>.zip` 与 `SHA256SUMS`：`builtin: true` 的官方插件编译该平台二进制，
+  其他插件原样打包源码。CI build job 每个平台各自打包并上传，release job 下载、校验并随安装包一起发布。
+- verified（macOS arm64 实机）：`/tmp/zipdemo/node-demo.zip` 经系统选择器添加 → 弹出一次性授权 → 点「启用」后
+  `sources/node-demo/` 生成、`node .../sources/node-demo/main.mjs` 进程运行；设置页出现该源。
+  离线测试：`internal/plugin/zip_test.go`（布局、单层目录、多插件拒绝、越界路径、空包）、
+  `TestManagerConsentIsRemembered`（跨重启保留、按 id 隔离）、`TestManagerUpdatesPluginWithSameID`。
+- 未验证：Windows 插件编译与安装（CI 需 mingw + 实机）、真实第三方插件作者环境、重复添加走 UI 的「已更新」提示
+  （同 id 更新由单元测试覆盖）。
