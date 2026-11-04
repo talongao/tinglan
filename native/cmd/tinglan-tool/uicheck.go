@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -26,6 +27,10 @@ func uiCheckCommand(stdout, _ io.Writer, _ []string) error {
 		return err
 	}
 	binary := filepath.Join(qa, "music-headless")
+	if runtime.GOOS == "windows" {
+		// go build -o appends .exe on Windows; exec needs the real file name.
+		binary += ".exe"
+	}
 	build := exec.Command(goBin, "build", "-tags=vivahead", "-o", binary, "./cmd/music")
 	build.Dir = native
 	build.Stdout, build.Stderr = os.Stdout, os.Stderr
