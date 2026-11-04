@@ -19,6 +19,10 @@ on:
         description: Windows x64 installer
         type: boolean
         default: false
+      plugins:
+        description: 'Plugins to package: "all" or comma-separated ids (empty = none)'
+        type: string
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -30,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      plugins: ${{ steps.targets.outputs.plugins }}
     steps:
       - uses: actions/checkout@v4
       - id: targets
@@ -39,6 +44,7 @@ jobs:
           MAC_ARM64: ${{ inputs.mac_arm64 }}
           MAC_X64: ${{ inputs.mac_x64 }}
           WINDOWS_X64: ${{ inputs.windows_x64 }}
+          PLUGINS: ${{ inputs.plugins }}
         working-directory: native
         run: go run ./cmd/tinglan-tool ci-targets
   build:
@@ -120,8 +126,11 @@ jobs:
         working-directory: native
         run: go run ./cmd/tinglan-tool package ${{ matrix.platform }} ${{ matrix.arch }}
       - name: Package plugins
+        if: needs.plan.outputs.plugins != ''
         working-directory: native
         shell: bash
+        env:
+          TINGLAN_PLUGINS: ${{ needs.plan.outputs.plugins }}
         run: |
           case "${{ matrix.id }}" in
             macos-arm64) target=darwin-arm64 ;;
@@ -146,6 +155,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Upload plugin packages
+        if: needs.plan.outputs.plugins != ''
         uses: actions/upload-artifact@v4
         with:
           name: tinglan-${{ matrix.id }}-plugins
@@ -225,7 +235,8 @@ jobs:
             cp "$bundle" release-assets/
             found=$((found+1))
           done < <(find plugin-artifacts -name '*.zip' -print0)
-          test "$found" -eq 3
+          expected=$(( $(ls -d plugins/*/ | wc -l) * 3 ))
+          test "$found" -eq "$expected"
           for sums in plugin-artifacts/*/SHA256SUMS; do
             cat "$sums" >> release-assets/SHA256SUMS
           done

@@ -66,6 +66,10 @@ func pluginsCommand(stdout, stderr io.Writer, args []string) error {
 			return usageError("plugins", "unknown platform "+want)
 		}
 	}
+	filter, err := pluginFilter()
+	if err != nil {
+		return err
+	}
 	source := filepath.Join(root, "plugins")
 	entries, err := os.ReadDir(source)
 	if err != nil {
@@ -81,6 +85,9 @@ func pluginsCommand(stdout, stderr io.Writer, args []string) error {
 	var sums []string
 	for _, entry := range entries {
 		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		if filter != nil && !filter[entry.Name()] {
 			continue
 		}
 		dir := filepath.Join(source, entry.Name())
@@ -129,6 +136,28 @@ func pluginsCommand(stdout, stderr io.Writer, args []string) error {
 		return err
 	}
 	return nil
+}
+
+// pluginFilter reads TINGLAN_PLUGINS. Unset or "all" packages every plugin;
+// an empty value is a caller error; otherwise it is a comma-separated id list.
+func pluginFilter() (map[string]bool, error) {
+	raw, ok := os.LookupEnv("TINGLAN_PLUGINS")
+	if !ok || strings.TrimSpace(raw) == "all" {
+		return nil, nil
+	}
+	if strings.TrimSpace(raw) == "" {
+		return nil, usageError("plugins", "TINGLAN_PLUGINS 为空：没有选择要打包的插件")
+	}
+	filter := make(map[string]bool)
+	for _, part := range strings.Split(raw, ",") {
+		if id := strings.TrimSpace(part); id != "" {
+			filter[id] = true
+		}
+	}
+	if len(filter) == 0 {
+		return nil, usageError("plugins", "TINGLAN_PLUGINS 没有有效插件 id")
+	}
+	return filter, nil
 }
 
 // stagePlugin fills stage with the files that make up one plugin package.
