@@ -58,7 +58,8 @@ func (m *model) paintStage(c *ui.Canvas, size ui.Size) {
 		m.text(c, m.lyricSource, rect(pad, cover.Y+side+114, column, 16), 10, 400, color(m.palette().text, .34))
 	}
 	area := rect(pad+column+gap, 46, size.Width-2*pad-column-gap, bodyHeight)
-	active := lyrics.Active(m.lyricLines, m.audioState.Position+m.lyricOffset)
+	position := m.lyricPosition()
+	active := lyrics.Active(m.lyricLines, position)
 	offset := m.stageLineOffset(max(0, active))
 	if m.lyricManual {
 		offset = m.lyricScroll
@@ -109,18 +110,25 @@ func (m *model) paintStage(c *ui.Canvas, size ui.Size) {
 		}
 		m.centerText(c, line.Text, bounds, font, 600, tint)
 		if i == active && len(line.Words) > 0 {
-			prefix := ""
-			for _, word := range line.Words {
-				if m.audioState.Position+m.lyricOffset < word.Time {
-					break
-				}
-				prefix += word.Text
-			}
 			full := m.textWidth(c, line.Text, font, ui.WeightSemibold) + 4
-			passed := m.textWidth(c, prefix, font, ui.WeightSemibold)
-			c.Clip(rect(bounds.X+(bounds.Width-full)/2, bounds.Y, passed, bounds.Height))
+			passed := m.sungWidth(c, line, i, position, font)
+			origin := bounds.X + (bounds.Width-full)/2
+			c.Clip(rect(origin, bounds.Y, passed, bounds.Height))
 			m.centerText(c, line.Text, bounds, font, 600, color(m.palette().accent, fade))
 			c.Unclip()
+			// A hard clip edge reads as a jump whenever a syllable begins. A
+			// short feather ahead of the head keeps the sweep soft at 60fps.
+			if passed > 0 && passed < full {
+				for step, alpha := range []float32{.5, .3, .15} {
+					edge := origin + passed + float32(step)*3.5
+					if edge >= origin+full {
+						break
+					}
+					c.Clip(rect(edge, bounds.Y, 3.5, bounds.Height))
+					m.centerText(c, line.Text, bounds, font, 600, color(m.palette().accent, fade*alpha))
+					c.Unclip()
+				}
+			}
 		}
 		for n, subtitle := range subtitles {
 			m.centerText(c, subtitle, rect(bounds.X, y+34+float32(n)*26, bounds.Width, 20), 13, 400, color(m.palette().text, .48*fade))
@@ -194,4 +202,57 @@ func (m *model) resumeLyricFollow(now time.Time) {
 	if !m.lyricDragging && m.lyricManual && !m.lyricResumeAt.IsZero() && !now.Before(m.lyricResumeAt) {
 		m.lyricManual = false
 	}
+}
+
+// lyricPosition extrapolates the decoder clock between snapshots. Repaints are
+// far apart compared with a syllable, and snapping to the last sample made the
+// karaoke sweep look like it jumped.
+func (m *model) lyricPosition() float64 {
+	position := m.audioState.Position
+	if m.audioRunning && m.audioState.Playing && !m.audioSampledAt.IsZero() {
+		if ahead := time.Since(m.audioSampledAt).Seconds(); ahead > 0 && ahead < .5 {
+			position += ahead
+		}
+	}
+	return position + m.lyricOffset
+}
+
+// sungWidth returns how much of the line has been sung, interpolating inside
+// the current syllable so the highlight advances continuously instead of
+// hopping from one glyph to the next.
+func (m *model) sungWidth(c *ui.Canvas, line lyrics.Line, index int, position float64, font float32) float32 {
+	weight := ui.WeightSemibold
+	var passed float32
+	for n, word := range line.Words {
+		width := m.textWidth(c, word.Text, font, weight)
+		if position >= m.wordEnd(index, n) {
+			passed += width
+			continue
+		}
+		if position <= word.Time {
+			return passed
+		}
+		progress := (position - word.Time) / (m.wordEnd(index, n) - word.Time)
+		if progress < 0 {
+			progress = 0
+		}
+		if progress > 1 {
+			progress = 1
+		}
+		// Smootherstep keeps the sweep from jerking as a syllable starts.
+		progress = progress * progress * progress * (progress*(progress*6-15) + 10)
+		return passed + float32(progress)*width
+	}
+	return m.textWidth(c, line.Text, font, weight)
+}
+
+func (m *model) wordEnd(index, n int) float64 {
+	line := m.lyricLines[index]
+	if n+1 < len(line.Words) {
+		return line.Words[n+1].Time
+	}
+	if index+1 < len(m.lyricLines) {
+		return m.lyricLines[index+1].Time
+	}
+	return line.Words[n].Time + .4
 }

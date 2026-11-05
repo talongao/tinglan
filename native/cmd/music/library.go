@@ -113,6 +113,7 @@ type desktopState struct {
 	remoteHistoryOpen bool
 	lyricLines        []lyrics.Line
 	stageOpen         bool
+	audioSampledAt    time.Time
 	lyricOffset       float64
 	lyricTrack        string
 	lyricManual       bool
@@ -697,6 +698,7 @@ func (m *model) pollAudio() {
 	}
 	m.audioState = m.player.Snapshot()
 	m.queue.Position = m.audioState.Position
+	m.audioSampledAt = time.Now()
 	// List APIs never return a duration, so remember the one the decoder
 	// reports and persist it in the queue entry. Without this a restored
 	// player shows a playhead against a 0:00 total.
@@ -770,7 +772,12 @@ func (m *model) pollAudio() {
 	if m.playTimer != nil {
 		m.playTimer.Stop()
 	}
-	m.playTimer = time.AfterFunc(100*time.Millisecond, m.requestUpdate)
+	interval := 100 * time.Millisecond
+	if m.stageOpen && m.audioRunning {
+		// Karaoke needs a smoother clock than the rest of the window.
+		interval = 16 * time.Millisecond
+	}
+	m.playTimer = time.AfterFunc(interval, m.requestUpdate)
 }
 
 func collectionFresh(saved, now time.Time) bool {
