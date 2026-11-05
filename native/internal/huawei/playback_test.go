@@ -68,7 +68,7 @@ func TestPlaybackMarksPreviewStream(t *testing.T) {
 
 func TestPlaybackFullStreamIsNotPreview(t *testing.T) {
 	c := newClient(transportFunc(func(*http.Request) (*http.Response, error) {
-		return response(`{"result":{"resultCode":"000000"},"fileURL":"https://audio.dbankcdn.cn/a","playQuality":"1","type":"audio/mpeg","auditionTime":30000,"songInfo":{"duration":"258"}}`, 200), nil
+		return response(`{"result":{"resultCode":"000000"},"fileURL":"https://xz.tingmall.com/content/17/146/17146808-MP3-128K-FTD.mp3?sign=x","playQuality":"1","type":"audio/mpeg","auditionTime":30000,"auditionEnd":29000,"songInfo":{"duration":"302"}}`, 200), nil
 	}))
 	p, err := c.ResolvePlayback(context.Background(), &Session{token: "fixture", snsUserID: "fixture"}, "track", "standard")
 	if err != nil || p.Preview {

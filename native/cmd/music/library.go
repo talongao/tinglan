@@ -706,6 +706,11 @@ func (m *model) pollAudio() {
 			m.learnedDurationFor = t.ID
 			m.saveQueue()
 		}
+		// A decoded stream longer than a minute is not a trial clip, whatever
+		// the provider's audition fields claim.
+		if d > 60 && m.currentAccess == music.AccessPreview {
+			m.currentAccess = music.AccessFull
+		}
 	}
 	m.checkDuration()
 	m.updateMedia()

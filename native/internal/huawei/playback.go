@@ -137,7 +137,7 @@ func (c *Client) ResolvePlayback(ctx context.Context, s *Session, id, quality st
 		}
 	}
 	p.Duration = number(song["duration"])
-	p.Preview = previewStream(response.URL) || auditionClip(number(response.AuditionEnd), p.Duration)
+	p.Preview = previewStream(response.URL)
 	// The word-by-word address arrives either at the top level or nested in
 	// songInfo, depending on the endpoint version.
 	blocks := []json.RawMessage{response.Lyrics}
@@ -185,25 +185,11 @@ func lyricURLs(raw json.RawMessage) (lrc, hmrc string) {
 	return lrc, hmrc
 }
 
-// previewStream reports whether the provider handed out a trial clip instead of
-// the whole track. Full resources never live under /preview/.
+// previewStream reports the one stream shape the provider uses for trials.
+// auditionEnd/auditionTime are not evidence: they also appear on full
+// resources, which is how a complete 5:02 track was once flagged as a trial.
 func previewStream(raw string) bool {
-	lower := strings.ToLower(raw)
-	return strings.Contains(lower, "/preview/") || strings.Contains(lower, "-ftd-")
-}
-
-// auditionClip recognises trial streams that are not served from /preview/:
-// the provider reports a short auditionEnd window while songInfo still carries
-// the full duration. auditionTime alone is meaningless (it appears on full
-// resources too), so it is never consulted.
-func auditionClip(end, duration *float64) bool {
-	if end == nil || *end <= 0 || *end >= 90000 {
-		return false
-	}
-	if duration != nil && *duration > 0 && *end >= *duration-2 {
-		return false
-	}
-	return true
+	return strings.Contains(strings.ToLower(raw), "/preview/")
 }
 
 var flacCodec = regexp.MustCompile(`\bflac\b`)

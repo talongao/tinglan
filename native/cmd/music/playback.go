@@ -152,6 +152,15 @@ func (m *model) sourceLyrics(ctx context.Context, link music.SourceLink) ([]lyri
 	}
 	lines, err := src.Lyrics().Lyrics(ctx, source.TrackRef{Source: link.Source, ID: link.TrackID})
 	if err != nil || len(lines) == 0 {
+		m.logPlugin("lyrics failed: source=%s track=%s err=%v", link.Source, link.TrackID, err)
+		// A plugin loads its stored session on the first auth call. Ask for the
+		// status once and retry, otherwise the first lyric request after launch
+		// is answered with "login".
+		if _, statusErr := src.Auth().Status(ctx); statusErr == nil {
+			if retry, retryErr := src.Lyrics().Lyrics(ctx, source.TrackRef{Source: link.Source, ID: link.TrackID}); retryErr == nil && len(retry) > 0 {
+				return retry, sourceLabel(link.Source.String())
+			}
+		}
 		return nil, ""
 	}
 	return lines, sourceLabel(link.Source.String())

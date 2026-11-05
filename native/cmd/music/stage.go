@@ -102,8 +102,10 @@ func (m *model) paintStage(c *ui.Canvas, size ui.Size) {
 		bounds := rect(area.X+10, y, area.Width-20, 32)
 		tint := color(m.palette().text, alpha)
 		if i == active {
-			tint = m.accent()
-			tint.Alpha = fade
+			// The active line is drawn twice: a dimmed base for the words that
+			// have not been sung yet, then the sung prefix on top. Using the
+			// accent for both made the whole line look finished at once.
+			tint = color(m.palette().accent, .42*fade)
 		}
 		m.centerText(c, line.Text, bounds, font, 600, tint)
 		if i == active && len(line.Words) > 0 {

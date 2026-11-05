@@ -1,6 +1,7 @@
 package huawei
 
 import (
+	"strings"
 	"testing"
 
 	"tinglan/native/internal/lyrics"
@@ -47,5 +48,27 @@ func TestMergeTranslationsMatchesByTime(t *testing.T) {
 	}
 	if got[0].Text != "晴天 - 周杰伦 (Jay Chou)" || got[1].Text != "第二行" {
 		t.Fatalf("text = %q / %q", got[0].Text, got[1].Text)
+	}
+}
+
+func TestParseHMRCSplitsInlineRomanization(t *testing.T) {
+	raw := "[17910,2560]<0,1280>可<1280,640>以<1920,320>笑 ^ho yi siu\n"
+	lines := parseHMRC(raw)
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d", len(lines))
+	}
+	if lines[0].Text != "可以笑" {
+		t.Fatalf("text = %q", lines[0].Text)
+	}
+	if lines[0].Romanization != "ho yi siu" {
+		t.Fatalf("romanization = %q", lines[0].Romanization)
+	}
+	if len(lines[0].Words) != 3 {
+		t.Fatalf("words = %+v", lines[0].Words)
+	}
+	for _, w := range lines[0].Words {
+		if strings.Contains(w.Text, "^") {
+			t.Fatalf("caret leaked into word %q", w.Text)
+		}
 	}
 }

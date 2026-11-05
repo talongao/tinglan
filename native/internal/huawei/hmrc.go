@@ -35,6 +35,14 @@ func parseHMRC(raw string) []lyrics.Line {
 			continue
 		}
 		rest := line[end+1:]
+		// Cantonese rows append the romanisation after a caret, outside the
+		// word markers: "<0,300>偏<300,80>偏 ^pin pin". Keeping it inside the
+		// text would break both the display line and word-to-glyph alignment.
+		romanization := ""
+		if caret := strings.IndexByte(rest, '^'); caret >= 0 {
+			romanization = strings.TrimSpace(rest[caret+1:])
+			rest = rest[:caret]
+		}
 		var words []lyrics.Word
 		var text strings.Builder
 		for {
@@ -72,7 +80,7 @@ func parseHMRC(raw string) []lyrics.Line {
 		if body == "" {
 			continue
 		}
-		item := lyrics.Line{Time: start / 1000, Text: body, Words: words}
+		item := lyrics.Line{Time: start / 1000, Text: body, Romanization: romanization, Words: words}
 		_ = duration
 		out = append(out, item)
 	}
