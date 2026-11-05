@@ -95,6 +95,13 @@ func Parse(raw string) []Line {
 	return merged
 }
 
+// SplitInlineSubtitles separates a caret-joined row into original text,
+// pronunciation and translation. It is exported because providers that ship
+// their own document format (HMRC) use the same convention.
+func SplitInlineSubtitles(text string) (string, string, string) {
+	return splitInlineSubtitles(text)
+}
+
 // Providers also join original, pronunciation and translation with carets.
 // Require linguistic content and a CJK segment to preserve literal x^2, etc.
 func splitInlineSubtitles(text string) (string, string, string) {
@@ -128,6 +135,15 @@ func splitInlineSubtitles(text string) (string, string, string) {
 	return strings.TrimSpace(parts[0]), romanization, translation
 }
 
+func contains(rows []string, row string) bool {
+	for _, existing := range rows {
+		if existing == row {
+			return true
+		}
+	}
+	return false
+}
+
 func appendSubtitle(existing, extra string) string {
 	for _, row := range strings.Split(extra, "\n") {
 		row = strings.TrimSpace(row)
@@ -152,11 +168,12 @@ func appendSubtitle(existing, extra string) string {
 }
 
 // Subtitles keeps pronunciation and translation separate but in reading order.
+// Providers sometimes ship the same text as both, so repeats are dropped.
 func (line Line) Subtitles() []string {
 	var rows []string
 	for _, value := range []string{line.Romanization, line.Translation} {
 		for _, row := range strings.Split(value, "\n") {
-			if row = strings.TrimSpace(row); row != "" {
+			if row = strings.TrimSpace(row); row != "" && !contains(rows, row) {
 				rows = append(rows, row)
 			}
 		}

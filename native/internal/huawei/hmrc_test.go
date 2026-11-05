@@ -72,3 +72,34 @@ func TestParseHMRCSplitsInlineRomanization(t *testing.T) {
 		}
 	}
 }
+
+func TestParseHMRCTreatsCJKCaretTailAsTranslation(t *testing.T) {
+	raw := "[12000,3000]<0,1500>I'm <1500,1500>drivin' ^我开着车兜圈子\n"
+	lines := parseHMRC(raw)
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(lines))
+	}
+	if lines[0].Translation != "我开着车兜圈子" {
+		t.Fatalf("translation = %q", lines[0].Translation)
+	}
+	if lines[0].Romanization != "" {
+		t.Fatalf("romanization = %q, want empty", lines[0].Romanization)
+	}
+	if lines[0].Text != "I'm drivin'" {
+		t.Fatalf("text = %q", lines[0].Text)
+	}
+}
+
+func TestParseHMRCStripsMarkersFromSubtitleTail(t *testing.T) {
+	raw := "[3390,3000]<0,1000>Lyrics <1000,1000>by ^<0,79>作<79,79>词<158,79>：<237,79>辛<316,79>克\n"
+	lines := parseHMRC(raw)
+	if len(lines) != 1 {
+		t.Fatalf("lines = %d, want 1", len(lines))
+	}
+	if lines[0].Translation != "作词：辛克" {
+		t.Fatalf("translation = %q", lines[0].Translation)
+	}
+	if lines[0].Romanization != "" {
+		t.Fatalf("romanization = %q, want empty", lines[0].Romanization)
+	}
+}

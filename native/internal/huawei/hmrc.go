@@ -38,10 +38,16 @@ func parseHMRC(raw string) []lyrics.Line {
 		// Cantonese rows append the romanisation after a caret, outside the
 		// word markers: "<0,300>偏<300,80>偏 ^pin pin". Keeping it inside the
 		// text would break both the display line and word-to-glyph alignment.
-		romanization := ""
+		romanization, translation := "", ""
 		if caret := strings.IndexByte(rest, '^'); caret >= 0 {
-			romanization = strings.TrimSpace(rest[caret+1:])
+			romanization = stripWordMarkers(strings.TrimSpace(rest[caret+1:]))
 			rest = rest[:caret]
+			// Foreign songs carry a translation there instead of a
+			// pronunciation. The script tells the two apart: a CJK tail on a
+			// Latin line is a translation, and the reverse is a romanisation.
+			if hasHan(romanization) && !hasHan(wordText(rest)) {
+				translation, romanization = romanization, ""
+			}
 		}
 		var words []lyrics.Word
 		var text strings.Builder
@@ -80,7 +86,7 @@ func parseHMRC(raw string) []lyrics.Line {
 		if body == "" {
 			continue
 		}
-		item := lyrics.Line{Time: start / 1000, Text: body, Romanization: romanization, Words: words}
+		item := lyrics.Line{Time: start / 1000, Text: body, Romanization: romanization, Translation: translation, Words: words}
 		_ = duration
 		out = append(out, item)
 	}
@@ -128,4 +134,44 @@ func sameWords(a, b string) bool {
 	}
 	left, right := normalizeLine(a), normalizeLine(b)
 	return left == right && left != ""
+}
+
+// stripWordMarkers drops the "<offset,length>" stamps that foreign rows keep
+// inside their subtitle tail, so "<0,79>作<79,79>词" reads as "作词".
+func stripWordMarkers(text string) string {
+	var out strings.Builder
+	for i := 0; i < len(text); {
+		if text[i] == '<' {
+			if end := strings.IndexByte(text[i:], '>'); end >= 0 && strings.Contains(text[i:i+end], ",") {
+				i += end + 1
+				continue
+			}
+		}
+		out.WriteByte(text[i])
+		i++
+	}
+	return strings.TrimSpace(strings.Join(strings.Fields(out.String()), " "))
+}
+
+// hasHan reports whether text contains a Han character.
+func hasHan(text string) bool {
+	return strings.IndexFunc(text, func(r rune) bool { return unicode.Is(unicode.Han, r) }) >= 0
+}
+
+// wordText strips the word markers so the script of the line body can be
+// inspected without their digits.
+func wordText(rest string) string {
+	var out strings.Builder
+	for i := 0; i < len(rest); {
+		if rest[i] == '<' {
+			if end := strings.IndexByte(rest[i:], '>'); end >= 0 {
+				i += end + 1
+				continue
+			}
+			break
+		}
+		out.WriteByte(rest[i])
+		i++
+	}
+	return out.String()
 }

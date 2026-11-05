@@ -45,3 +45,11 @@ func TestParseDropsCreditBlockFromSubtitles(t *testing.T) {
 		t.Fatalf("credit block leaked into translation: %q", got)
 	}
 }
+
+func TestSubtitlesCollapseRepeatedRows(t *testing.T) {
+	line := Line{Text: "I'm drivin' around in my car", Translation: "我开着车兜圈子", Romanization: "我开着车兜圈子"}
+	rows := line.Subtitles()
+	if len(rows) != 1 || rows[0] != "我开着车兜圈子" {
+		t.Fatalf("subtitles = %#v, want a single row", rows)
+	}
+}
