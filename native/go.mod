@@ -10,7 +10,7 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gopxl/beep v1.4.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/vivaui/viva v0.1.3
+	github.com/vivaui/viva v0.2.4
 	github.com/wailsapp/go-webview2 v1.0.23
 	github.com/zzl/go-com v1.5.0
 	github.com/zzl/go-webview2 v0.0.0-20230129130204-9df4a7d166d5
