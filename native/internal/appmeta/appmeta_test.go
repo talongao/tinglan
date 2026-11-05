@@ -30,7 +30,7 @@ func TestConstantsAreSet(t *testing.T) {
 
 func TestInfo(t *testing.T) {
 	t.Parallel()
-	want := "听澜 0.0.2 (org.tinglan.unofficial.internal.viva)"
+	want := "听澜 0.0.3 (org.tinglan.unofficial.internal.viva)"
 	if got := Info(); got != want {
 		t.Fatalf("Info() = %q, want %q", got, want)
 	}

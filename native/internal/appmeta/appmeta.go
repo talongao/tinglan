@@ -17,7 +17,7 @@ import (
 const (
 	// Version is the product version. It is the only version source: the build
 	// tool, release workflow and Info.plist all read this constant.
-	Version = "0.0.2"
+	Version = "0.0.3"
 
 	// DisplayName is the user-visible product name (window title, bundles).
 	DisplayName = "听澜"
@@ -41,7 +41,7 @@ const (
 )
 
 // Info returns a one-line summary such as
-// "听澜 0.0.2 (org.tinglan.unofficial.internal.viva)".
+// "听澜 0.0.3 (org.tinglan.unofficial.internal.viva)".
 func Info() string {
 	return fmt.Sprintf("%s %s (%s)", DisplayName, Version, BundleID)
 }
