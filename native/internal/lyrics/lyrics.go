@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 type Word struct {
@@ -75,9 +76,18 @@ func Parse(raw string) []Line {
 	for _, line := range lines {
 		if len(merged) > 0 && line.Time >= 0 && merged[len(merged)-1].Time == line.Time {
 			prior := &merged[len(merged)-1]
-			prior.Translation = appendSubtitle(prior.Translation, line.Text)
-			prior.Translation = appendSubtitle(prior.Translation, line.Translation)
-			prior.Romanization = appendSubtitle(prior.Romanization, line.Romanization)
+			// Providers put the credits block on the same timestamp as the
+			// first lyric line. Only a short single line can be a subtitle;
+			// otherwise the credits would render as a wall of "translation".
+			if plausibleSubtitle(line.Text) {
+				prior.Translation = appendSubtitle(prior.Translation, line.Text)
+			}
+			if plausibleSubtitle(line.Translation) {
+				prior.Translation = appendSubtitle(prior.Translation, line.Translation)
+			}
+			if plausibleSubtitle(line.Romanization) {
+				prior.Romanization = appendSubtitle(prior.Romanization, line.Romanization)
+			}
 		} else {
 			merged = append(merged, line)
 		}
@@ -165,4 +175,20 @@ func Active(lines []Line, seconds float64) int {
 		index = i
 	}
 	return index
+}
+
+// plausibleSubtitle reports whether text looks like one line of translation or
+// pronunciation rather than a credits block providers park on line one.
+func plausibleSubtitle(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	if strings.ContainsAny(text, "\n\r") {
+		return false
+	}
+	if utf8.RuneCountInString(text) > 80 {
+		return false
+	}
+	return !metadata.MatchString(text)
 }

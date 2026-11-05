@@ -96,41 +96,10 @@ func pair(raw string) (float64, float64, bool) {
 	return first, second, true
 }
 
-// mergeTranslations copies translation and romanization text from the plain
-// lyric onto the word-by-word lines. Providers ship them as separate tracks,
-// so the only reliable link is the line start time. When both lines carry the
-// same words, the plain text wins for display: the word-by-word document
-// sometimes drops punctuation, and the two only differ there.
+// mergeTranslations fills subtitles from the plain lyric track. The shared
+// helper in internal/lyrics is the single implementation of the rule.
 func mergeTranslations(lines, plain []lyrics.Line) []lyrics.Line {
-	if len(lines) == 0 || len(plain) == 0 {
-		return lines
-	}
-	for i := range lines {
-		var best *lyrics.Line
-		bestDelta := 0.6
-		for j := range plain {
-			delta := plain[j].Time - lines[i].Time
-			if delta < 0 {
-				delta = -delta
-			}
-			if delta <= bestDelta {
-				best, bestDelta = &plain[j], delta
-			}
-		}
-		if best == nil {
-			continue
-		}
-		if sameWords(lines[i].Text, best.Text) {
-			lines[i].Text = best.Text
-		}
-		if best.Translation != "" && lines[i].Translation == "" {
-			lines[i].Translation = best.Translation
-		}
-		if best.Romanization != "" && lines[i].Romanization == "" {
-			lines[i].Romanization = best.Romanization
-		}
-	}
-	return lines
+	return lyrics.MergeSubtitles(lines, plain)
 }
 
 func normalizeLine(text string) string {
