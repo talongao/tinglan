@@ -8,7 +8,13 @@ type palette struct {
 }
 
 func (m *model) palette() palette {
-	switch m.settings.Appearance.Theme {
+	return paletteFor(m.settings.Appearance.Theme)
+}
+
+// paletteFor resolves one named theme without touching the current settings;
+// the appearance picker uses it to draw a real preview swatch.
+func paletteFor(theme string) palette {
+	switch theme {
 	case "ocean":
 		return palette{0xeaf1f5, 0xf6fbff, 0x183247, 0x446277, 0x6c8596, 0x216b9a, false}
 	case "sage":

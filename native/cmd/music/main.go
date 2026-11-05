@@ -2,18 +2,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
 
-	"huawei-music-desktop/native/internal/audio"
-	"huawei-music-desktop/native/internal/huawei"
-	"huawei-music-desktop/native/internal/webauth"
+	"tinglan/native/internal/appmeta"
+	"tinglan/native/internal/audio"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
+	"tinglan/native/internal/webauth"
 )
 
 var (
@@ -30,12 +34,14 @@ var (
 
 type completion struct {
 	generation uint64
-	session    *huawei.Session
+	session    *source.Session
 	err        error
 	restored   bool
 }
 type model struct {
 	desktopState
+	sourceState
+	libraryUIState
 	writeState
 	resourceState
 	applicationState
@@ -52,10 +58,12 @@ type model struct {
 	busy               bool
 	restoring          bool
 	status             string
-	session            *huawei.Session
-	authorize          func(context.Context, *huawei.Attempt) (string, error)
-	exchange           func(context.Context, *huawei.Attempt) (*huawei.Session, error)
-	validate           func(context.Context, *huawei.Session) error
+	session            *source.Session
+	sourceSessions     map[music.SourceID]*source.Session
+	sourceAuth         map[music.SourceID]source.AuthStatus
+	loginSaved         bool
+	signIn             func(context.Context) (*source.Session, error)
+	loginTarget        music.SourceID
 	player             *audio.Player
 	audioState         audio.State
 	playbackGeneration uint64
@@ -65,7 +73,12 @@ type model struct {
 	actualQuality      string
 	resolvedDuration   float64
 	durationMismatch   bool
+	learnedDurationFor string
+	previewNoticed     bool
+	playFailures       int
 	pendingSeek        float64
+	resumeTrackID      string
+	resumePosition     float64
 	startedAt          time.Time
 	lastQueueSave      time.Time
 	listened           float64
@@ -75,9 +88,9 @@ type model struct {
 }
 
 func newModel() *model {
-	client := huawei.NewClient()
-	m := &model{status: "请登录以读取个人音乐库。", authorize: webauth.Authorize, exchange: client.Exchange, validate: client.ValidateSession}
+	m := &model{status: "本地收藏为空；在 设置 → 音源 登录并导入。"}
 	m.initDesktop()
+	m.initResourceClient()
 	return m
 }
 
@@ -91,22 +104,16 @@ func (m *model) startLogin() {
 	m.generation++
 	generation := m.generation
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	m.cancel, m.busy, m.status = cancel, true, "请在授权窗口完成华为登录，完成后会自动返回听澜"
+	m.cancel, m.busy = cancel, true
+	if m.loginTarget == "" {
+		m.loginTarget = m.accountSourceID()
+	}
+	m.setStatus("请在授权窗口完成" + m.sourceDisplayName(m.loginTarget) + "登录，完成后会自动返回听澜")
 	go func() {
 		defer cancel()
-		attempt := huawei.NewAttempt(time.Now())
-		defer attempt.Cancel()
-		var session *huawei.Session
-		raw, err := m.authorize(ctx, attempt)
-		if err == nil {
-			err = attempt.Accept(raw, time.Now())
-		}
-		if err == nil {
-			session, err = m.exchange(ctx, attempt)
-		}
-		if err == nil {
-			err = m.validate(ctx, session)
-		}
+		var session *source.Session
+		var err error
+		session, err = m.runSignIn(ctx)
 		m.mu.Lock()
 		if !m.closed {
 			m.pending = append(m.pending, completion{generation: generation, session: session, err: err})
@@ -123,7 +130,7 @@ func (m *model) cancelLogin() {
 		m.cancel = nil
 	}
 	m.busy, m.restoring = false, false
-	m.status = "已取消登录"
+	m.setStatus("已取消登录")
 }
 
 func (m *model) wake() {
@@ -137,6 +144,7 @@ func (m *model) wake() {
 	m.applyEntities()
 	m.applyWrites()
 	m.applyPlaybackResults()
+	m.applySourceResults()
 	m.applyLibraryResults()
 	if m.audioRunning {
 		m.pollAudio()
@@ -150,30 +158,53 @@ func (m *model) wake() {
 			continue
 		}
 		m.busy, m.restoring, m.cancel = false, false, nil
+		if result.err == nil && result.restored && result.session == nil {
+			m.setStatus(m.sourceSignInHint())
+			continue
+		}
 		if result.err != nil {
+			if !result.restored {
+				m.logPlugin("login failed: %v", result.err)
+			}
+			if errors.Is(result.err, webauth.ErrWebView2Missing) {
+				m.dialog = "webview-guide"
+				m.setStatus("登录需要 Microsoft Edge WebView2 Runtime")
+				continue
+			}
 			if result.restored && m.expireSession(result.err) {
 				continue
 			}
-			m.status = "登录未完成，请重试；原会话保持不变"
+			m.setStatus("登录未完成，请重试；原会话保持不变")
 			if !result.restored {
-				m.status = webauth.LoginErrorMessage(result.err)
+				m.setStatus(webauth.LoginErrorMessage(result.err))
 			}
 			if result.restored {
-				m.status = "请登录以读取个人音乐库。"
+				m.setStatus(m.sourceSignInHint())
 			}
 			continue
 		}
-		m.session, m.status = result.session, "音乐会话校验通过 · 仅本次进程有效"
+		if result.session != nil && result.session.Source != "" && result.session.Source != m.accountSourceID() {
+			m.mu.Lock()
+			if m.sourceSessions == nil {
+				m.sourceSessions = make(map[music.SourceID]*source.Session)
+			}
+			m.sourceSessions[result.session.Source] = result.session
+			m.mu.Unlock()
+			m.refreshSourceAuth(result.session.Source)
+			m.setStatus("已登录" + m.sourceDisplayName(result.session.Source))
+			continue
+		}
+		m.session = result.session
 		if result.restored {
-			m.status = "已恢复保存的音乐会话，正在更新音乐库。"
+			m.setStatus("已恢复登录状态，正在更新音乐库。")
+		} else if m.loginSaved {
+			m.setStatus("登录成功，登录状态已保存在本机。")
+		} else {
+			m.setStatus("登录成功，但登录状态未能保存，退出应用后需重新登录。")
 		}
 		m.installCatalog()
 		m.attachAccount()
-		m.initWriter()
 		m.scheduleSessionCheck()
-		if !result.restored && m.store != nil {
-			m.persistSession()
-		}
 	}
 }
 
@@ -231,6 +262,10 @@ func (m *model) close() {
 	m.playbackResults = nil
 	m.mu.Unlock()
 	m.session = nil
+	if m.local != nil {
+		_ = m.local.Close()
+		m.local = nil
+	}
 	if m.player != nil {
 		m.player.Close()
 		m.player = nil
@@ -238,6 +273,14 @@ func (m *model) close() {
 }
 
 func main() {
+	// Viva drives AppKit, and AppKit must run on the process's original thread:
+	// viva_system_reduce_motion hops to the main queue with dispatch_sync. Pin the
+	// goroutine before any file or network work can hand it to another thread,
+	// otherwise startup deadlocks with no window.
+	runtime.LockOSThread()
+	// Move the pre-rename profile directory on first launch so the local
+	// library, queue and saved session survive the rename.
+	_ = appmeta.MigrateDataDir()
 	backgroundCheck := flag.Bool("check-background", false, "synthetic hidden-window playback check; requires --demo 2 and --fixture-dir")
 	fixture := flag.String("audio-fixture", "", "explicit synthetic local MP3/FLAC fixture (muted)")
 	demo := flag.Int("demo", 0, "explicit offline synthetic library size (1..10000)")
@@ -273,4 +316,26 @@ func main() {
 	if err := runMusic(m); err != nil {
 		log.Fatal("native application failed")
 	}
+}
+
+// sessionExpired reports whether a validation failure means the account needs to
+// sign in again, without exposing provider error types to the shell.
+func sessionExpired(err error) bool {
+	if err == nil {
+		return false
+	}
+	var failure *source.Error
+	if errors.As(err, &failure) {
+		return failure.Kind == source.KindLogin || failure.Kind == source.KindPermission
+	}
+	return false
+}
+
+// runSignIn drives the interactive sign-in. Tests replace signIn to exercise
+// supersede/cancel behavior without opening a browser.
+func (m *model) runSignIn(ctx context.Context) (*source.Session, error) {
+	if m.signIn != nil {
+		return m.signIn(ctx)
+	}
+	return m.runSourceLogin(ctx)
 }

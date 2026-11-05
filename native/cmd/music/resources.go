@@ -14,11 +14,12 @@ import (
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/huawei"
-	"huawei-music-desktop/native/internal/lyrics"
-	"huawei-music-desktop/native/internal/resource"
-	"huawei-music-desktop/native/internal/storage"
-	"huawei-music-desktop/native/internal/visual"
+	"tinglan/native/internal/lyrics"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/resource"
+	"tinglan/native/internal/source"
+	"tinglan/native/internal/storage"
+	"tinglan/native/internal/visual"
 )
 
 type coverResult struct {
@@ -29,6 +30,7 @@ type coverResult struct {
 	stage    ui.Bitmap
 }
 type resourceState struct {
+	resourceClient   *resource.Client
 	coverRetryTimer  *time.Timer
 	coverAlternates  map[string][]string
 	coverRetry       map[string]time.Time
@@ -48,7 +50,7 @@ type resourceState struct {
 	coverResults     []coverResult
 	coverID          uint64
 	lyricSource      string
-	entity           *huawei.Detail
+	entity           *music.Detail
 	entityKind       string
 	entityBack       int
 	entityAlbumPage  int
@@ -60,8 +62,8 @@ var clearLyricsID = tree.ID(shell, "clear-lyrics")
 
 func (m *model) saveLyricOffset() {
 	if track := m.queue.Current(); track != nil && m.store != nil {
-		if err := m.store.SaveLyricOffset(track.ID, m.lyricOffset); err != nil {
-			m.status = "歌词偏移保存失败"
+		if err := m.store.SaveLyricOffset(m.trackOffsetKey(*track), m.lyricOffset); err != nil {
+			m.setStatus("歌词偏移保存失败")
 		}
 	}
 }
@@ -72,20 +74,20 @@ func (m *model) removeLyrics() {
 		return
 	}
 	if err := m.store.RemoveLocalLyrics(track.ID); err != nil {
-		m.status = "移除歌词失败"
+		m.setStatus("移除歌词失败")
 		return
 	}
 	m.lyricLines = nil
 	m.lyricSource = ""
 	if doc, err := m.store.LoadLyrics(track.ID); err == nil {
-		m.lyricLines = lyrics.Parse(doc.Text)
+		m.lyricLines, _ = lyrics.ParseAny(doc.Text)
 		m.lyricSource = doc.Source
 	}
-	m.status = "已移除本曲导入歌词"
+	m.setStatus("已移除本曲导入歌词")
 }
 
 func (m *model) cover(c *ui.Canvas, raw string, b ui.Rect) bool {
-	if raw == "" || !huawei.SafeResourceURL(raw) {
+	if raw == "" || !m.resourceAllowed(raw) {
 		return false
 	}
 	if bitmap, ok := m.covers[raw]; ok {
@@ -119,7 +121,7 @@ func (m *model) cover(c *ui.Canvas, raw string, b ui.Rect) bool {
 		var bitmap ui.Bitmap
 		var stage ui.Bitmap
 		for _, candidate := range candidates {
-			if !huawei.SafeResourceURL(candidate) {
+			if !m.resourceAllowed(candidate) {
 				continue
 			}
 			var data []byte
@@ -182,6 +184,13 @@ func (m *model) cover(c *ui.Canvas, raw string, b ui.Rect) bool {
 	return false
 }
 
+// coverCacheLimit is generous enough to hold a full visible page (rows plus the
+// page hero) so painting never evicts an image it is about to draw again.
+const (
+	coverCacheLimit = 160
+	coverCacheTrim  = 120
+)
+
 func coverPresentationVersion(b ui.Rect) uint32 {
 	w := uint32(max(1, min(65535, math.Round(float64(b.Width)))))
 	h := uint32(max(1, min(65535, math.Round(float64(b.Height)))))
@@ -233,7 +242,10 @@ func (m *model) applyCovers() {
 		if m.covers == nil {
 			m.covers = make(map[string]ui.Bitmap)
 		}
-		if len(m.covers) >= 16 {
+		// Evict in batches below the cap: the favourites and artist pages paint
+		// more covers than a small cache holds, and evicting one entry per
+		// insert made every frame re-request the same images (visible flicker).
+		for len(m.covers) >= coverCacheLimit {
 			old := ""
 			age := ^uint64(0)
 			for key := range m.covers {
@@ -241,9 +253,15 @@ func (m *model) applyCovers() {
 					old, age = key, m.coverUsed[key]
 				}
 			}
+			if old == "" {
+				break
+			}
 			delete(m.covers, old)
 			delete(m.stageCovers, old)
 			delete(m.coverUsed, old)
+			if len(m.covers) <= coverCacheTrim {
+				break
+			}
 		}
 		delete(m.coverRetry, r.url)
 		m.touchCover(r.url)
@@ -266,7 +284,7 @@ func (m *model) importLyrics() {
 	}
 	info, err := os.Stat(paths[0])
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 512*1024 {
-		m.status = "歌词文件不可用或超过 512KB"
+		m.setStatus("歌词文件不可用或超过 512KB")
 		return
 	}
 	data, err := os.ReadFile(paths[0])
@@ -275,17 +293,20 @@ func (m *model) importLyrics() {
 	}
 	text, err := lyrics.Decode(data)
 	if err != nil {
-		m.status = "歌词编码无法识别"
+		m.setStatus("歌词编码无法识别")
 		return
 	}
-	lines := lyrics.Parse(text)
+	lines, format := lyrics.ParseAny(text)
 	if len(lines) == 0 {
-		m.status = "歌词文件没有可用内容"
+		m.setStatus("歌词文件没有可用内容")
 		return
+	}
+	if format == "ttml" {
+		m.setStatus("已导入 TTML 逐字歌词")
 	}
 	if m.store != nil {
 		if err := m.store.SaveLyrics(track.ID, storage.LyricDocument{Text: text, Source: "本地导入"}, true); err != nil {
-			m.status = "歌词保存失败"
+			m.setStatus("歌词保存失败")
 			return
 		}
 	}
@@ -301,7 +322,7 @@ func (m *model) touchCover(raw string) {
 	m.coverUsed[raw] = m.coverTick
 }
 
-func (m *model) trackCover(c *ui.Canvas, t huawei.Track, b ui.Rect) bool {
+func (m *model) trackCover(c *ui.Canvas, t music.Track, b ui.Rect) bool {
 	if t.CoverURL != "" {
 		if m.coverAlternates == nil {
 			m.coverAlternates = make(map[string][]string)
@@ -332,8 +353,8 @@ func (m *model) trackCover(c *ui.Canvas, t huawei.Track, b ui.Rect) bool {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		defer cancel()
-		detail, err := huawei.NewClient().AlbumDetail(ctx, id, 0, 1)
-		raw := detail.CoverURL
+		detail, err := m.catalogSource().AlbumDetail(ctx, source.EntityRequest{Ref: source.EntityRef{Source: m.primarySourceID(), Kind: "album", ID: id}, Limit: 1})
+		raw := detail.Album.CoverURL
 		if raw == "" && len(detail.Tracks) > 0 {
 			raw = detail.Tracks[0].CoverURL
 		}
@@ -348,4 +369,23 @@ func (m *model) trackCover(c *ui.Canvas, t huawei.Track, b ui.Rect) bool {
 		m.requestUpdate()
 	}()
 	return false
+}
+
+// resourceAllowed applies the allowlist declared by the built-in source, so
+// media and cover URLs never depend on a provider hard-coded in the shell.
+func (m *model) resourceAllowed(raw string) bool {
+	if m.resourceClient == nil {
+		return false
+	}
+	return m.resourceClient.Allows(raw)
+}
+
+// resourceClient is built once per adapter descriptor so media URLs follow the
+// same allowlist the adapter declares.
+func (m *model) initResourceClient() {
+	domains := []string{".dbankcdn.cn", ".tingmall.com", ".kuke.com"}
+	if src, ok := m.primarySource(); ok {
+		domains = src.Describe().ResourceDomains
+	}
+	m.resourceClient = resource.NewFor(domains)
 }

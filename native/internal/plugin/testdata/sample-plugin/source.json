@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "sample",
+  "version": "1.0.0",
+  "entry": {
+    "darwin-arm64": "bin/sample",
+    "darwin-x64": "bin/sample",
+    "windows-x64": "bin/sample.exe",
+    "linux-x64": "bin/sample"
+  }
+}

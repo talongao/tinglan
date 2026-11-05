@@ -6,17 +6,19 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 type Word struct {
-	Time float64
-	Text string
+	Time float64 `json:"time"`
+	Text string  `json:"text"`
 }
 type Line struct {
-	Time              float64
-	Text, Translation string
-	Romanization      string
-	Words             []Word
+	Time         float64 `json:"time"`
+	Text         string  `json:"text"`
+	Translation  string  `json:"translation,omitempty"`
+	Romanization string  `json:"romanization,omitempty"`
+	Words        []Word  `json:"words,omitempty"`
 }
 
 var stamp = regexp.MustCompile(`\[(\d+):(\d{2})(?:\.(\d{1,3}))?\]`)
@@ -74,14 +76,30 @@ func Parse(raw string) []Line {
 	for _, line := range lines {
 		if len(merged) > 0 && line.Time >= 0 && merged[len(merged)-1].Time == line.Time {
 			prior := &merged[len(merged)-1]
-			prior.Translation = appendSubtitle(prior.Translation, line.Text)
-			prior.Translation = appendSubtitle(prior.Translation, line.Translation)
-			prior.Romanization = appendSubtitle(prior.Romanization, line.Romanization)
+			// Providers put the credits block on the same timestamp as the
+			// first lyric line. Only a short single line can be a subtitle;
+			// otherwise the credits would render as a wall of "translation".
+			if plausibleSubtitle(line.Text) {
+				prior.Translation = appendSubtitle(prior.Translation, line.Text)
+			}
+			if plausibleSubtitle(line.Translation) {
+				prior.Translation = appendSubtitle(prior.Translation, line.Translation)
+			}
+			if plausibleSubtitle(line.Romanization) {
+				prior.Romanization = appendSubtitle(prior.Romanization, line.Romanization)
+			}
 		} else {
 			merged = append(merged, line)
 		}
 	}
 	return merged
+}
+
+// SplitInlineSubtitles separates a caret-joined row into original text,
+// pronunciation and translation. It is exported because providers that ship
+// their own document format (HMRC) use the same convention.
+func SplitInlineSubtitles(text string) (string, string, string) {
+	return splitInlineSubtitles(text)
 }
 
 // Providers also join original, pronunciation and translation with carets.
@@ -117,6 +135,15 @@ func splitInlineSubtitles(text string) (string, string, string) {
 	return strings.TrimSpace(parts[0]), romanization, translation
 }
 
+func contains(rows []string, row string) bool {
+	for _, existing := range rows {
+		if existing == row {
+			return true
+		}
+	}
+	return false
+}
+
 func appendSubtitle(existing, extra string) string {
 	for _, row := range strings.Split(extra, "\n") {
 		row = strings.TrimSpace(row)
@@ -141,11 +168,12 @@ func appendSubtitle(existing, extra string) string {
 }
 
 // Subtitles keeps pronunciation and translation separate but in reading order.
+// Providers sometimes ship the same text as both, so repeats are dropped.
 func (line Line) Subtitles() []string {
 	var rows []string
 	for _, value := range []string{line.Romanization, line.Translation} {
 		for _, row := range strings.Split(value, "\n") {
-			if row = strings.TrimSpace(row); row != "" {
+			if row = strings.TrimSpace(row); row != "" && !contains(rows, row) {
 				rows = append(rows, row)
 			}
 		}
@@ -164,4 +192,20 @@ func Active(lines []Line, seconds float64) int {
 		index = i
 	}
 	return index
+}
+
+// plausibleSubtitle reports whether text looks like one line of translation or
+// pronunciation rather than a credits block providers park on line one.
+func plausibleSubtitle(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return false
+	}
+	if strings.ContainsAny(text, "\n\r") {
+		return false
+	}
+	if utf8.RuneCountInString(text) > 80 {
+		return false
+	}
+	return !metadata.MatchString(text)
 }

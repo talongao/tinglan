@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "huawei",
+  "name": "华为音乐",
+  "shortName": "华",
+  "accent": "#C7000B",
+  "capabilities": {
+    "import": true,
+    "resolve": true,
+    "search": true,
+    "lyrics": true,
+    "playlist": true,
+    "collections": [
+      {"kind": "favorites", "name": "收藏"},
+      {"kind": "playlist", "name": "歌单"}
+    ],
+    "maxPageSize": 50,
+    "loginKinds": ["webview"]
+  },
+  "resourceDomains": [".dbankcdn.cn", ".tingmall.com", ".kuke.com"]
+}

@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 )
 
 const sessionFile = "session.local.json"
@@ -22,12 +24,12 @@ type localSession struct {
 	Data    []byte `json:"data"`
 }
 
-func (s *Store) SaveSession(session *huawei.Session) error {
+func (s *Store) SaveSession(session *source.Session) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key := huawei.NewVaultKey()
 	defer clear(key)
-	blob, err := huawei.SealSession(session, key)
+	blob, err := huawei.SealSession(huawei.ProviderSession(session), key)
 	if err != nil {
 		return err
 	}
@@ -52,7 +54,7 @@ func (s *Store) privateSessionDir() error {
 	return os.Chmod(s.dir, 0700)
 }
 
-func (s *Store) LoadSession() (*huawei.Session, error) {
+func (s *Store) LoadSession() (*source.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	path := filepath.Join(s.dir, sessionFile)
@@ -84,7 +86,11 @@ func (s *Store) LoadSession() (*huawei.Session, error) {
 		return nil, errors.New("invalid local session document")
 	}
 	defer clear(doc.Key)
-	return huawei.OpenSession(doc.Data, doc.Key)
+	session, err := huawei.OpenSession(doc.Data, doc.Key)
+	if err != nil {
+		return nil, err
+	}
+	return huawei.NeutralSession(session), nil
 }
 
 func (s *Store) DeleteSession() error {
@@ -103,27 +109,27 @@ func (s *Store) Account(key string) *Store {
 	sum := sha256.Sum256([]byte(key))
 	return New(filepath.Join(s.dir, "accounts", hex.EncodeToString(sum[:])))
 }
-func (s *Store) SaveLibrary(tracks []huawei.Track) error {
+func (s *Store) SaveLibrary(tracks []music.Track) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.write("library.json", tracks)
 }
-func (s *Store) LoadLibrary() ([]huawei.Track, error) {
+func (s *Store) LoadLibrary() ([]music.Track, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var tracks []huawei.Track
+	var tracks []music.Track
 	err := s.read("library.json", &tracks)
 	return tracks, err
 }
-func (s *Store) SaveHistory(tracks []huawei.Track) error {
+func (s *Store) SaveHistory(tracks []music.Track) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.write("history.json", tracks)
 }
-func (s *Store) LoadHistory() ([]huawei.Track, error) {
+func (s *Store) LoadHistory() ([]music.Track, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var tracks []huawei.Track
+	var tracks []music.Track
 	err := s.read("history.json", &tracks)
 	return tracks, err
 }

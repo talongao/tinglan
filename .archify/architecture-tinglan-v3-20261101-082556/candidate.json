@@ -1,0 +1,520 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "听澜 · 多源收录与播放架构",
+    "subtitle": "目标架构 v3 · 单进程 Go + Viva · 本地 SQLite 收录音乐库",
+    "output": ".archify/architecture-tinglan-v3-20261101-082556/tinglan-v3.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "provider": "github",
+      "url": "https://github.com/talongao/tinglan",
+      "revision": "44351f399637fc24f3efa64ab73cb32e48271205",
+      "link_mode": "web"
+    }
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "桌面用户",
+      "sublabel": "点歌 · 收藏 · 导入",
+      "tag": "本机",
+      "icon": "person",
+      "pos": [
+        0,
+        406
+      ],
+      "size": [
+        80,
+        64
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 16,
+          "end_line": 18,
+          "label": "产品定位"
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "原生界面",
+      "sublabel": "收藏 · 搜索 · 歌单",
+      "tag": "改造",
+      "icon": "frontend",
+      "pos": [
+        160,
+        400
+      ],
+      "size": [
+        130,
+        78
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/shell.go",
+          "line": 180,
+          "end_line": 294,
+          "label": "窗口/输入装配"
+        },
+        {
+          "path": "native/cmd/music/settings.go",
+          "line": 101,
+          "end_line": 115,
+          "label": "设置页签"
+        }
+      ]
+    },
+    {
+      "id": "resolver",
+      "type": "backend",
+      "label": "播放解析",
+      "sublabel": "三态 · 导入序 · 旧 ID",
+      "tag": "改造",
+      "icon": "backend",
+      "pos": [
+        345,
+        396
+      ],
+      "size": [
+        150,
+        84
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/playback.go",
+          "line": 26,
+          "end_line": 99,
+          "label": "现状：单源解析"
+        },
+        {
+          "path": "native/internal/huawei/playback.go",
+          "line": 78,
+          "end_line": 99,
+          "label": "现状：取流探测"
+        }
+      ]
+    },
+    {
+      "id": "contract",
+      "type": "backend",
+      "label": "音源契约层",
+      "sublabel": "Adapter · Import/Resolve",
+      "tag": "第一阶段",
+      "icon": "backend",
+      "pos": [
+        555,
+        396
+      ],
+      "size": [
+        175,
+        84
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/library.go",
+          "line": 211,
+          "end_line": 218,
+          "label": "现状：收藏直连华为"
+        },
+        {
+          "path": "native/cmd/music/playback.go",
+          "line": 50,
+          "end_line": 50,
+          "label": "现状：取流直连华为"
+        }
+      ]
+    },
+    {
+      "id": "huawei",
+      "type": "backend",
+      "label": "华为音乐适配器",
+      "sublabel": "OAuth · 快照 · 权益",
+      "tag": "改造",
+      "icon": "backend",
+      "pos": [
+        785,
+        396
+      ],
+      "size": [
+        165,
+        84
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/library.go",
+          "line": 172,
+          "end_line": 197,
+          "label": "收藏/歌单"
+        },
+        {
+          "path": "native/internal/huawei/playback.go",
+          "line": 78,
+          "end_line": 99,
+          "label": "取流"
+        },
+        {
+          "path": "native/internal/huawei/client.go",
+          "line": 19,
+          "end_line": 26,
+          "label": "HTTP 客户端"
+        }
+      ]
+    },
+    {
+      "id": "audio",
+      "type": "backend",
+      "label": "原生音频引擎",
+      "sublabel": "源白名单 · Range",
+      "tag": "保留",
+      "icon": "backend",
+      "pos": [
+        345,
+        560
+      ],
+      "size": [
+        160,
+        80
+      ],
+      "sources": [
+        {
+          "path": "native/internal/audio/player_darwin.go",
+          "line": 31,
+          "end_line": 40,
+          "label": "macOS 播放器"
+        },
+        {
+          "path": "native/internal/audio/remote_darwin.go",
+          "line": 31,
+          "end_line": 57,
+          "label": "远端流"
+        },
+        {
+          "path": "native/internal/audio/player_portable.go",
+          "line": 49,
+          "end_line": 57,
+          "label": "跨平台接口"
+        }
+      ]
+    },
+    {
+      "id": "library",
+      "type": "backend",
+      "label": "音乐库服务",
+      "sublabel": "收藏/歌单 · 单写入口",
+      "tag": "改造",
+      "icon": "backend",
+      "pos": [
+        160,
+        190
+      ],
+      "size": [
+        150,
+        78
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "收录音乐库",
+      "sublabel": "SQLite · 23 表 · 无外键",
+      "tag": "设计",
+      "icon": "database",
+      "pos": [
+        160,
+        30
+      ],
+      "size": [
+        150,
+        70
+      ]
+    },
+    {
+      "id": "importer",
+      "type": "backend",
+      "label": "导入运行器",
+      "sublabel": "快照 · 暂存 · 提交",
+      "tag": "设计",
+      "icon": "backend",
+      "pos": [
+        625,
+        190
+      ],
+      "size": [
+        150,
+        78
+      ]
+    },
+    {
+      "id": "matcher",
+      "type": "backend",
+      "label": "同曲归并",
+      "sublabel": "候选 · 灰区 · 撤销",
+      "tag": "第一阶段",
+      "icon": "backend",
+      "pos": [
+        395,
+        190
+      ],
+      "size": [
+        150,
+        78
+      ]
+    },
+    {
+      "id": "huawei_cloud",
+      "type": "cloud",
+      "label": "华为音乐云",
+      "sublabel": "收藏 API · 媒体 CDN",
+      "tag": "外部",
+      "icon": "cloud",
+      "pos": [
+        1060,
+        398
+      ],
+      "size": [
+        160,
+        80
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/library.go",
+          "line": 172,
+          "end_line": 197,
+          "label": "收藏/歌单 API"
+        },
+        {
+          "path": "native/internal/huawei/playback.go",
+          "line": 78,
+          "end_line": 99,
+          "label": "媒体地址"
+        }
+      ]
+    },
+    {
+      "id": "jev",
+      "type": "external",
+      "label": "TypeSafe Jev",
+      "sublabel": "灰区判定 · 仅元数据",
+      "tag": "可选",
+      "icon": "external",
+      "pos": [
+        395,
+        30
+      ],
+      "size": [
+        150,
+        64
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "本机进程",
+      "wraps": [
+        "ui",
+        "resolver",
+        "contract",
+        "huawei",
+        "audio",
+        "library",
+        "importer",
+        "matcher"
+      ],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "本地数据 · 应用目录",
+      "wraps": [
+        "db"
+      ],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "可选外部判定 · 仅元数据",
+      "wraps": [
+        "jev"
+      ],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "源侧账号域 · 华为",
+      "wraps": [
+        "huawei_cloud"
+      ],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "id": "open",
+      "from": "user",
+      "to": "ui",
+      "label": "点歌",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "play",
+      "from": "ui",
+      "to": "resolver",
+      "label": "播放",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "resolve",
+      "from": "resolver",
+      "to": "contract",
+      "label": "取源",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "parse",
+      "from": "contract",
+      "to": "huawei",
+      "label": "解析",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "sign",
+      "from": "huawei",
+      "to": "huawei_cloud",
+      "label": "签名",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "open-stream",
+      "from": "resolver",
+      "to": "audio",
+      "label": "打开流",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "collect",
+      "from": "ui",
+      "to": "library",
+      "label": "收藏/歌单",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "write-db",
+      "from": "library",
+      "to": "db",
+      "label": "事务读写",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "bindings",
+      "from": "library",
+      "to": "resolver",
+      "label": "曲目绑定",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "fetch",
+      "from": "importer",
+      "to": "contract",
+      "label": "分页拉取",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "candidates",
+      "from": "importer",
+      "to": "matcher",
+      "label": "候选配对",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "merge",
+      "from": "matcher",
+      "to": "library",
+      "label": "归并结果",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "jev",
+      "from": "matcher",
+      "to": "jev",
+      "label": "灰区判定",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "收录音乐 · 收藏/歌单",
+      "items": [
+        "`tracks` 一行一首，是唯一事实源；收藏/歌单只存 `track_id`，不复制标题/艺人/专辑。",
+        "收藏是本地数据：远端更新只对账绑定/来源，不删收藏；无绑定仍展示，播放报“无可用音源”。",
+        "歌单是收藏夹：本地歌单可多源混排；导入歌单按完整快照镜像，确认远端删除才硬删本地副本。",
+        "队列/历史仍是文件：只存 trackId + 来源引用，不落播放 URL；搜索临时曲可以没有 trackId。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "导入 · 归并 · 合并",
+      "items": [
+        "导入运行器：完整快照分页 → `import_stage` → 账号/目标代次校验 → 一个短 `BEGIN IMMEDIATE` 发布；失败/取消不删数据。",
+        "精确身份命中不调 Jev；代码分 ≥ AutoMerge 直接合并；只有灰区（标题≥0.85、艺人有交集、版本兼容、时长差≤8s）才可选 Jev。",
+        "合并可撤销：before-state + 依赖逆序恢复；旧 ID 沿 `merged_into` 永久可解析，队列文件不必改写。",
+        "导入歌单更新前若账号变化，先确认“按当前账号快照覆盖成员”；取消零写入，确认只授权本次 run。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "播放 · 取源",
+      "items": [
+        "取源顺序 = 该曲目绑定的导入序号，不是全局源优先级；先导入先探。",
+        "Access 三态 `full|preview|unknown`：preview 跳过继续找 full；全部 preview 才播最早一条并标试听。",
+        "播放 URL 实时 Resolve，不落盘、不进日志；音频引擎按源白名单直连 CDN，保留 TLS 与重定向校验。",
+        "导入歌单队列条目带 `onlySource`，只在候选层过滤，不回退其他平台；源不可用/未登录正常报错。"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "旧数据迁移",
+      "items": [
+        "`favorites.local.json` → tracks/identities/bindings/favorites，保留旧 ID、importSeq、access/quality 与来源元数据；DB 事务提交后才归档旧文件。",
+        "根 `queue.json` 与账号队列按实际启动顺序选择（根→当前账号覆盖），不按 mtime 猜；新格式发布后旧 attach 不得覆盖。",
+        "旧歌单缓存只迁移用户自己的歌单：`SHA256(\"playlists:\")` 列表 + `SHA256(\"detail:\"+id)` 详情，只取 detail 的 Tracks。",
+        "迁移以 `migration_key + input_digest` 为计划唯一键，阶段日志 + 重试留史；不以“DB 为空”判断完成，失败不静默进入空库。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "边界 · 状态",
+      "items": [
+        "本机：单进程 Go + Viva；SQLite 在 profile 目录，凭据仍走文件 vault（0700/0600），DB 不存 Key/Token/Cookie。",
+        "源侧：华为账号域独立；适配器只拿当前登录态，退出/过期停用绑定，不删本地收藏。",
+        "Jev：可选、按 token 计费，只发曲目元数据；换端点/模型/凭据代次不复用缓存。",
+        "状态：v3 设计已确认；SQLite/导入/归并/UI 尚未实现，HEAD 仍是单源 JSON 存储；网易云适配器、TTML、Windows 实机验收未完成。Node 工具链待移除。"
+      ]
+    }
+  ]
+}

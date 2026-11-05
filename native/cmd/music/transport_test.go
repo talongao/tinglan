@@ -2,9 +2,9 @@ package main
 
 import (
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/audio"
 	"testing"
 	"time"
+	"tinglan/native/internal/audio"
 )
 
 func TestAudioDurationWinsOverCatalogAndResolved(t *testing.T) {

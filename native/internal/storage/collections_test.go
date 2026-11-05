@@ -1,14 +1,14 @@
 package storage
 
 import (
-	"huawei-music-desktop/native/internal/huawei"
 	"testing"
+	"tinglan/native/internal/music"
 )
 
 func TestCollectionsAccountIsolationAndLogout(t *testing.T) {
 	root := New(t.TempDir())
 	a, b := root.Account("synthetic-a"), root.Account("synthetic-b")
-	value := Collection{Tracks: []huawei.Track{{ID: "synthetic", Title: "Test"}}}
+	value := Collection{Tracks: []music.Track{{ID: "synthetic", Title: "Test"}}}
 	if err := a.SaveCollection("detail", "../test", value); err != nil {
 		t.Fatal(err)
 	}

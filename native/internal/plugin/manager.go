@@ -1,0 +1,675 @@
+package plugin
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
+	"sync"
+
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
+	"tinglan/native/internal/storage"
+)
+
+// Entry describes one discovered plugin on disk.
+type Entry struct {
+	Manifest Manifest
+	// Descriptor is the host cache written the last time the plugin ran. It
+	// supplies the display name and capabilities while the plugin is stopped.
+	Descriptor source.Descriptor
+	Dir        string
+	Enabled    bool
+	Running    bool
+	Err        string
+}
+
+// ID is the plugin's assigned source id.
+func (e Entry) ID() music.SourceID { return e.Descriptor.ID }
+
+// Name is the display name reported by the plugin.
+func (e Entry) Name() string {
+	if e.Descriptor.Name != "" {
+		return e.Descriptor.Name
+	}
+	return string(e.Descriptor.ID)
+}
+
+// LoginKinds reports which login methods the plugin declared.
+func (e Entry) LoginKinds() []source.LoginKind { return e.Descriptor.Capabilities.LoginKinds }
+
+// Manager discovers, launches and stops external source plugins.
+type Manager struct {
+	roots  []string
+	store  *storage.Store
+	logger source.Logger
+
+	mu        sync.Mutex
+	plugins   map[music.SourceID]*Plugin
+	enabled   map[music.SourceID]bool
+	consented map[music.SourceID]bool
+}
+
+// NewManager prepares the plugin root; plugins live under <app data>/sources.
+func NewManager(root string, store *storage.Store, logger source.Logger) *Manager {
+	return &Manager{
+		roots:     []string{root},
+		store:     store,
+		logger:    logger,
+		plugins:   map[music.SourceID]*Plugin{},
+		enabled:   map[music.SourceID]bool{},
+		consented: map[music.SourceID]bool{},
+	}
+}
+
+// Root returns the directory users install plugins into.
+func (m *Manager) Root() string { return m.roots[0] }
+
+// AddRoot adds a read-only search root such as the app bundle's plugins. Earlier
+// roots win when two roots ship the same source id.
+func (m *Manager) AddRoot(dir string) {
+	if dir == "" {
+		return
+	}
+	for _, existing := range m.roots {
+		if existing == dir {
+			return
+		}
+	}
+	m.roots = append(m.roots, dir)
+}
+
+// List scans the plugin root for source.json files.
+func (m *Manager) List() []Entry {
+	m.mu.Lock()
+	enabled := make(map[music.SourceID]bool, len(m.enabled))
+	for id, on := range m.enabled {
+		enabled[id] = on
+	}
+	running := make(map[music.SourceID]bool, len(m.plugins))
+	for id := range m.plugins {
+		running[id] = true
+	}
+	m.mu.Unlock()
+
+	var out []Entry
+	seen := map[music.SourceID]bool{}
+	for _, root := range m.roots {
+		items, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, item := range items {
+			if !item.IsDir() {
+				continue
+			}
+			dir := filepath.Join(root, item.Name())
+			manifest, loadErr := LoadManifest(dir)
+			if loadErr != nil {
+				continue
+			}
+			descriptor, _ := LoadDescriptor(dir)
+			if descriptor.ID == "" {
+				descriptor.ID = music.SourceID(manifest.ID)
+			}
+			if descriptor.ID == "" {
+				descriptor.ID = music.SourceID(item.Name())
+			}
+			if descriptor.Name == "" {
+				descriptor.Name = string(descriptor.ID)
+			}
+			id := descriptor.ID
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			out = append(out, Entry{
+				Manifest:   manifest,
+				Descriptor: descriptor,
+				Dir:        dir,
+				Enabled:    enabled[id],
+				Running:    running[id],
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID() < out[j].ID() })
+	return out
+}
+
+// Enable launches a plugin and registers it. The caller is responsible for
+// showing the consent prompt before calling this.
+func (m *Manager) Enable(ctx context.Context, registry *source.Registry, id music.SourceID) error {
+	m.mu.Lock()
+	runningPlugin := m.plugins[id]
+	m.mu.Unlock()
+	if runningPlugin != nil {
+		// A fresh registry (e.g. the library reopened after login) still has to
+		// learn about a plugin that keeps running.
+		return registry.RegisterSource(runningPlugin)
+	}
+	entry, ok := m.find(id)
+	if !ok {
+		return fmt.Errorf("plugin %q not installed", id)
+	}
+	plugin, err := m.start(ctx, entry)
+	if err != nil {
+		return err
+	}
+	if err := registry.RegisterSource(plugin); err != nil {
+		_ = plugin.Close()
+		return err
+	}
+	m.mu.Lock()
+	m.plugins[id] = plugin
+	m.enabled[id] = true
+	m.mu.Unlock()
+	m.saveEnabled()
+	return nil
+}
+
+// Disable stops a plugin and unregisters it. Local library bindings are kept.
+func (m *Manager) Disable(registry *source.Registry, id music.SourceID) error {
+	m.mu.Lock()
+	plugin := m.plugins[id]
+	delete(m.plugins, id)
+	delete(m.enabled, id)
+	m.mu.Unlock()
+	if plugin != nil {
+		registry.UnregisterSource(id)
+		_ = plugin.Close()
+	}
+	m.saveEnabled()
+	return nil
+}
+
+// LoadEnabled starts every previously enabled plugin and registers it.
+func (m *Manager) LoadEnabled(ctx context.Context, registry *source.Registry) []string {
+	m.loadEnabledState()
+	m.loadConsentState()
+	// Sources shipped with the app start once, until the user disables them.
+	for _, entry := range m.List() {
+		id := entry.ID()
+		if !entry.Manifest.Builtin {
+			continue
+		}
+		if _, decided := m.enabled[id]; !decided {
+			m.enabled[id] = true
+		}
+	}
+	var failures []string
+	for _, id := range m.enabledIDs() {
+		if err := m.Enable(ctx, registry, id); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", id, err))
+			m.mu.Lock()
+			delete(m.enabled, id)
+			m.mu.Unlock()
+		}
+	}
+	if len(failures) > 0 {
+		m.saveEnabled()
+	}
+	return failures
+}
+
+// Close stops every running plugin.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	plugins := make([]*Plugin, 0, len(m.plugins))
+	for _, plugin := range m.plugins {
+		plugins = append(plugins, plugin)
+	}
+	m.plugins = map[music.SourceID]*Plugin{}
+	m.mu.Unlock()
+	for _, plugin := range plugins {
+		_ = plugin.Close()
+	}
+}
+
+// Running reports the number of live plugin processes.
+func (m *Manager) Running() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.plugins)
+}
+
+func (m *Manager) find(id music.SourceID) (Entry, bool) {
+	for _, entry := range m.List() {
+		if entry.ID() == id {
+			return entry, true
+		}
+	}
+	return Entry{}, false
+}
+
+func (m *Manager) start(ctx context.Context, entry Entry) (*Plugin, error) {
+	manifest := entry.Manifest
+	spec, ok := manifest.EntryFor()
+	if !ok {
+		return nil, fmt.Errorf("插件 %s 不支持当前平台（%s）", entry.ID(), PlatformKey())
+	}
+	command, args, err := entryCommand(entry.Dir, spec)
+	if err != nil {
+		return nil, err
+	}
+	host := NewHost(entry.ID(), m.store, m.logger)
+	proc, err := StartProcess(ctx, entry.Dir, command, args, specEnv(spec), host)
+	if err != nil {
+		return nil, fmt.Errorf("启动插件失败（%s）：%w", command, err)
+	}
+	plugin, err := NewPlugin(ctx, manifest, entry.ID(), proc, host)
+	if err != nil {
+		_ = proc.Close()
+		if tail := proc.Stderr(); tail != "" {
+			return nil, fmt.Errorf("%w（%s）", err, firstLine(tail))
+		}
+		return nil, err
+	}
+	return plugin, nil
+}
+
+// secureJoin resolves a manifest-relative path and rejects symlinks escaping
+// the plugin directory.
+func secureJoin(dir, relative string) (string, error) {
+	if !insideDir(relative) {
+		return "", errors.New("entry escapes the plugin directory")
+	}
+	path := filepath.Join(dir, relative)
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", err
+	}
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == ".." || len(rel) > 2 && rel[:3] == ".."+string(filepath.Separator) {
+		return "", errors.New("entry escapes the plugin directory")
+	}
+	return resolved, nil
+}
+
+func firstLine(text string) string {
+	for i, r := range text {
+		if r == '\n' {
+			return text[:i]
+		}
+	}
+	return text
+}
+
+const enabledSecret = "plugin.enabled"
+
+// consentSecret remembers which plugins the user already agreed to run. The
+// warning is shown once per plugin, not every time it is enabled.
+const consentSecret = "plugin.consent"
+
+// Consented reports whether the user has already accepted this plugin once.
+func (m *Manager) Consented(id music.SourceID) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.consented[id]
+}
+
+// MarkConsented records the user's decision so the warning is not repeated.
+func (m *Manager) MarkConsented(id music.SourceID) error {
+	if m.store == nil {
+		return errors.New("plugin consent storage unavailable")
+	}
+	m.mu.Lock()
+	m.consented[id] = true
+	ids := make([]string, 0, len(m.consented))
+	for key := range m.consented {
+		ids = append(ids, string(key))
+	}
+	m.mu.Unlock()
+	sort.Strings(ids)
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	return m.store.SaveSecret(consentSecret, raw)
+}
+
+func (m *Manager) loadConsentState() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.store == nil {
+		return
+	}
+	raw, err := m.store.LoadSecret(consentSecret)
+	if err != nil {
+		return
+	}
+	var ids []string
+	if json.Unmarshal(raw, &ids) != nil {
+		return
+	}
+	for _, id := range ids {
+		m.consented[music.SourceID(id)] = true
+	}
+}
+
+func (m *Manager) loadEnabledState() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.enabled = map[music.SourceID]bool{}
+	raw, err := m.store.LoadSecret(enabledSecret)
+	if err != nil {
+		return
+	}
+	var ids []string
+	if json.Unmarshal(raw, &ids) != nil {
+		return
+	}
+	for _, id := range ids {
+		m.enabled[music.SourceID(id)] = true
+	}
+}
+
+func (m *Manager) enabledIDs() []music.SourceID {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]music.SourceID, 0, len(m.enabled))
+	for id := range m.enabled {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+func (m *Manager) saveEnabled() {
+	m.mu.Lock()
+	ids := make([]string, 0, len(m.enabled))
+	for id := range m.enabled {
+		ids = append(ids, string(id))
+	}
+	m.mu.Unlock()
+	sort.Strings(ids)
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return
+	}
+	_ = m.store.SaveSecret(enabledSecret, raw)
+}
+
+// SeedSession writes one value into a plugin's credential namespace. It exists
+// only for the built-in source upgrade path, where a session saved by an older
+// build has to move into the plugin's namespace before its first start.
+// The value uses the same base64 form as host.session.set, because plugins
+// decode whatever host.session.get returns.
+func (m *Manager) SeedSession(id music.SourceID, key, value string) error {
+	if m.store == nil {
+		return errors.New("plugin session storage unavailable")
+	}
+	host := NewHost(id, m.store, m.logger)
+	doc, err := host.load()
+	if err != nil {
+		return err
+	}
+	if _, exists := doc.Entries[key]; exists {
+		return nil
+	}
+	doc.Entries[key] = sessionEntry{Value: value, Revision: 1}
+	return host.save(doc)
+}
+
+// ClearSession removes a plugin's stored session values. Used when the user
+// logs out: the source cannot erase the host namespace itself.
+func (m *Manager) ClearSession(id music.SourceID) error {
+	if m.store == nil {
+		return nil
+	}
+	if err := m.store.DeleteSecret("plugin.session." + string(id)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+// Probe launches a plugin from dir just long enough to read the descriptor it
+// reports during initialize. It is used when importing a plugin, before the
+// host decides where the plugin lives.
+func (m *Manager) Probe(ctx context.Context, dir string) (source.Descriptor, error) {
+	manifest, err := LoadManifest(dir)
+	if err != nil {
+		return source.Descriptor{}, err
+	}
+	spec, ok := manifest.EntryFor()
+	if !ok {
+		return source.Descriptor{}, fmt.Errorf("插件不支持当前平台（%s）", PlatformKey())
+	}
+	command, args, err := entryCommand(dir, spec)
+	if err != nil {
+		return source.Descriptor{}, err
+	}
+	host := NewHost("", m.store, m.logger)
+	proc, err := StartProcess(ctx, dir, command, args, specEnv(spec), host)
+	if err != nil {
+		return source.Descriptor{}, fmt.Errorf("启动插件失败：%w", err)
+	}
+	plugin, err := NewPlugin(ctx, manifest, music.SourceID(manifest.ID), proc, host)
+	if err != nil {
+		_ = proc.Close()
+		return source.Descriptor{}, err
+	}
+	defer plugin.Close()
+	return plugin.Describe(), nil
+}
+
+// Install imports a plugin directory into the managed root. The host assigns
+// the source id so two plugins authored on the same machine cannot collide.
+func (m *Manager) Install(ctx context.Context, srcDir string) (Entry, bool, error) {
+	srcDir, err := filepath.Abs(srcDir)
+	if err != nil {
+		return Entry{}, false, err
+	}
+	info, err := os.Stat(srcDir)
+	if err != nil || !info.IsDir() {
+		return Entry{}, false, fmt.Errorf("读取插件目录失败（%s）：%w", srcDir, err)
+	}
+	manifest, err := LoadManifest(srcDir)
+	if err != nil {
+		return Entry{}, false, err
+	}
+	desc, err := m.Probe(ctx, srcDir)
+	if err != nil {
+		return Entry{}, false, fmt.Errorf("探测插件失败：%w", err)
+	}
+	id := manifest.ID
+	if string(desc.ID) != id {
+		return Entry{}, false, fmt.Errorf("插件自报 id %q 与 source.json 的 %q 不一致", desc.ID, id)
+	}
+	if err := os.MkdirAll(m.Root(), 0o700); err != nil {
+		return Entry{}, false, fmt.Errorf("创建插件目录失败（%s）：%w", m.Root(), err)
+	}
+	dest := filepath.Join(m.Root(), id)
+	previous, existed := m.entry(id)
+	updated := existed
+	if existed {
+		m.stopForUpdate(id)
+	}
+	tmp, err := os.MkdirTemp(m.Root(), "."+id+".new-")
+	if err != nil {
+		return Entry{}, false, err
+	}
+	defer os.RemoveAll(tmp)
+	if err := copyPluginTree(srcDir, tmp); err != nil {
+		return Entry{}, false, fmt.Errorf("复制插件文件失败：%w", err)
+	}
+	cached := descriptorRecord(id, desc)
+	if err := SaveDescriptor(tmp, cached); err != nil {
+		return Entry{}, false, fmt.Errorf("写入插件描述失败：%w", err)
+	}
+	if err := os.RemoveAll(dest); err != nil {
+		return Entry{}, false, fmt.Errorf("替换旧插件目录失败（%s）：%w", dest, err)
+	}
+	if err := os.Rename(tmp, dest); err != nil {
+		return Entry{}, false, fmt.Errorf("安装插件到 %s 失败：%w", dest, err)
+	}
+	if spec, ok := manifest.EntryFor(); ok {
+		if _, _, err := entryCommand(dest, spec); err != nil {
+			return Entry{}, false, fmt.Errorf("安装后无法启动插件：%w", err)
+		}
+	}
+	enabled := existed && previous.Enabled
+	return Entry{Manifest: manifest, Descriptor: cached, Dir: dest, Enabled: enabled}, updated, nil
+}
+
+// stopForUpdate shuts down a running plugin so its files can be replaced.
+func (m *Manager) stopForUpdate(id string) {
+	m.mu.Lock()
+	running := m.plugins[music.SourceID(id)]
+	delete(m.plugins, music.SourceID(id))
+	m.mu.Unlock()
+	if running != nil {
+		_ = running.Close()
+	}
+}
+
+// entry returns the currently installed plugin with the given id.
+func (m *Manager) entry(id string) (Entry, bool) {
+	for _, entry := range m.List() {
+		if string(entry.ID()) == id {
+			return entry, true
+		}
+	}
+	return Entry{}, false
+}
+
+func descriptorRecord(id string, desc source.Descriptor) source.Descriptor {
+	desc.ID = music.SourceID(id)
+	desc.SchemaVersion = 1
+	return desc
+}
+
+func slug(name string) string {
+	var b strings.Builder
+	lastDash := true
+	for _, r := range strings.ToLower(strings.TrimSpace(name)) {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+			lastDash = false
+		case r == '-' || r == '_' || r == ' ':
+			if !lastDash {
+				b.WriteByte('-')
+				lastDash = true
+			}
+		}
+		if b.Len() >= 24 {
+			break
+		}
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// copyPluginTree copies regular files, refusing overly large trees.
+func copyPluginTree(src, dest string) error {
+	const maxBytes = 256 << 20
+	var total int64
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		if d.Name() == DescriptorFile || d.Name() == ".DS_Store" {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		target := filepath.Join(dest, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o700)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		if total > maxBytes {
+			return errors.New("插件目录过大")
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(0o600)
+		if info.Mode()&0o111 != 0 {
+			mode = 0o700
+		}
+		return os.WriteFile(target, data, mode)
+	})
+}
+
+// entryCommand turns a manifest entry into an executable command. Plain string
+// entries are resolved inside the plugin directory; object entries name an
+// interpreter (looked up on PATH) plus arguments, MCP style.
+func entryCommand(dir string, spec EntrySpec) (string, []string, error) {
+	if !spec.Interpreter() {
+		binary, err := secureJoin(dir, spec.Command)
+		if err != nil {
+			return "", nil, fmt.Errorf("插件入口不可用：%s（%w）", spec.Command, err)
+		}
+		info, err := os.Stat(binary)
+		if err != nil || info.IsDir() {
+			return "", nil, fmt.Errorf("插件入口不存在：%s", spec.Command)
+		}
+		if runtime.GOOS == "windows" {
+			switch strings.ToLower(filepath.Ext(binary)) {
+			case ".exe", ".com", ".bat", ".cmd":
+			default:
+				return "", nil, fmt.Errorf("Windows 插件入口需要 .exe/.bat/.cmd：%s（脚本类插件请用 command/args 指定解释器）", spec.Command)
+			}
+		} else if info.Mode()&0o111 == 0 {
+			return "", nil, fmt.Errorf("插件入口没有执行权限：%s（脚本类插件请用 command/args 指定解释器）", spec.Command)
+		}
+		return binary, nil, nil
+	}
+	command := spec.Command
+	if !filepath.IsAbs(command) && strings.ContainsRune(command, filepath.Separator) {
+		resolved, err := secureJoin(dir, command)
+		if err != nil {
+			return "", nil, fmt.Errorf("插件入口不可用：%s（%w）", command, err)
+		}
+		command = resolved
+	}
+	args := make([]string, 0, len(spec.Args))
+	for _, arg := range spec.Args {
+		if !filepath.IsAbs(arg) {
+			if resolved, err := secureJoin(dir, arg); err == nil {
+				if _, statErr := os.Stat(resolved); statErr == nil {
+					arg = resolved
+				}
+			}
+		}
+		args = append(args, arg)
+	}
+	return command, args, nil
+}
+
+func specEnv(spec EntrySpec) []string {
+	if len(spec.Env) == 0 {
+		return nil
+	}
+	env := make([]string, 0, len(spec.Env))
+	for key, value := range spec.Env {
+		env = append(env, key+"="+value)
+	}
+	sort.Strings(env)
+	return env
+}

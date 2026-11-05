@@ -20,7 +20,7 @@ typedef struct { double position; double duration; int ready; int failed; int en
 void *hm_audio_from_asset(AVURLAsset *asset,id loader) {
     @autoreleasepool {
         HMAudio *owner = [HMAudio new];
-        owner.queue = dispatch_queue_create("org.hwmusicdesktop.audio", DISPATCH_QUEUE_SERIAL);
+        owner.queue = dispatch_queue_create("org.tinglan.audio", DISPATCH_QUEUE_SERIAL);
         owner.loader=loader;
         dispatch_sync(owner.queue, ^{
             owner.player = [AVPlayer playerWithPlayerItem:[AVPlayerItem playerItemWithAsset:asset]];

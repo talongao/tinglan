@@ -6,7 +6,8 @@ import (
 
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
 )
 
 var editPlaylistID = tree.ID(shell, "edit-description")
@@ -22,7 +23,6 @@ type writeResult struct {
 	err      error
 }
 type writeState struct {
-	writer       *huawei.Writer
 	writeBusy    bool
 	writeCancel  context.CancelFunc
 	writeResults []writeResult
@@ -32,44 +32,45 @@ type writeState struct {
 	writeView    flex.View
 }
 
-func (m *model) initWriter() {
-	if m.session == nil {
-		return
+func (m *model) toggleFavorite(track music.Track) {
+	if track.Source == "" {
+		track.Source = music.SourceHuawei
 	}
-	var save func(bool) error
-	var load func() (bool, error)
-	if m.accountStore != nil {
-		save = m.accountStore.SetCreationPending
-		load = m.accountStore.CreationPending
-	}
-	m.writer = huawei.NewWriter(huawei.NewClient(), m.session, save, load)
-	if m.accountStore != nil {
-		m.writer.WithCreationJournal(m.accountStore.LoadCreationIntent, m.accountStore.SaveCreationIntent)
-	}
-}
-func (m *model) toggleFavorite(track huawei.Track) {
 	if m.demo {
 		m.favoriteKnown[track.ID] = true
 		m.favoriteOff[track.ID] = !m.favoriteOff[track.ID]
 		return
 	}
-	if m.writer == nil || m.writeBusy {
+	if m.local == nil {
 		return
 	}
-	m.writeBusy = true
-	writer, epoch := m.writer, m.accountEpoch
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	m.writeCancel = cancel
-	go func() {
-		defer cancel()
-		old, err := writer.Favorite(ctx, track.ID)
-		target := !old
-		if err == nil {
-			err = writer.SetFavorite(ctx, track.ID, target)
+	if _, ok := m.canonicalRow(track.ID); ok {
+		m.removeLocalFavorite(track.ID)
+		return
+	}
+	if _, ok := m.local.RowForLink(music.SourceHuawei, track.ID); ok {
+		if err := m.local.RemoveLink(music.SourceHuawei, track.ID); err != nil {
+			m.setStatus("移除本地收藏失败")
+			return
 		}
-		m.postWrite(writeResult{epoch: epoch, id: track.ID, kind: "favorite", favorite: target, err: err})
-	}()
+		m.installLocalLibrary()
+		m.setStatus("已从本地收藏移除")
+		return
+	}
+	judge, policy := m.matchJudge()
+	added, err := m.local.Add(context.Background(), track, judge, policy)
+	if err != nil {
+		m.setStatus("加入本地收藏失败")
+		return
+	}
+	m.installLocalLibrary()
+	if added {
+		m.setStatus("已加入本地收藏")
+	} else {
+		m.setStatus("已在本地收藏中")
+	}
 }
+
 func (m *model) postWrite(r writeResult) {
 	m.mu.Lock()
 	if !m.closed {
@@ -93,10 +94,10 @@ func (m *model) applyWrites() {
 			if m.expireSession(r.err) {
 				continue
 			}
-			m.status = "操作未确认，请刷新核对后重试。"
+			m.setStatus("操作未确认，请刷新核对后重试。")
 			continue
 		}
-		m.status = "操作成功，已读取服务端确认。"
+		m.setStatus("操作成功，已读取服务端确认。")
 		if r.kind == "favorite" {
 			m.favoriteKnown[r.id] = true
 			m.favoriteOff[r.id] = !r.favorite
@@ -122,27 +123,62 @@ func (m *model) confirmWrite() {
 		return
 	}
 	kind, id, text := m.dialog, m.dialogID, m.writeField.Text()
+	if kind == "delete-local" {
+		m.dialog = ""
+		m.deleteLocalPlaylist(id)
+		return
+	}
+	if kind == "plugin-enable" {
+		m.dialog = ""
+		id := music.SourceID(id)
+		if m.plugins != nil {
+			if err := m.plugins.MarkConsented(id); err != nil {
+				m.notify("无法记录授权：" + err.Error())
+			}
+		}
+		m.enablePlugin(id)
+		return
+	}
+	if kind == "import-remote" {
+		m.dialog = ""
+		if m.remotePendingOK {
+			p := m.remotePending
+			m.remotePendingOK = false
+			m.importPlaylist(p)
+		}
+		return
+	}
+	if kind == "clear-queue" {
+		m.dialog = ""
+		m.cancelPlayback()
+		m.queue.Replace(nil, 0)
+		m.audioState.Position = 0
+		m.audioState.Duration = 0
+		m.saveQueue()
+		m.notify("队列已清空")
+		return
+	}
 	if kind == "clear-local-lyrics" {
 		if m.store != nil {
 			if err := m.store.ClearLyrics(true); err != nil {
-				m.status = "本地导入清理失败"
+				m.setStatus("本地导入清理失败")
 				return
 			}
 			m.lyricStats = m.store.LyricsInfo()
 		}
 		m.lyricLines = nil
 		m.lyricSource = ""
-		m.status = "本地导入歌词已清除"
+		m.setStatus("本地导入歌词已清除")
 		m.dialog = ""
 		return
 	}
 	if kind == "description" && len([]rune(text)) > 200 {
-		m.status = "歌单简介最多 200 个字。"
+		m.setStatus("歌单简介最多 200 个字。")
 		return
 	}
 	m.dialog = ""
 	if m.demo {
-		m.status = "合成模式：未向真实账号发送写请求。"
+		m.setStatus("合成模式：未向真实账号发送写请求。")
 		if kind == "description" && m.detail != nil {
 			m.detail.Description = text
 		}
@@ -157,10 +193,11 @@ func (m *model) confirmWrite() {
 		}
 		return
 	}
-	if m.writer == nil {
+	manage := m.manageSource()
+	if manage == nil {
 		return
 	}
-	writer, epoch := m.writer, m.accountEpoch
+	epoch := m.accountEpoch
 	m.writeBusy = true
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	m.writeCancel = cancel
@@ -169,16 +206,16 @@ func (m *model) confirmWrite() {
 		var err error
 		switch kind {
 		case "description":
-			err = writer.UpdateDescription(ctx, id, text)
+			err = manage.UpdatePlaylistDescription(ctx, source.EntityRef{Source: music.SourceHuawei, Kind: "playlist", ID: id}, text)
 		case "delete":
-			err = writer.DeletePlaylist(ctx, id)
+			err = manage.DeletePlaylist(ctx, source.EntityRef{Source: music.SourceHuawei, Kind: "playlist", ID: id})
 		}
 		m.postWrite(writeResult{epoch: epoch, id: id, kind: kind, err: err})
 	}()
 }
 func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	initial := writeFieldID
-	if m.dialog == "delete" || m.dialog == "clear-local-lyrics" {
+	if m.dialog == "delete" || m.dialog == "delete-local" || m.dialog == "clear-local-lyrics" || m.dialog == "clear-queue" || m.dialog == "import-remote" || m.dialog == "plugin-enable" {
 		initial = cancelWriteID
 	}
 	modalFocus(c, writeDialogScope, initial, cancelWriteID)
@@ -191,12 +228,30 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	m.glass(c, b, 18, .92)
 	c.PushLayer(4)
 	defer c.PopLayer()
-	title := map[string]string{"description": "修改歌单简介", "delete": "确认删除自建歌单", "clear-local-lyrics": "清除全部本地导入歌词"}[m.dialog]
+	title := map[string]string{"description": "修改歌单简介", "delete": "确认删除自建歌单", "delete-local": "删除本地歌单", "clear-local-lyrics": "清除全部本地导入歌词", "clear-queue": "确认清空播放队列", "import-remote": "导入歌单", "plugin-enable": "启用外置音源"}[m.dialog]
 	m.text(c, title, rect(b.X+24, b.Y+24, 410, 34), 22, 600, m.ink())
 	if m.dialog == "clear-local-lyrics" {
 		m.text(c, "清除应用内导入副本，原始歌词文件不受影响。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
+	} else if m.dialog == "clear-queue" {
+		m.text(c, "清空后当前播放会停止，播放历史与收藏不受影响。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
+	} else if m.dialog == "import-remote" {
+		name := m.remotePending.Name
+		m.text(c, "导入「"+name+"」为本机的只读副本。不会修改平台上的歌单，之后可随时删除。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
+	} else if m.dialog == "plugin-enable" {
+		entry, _ := m.pluginEntry(music.SourceID(m.dialogID))
+		detail := entry.Name()
+		if entry.Dir != "" {
+			detail += "\n" + entry.Dir
+		}
+		m.text(c, detail, rect(b.X+24, b.Y+60, 410, 40), 11, 400, m.muted())
+		if summary := capabilitySummary(entry.Descriptor.Capabilities); summary != "" {
+			m.text(c, "能力："+summary, rect(b.X+24, b.Y+96, 410, 20), 11, 400, m.muted())
+		}
+		m.text(c, "外置音源是第三方程序，以你的用户权限运行。启用前请确认来源可信；它会申请自己的登录会话，本机曲库与其它音源的绑定不会共享给它。", rect(b.X+24, b.Y+120, 410, 70), 12, 400, m.secondary())
 	} else if m.dialog == "delete" {
 		m.text(c, "删除后无法撤销。仅删除当前选中的自建歌单。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
+	} else if m.dialog == "delete-local" {
+		m.text(c, "删除后无法撤销。只删除这个歌单，收录音乐与收藏不受影响。", rect(b.X+24, b.Y+92, 410, 50), 13, 400, m.secondary())
 	} else {
 		submitted := false
 		m.writeView.Draw(c, m.fieldTheme(), rect(b.X+24, b.Y+90, 410, 38), func(f *flex.Frame) {
@@ -208,8 +263,16 @@ func (m *model) paintWriteDialog(c *ui.Canvas, size ui.Size) {
 	}
 	if m.pill(c, cancelWriteID, rect(b.X+235, b.Y+200, 90, 34), "取消", false) {
 		m.dialog = ""
+		m.remotePendingOK = false
 	}
-	if m.pill(c, confirmWriteID, rect(b.X+339, b.Y+200, 90, 34), "确认", true) {
+	confirmLabel := "确认"
+	if m.dialog == "import-remote" {
+		confirmLabel = "导入"
+	}
+	if m.dialog == "plugin-enable" {
+		confirmLabel = "启用"
+	}
+	if m.pill(c, confirmWriteID, rect(b.X+339, b.Y+200, 90, 34), confirmLabel, true) {
 		m.confirmWrite()
 	}
 }

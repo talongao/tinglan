@@ -3,13 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/huawei"
-	"huawei-music-desktop/native/internal/icons"
-	"huawei-music-desktop/native/internal/library"
-	"huawei-music-desktop/native/internal/visual"
+	"tinglan/native/internal/icons"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
+	"tinglan/native/internal/visual"
 )
 
 var albumRows = tree.Sub(shell, tree.Name("album-links"))
@@ -20,7 +21,7 @@ var entityAlbumsNext = tree.ID(shell, "artist-albums-next")
 
 type entityResult struct {
 	generation uint64
-	detail     huawei.Detail
+	detail     music.Detail
 	err        error
 }
 
@@ -30,7 +31,7 @@ func (m *model) openEntity(kind, id, title string) {
 	}
 	m.entityGeneration++
 	gen := m.entityGeneration
-	m.entity = &huawei.Detail{ID: id, Title: title}
+	m.entity = &music.Detail{ID: id, Title: title}
 	m.entityKind = kind
 	m.entityScroll = 0
 	m.entityAlbumPage = 0
@@ -38,24 +39,40 @@ func (m *model) openEntity(kind, id, title string) {
 		m.entity.Tracks = syntheticTracks(min(m.demoCount, 20))
 		return
 	}
-	m.status = "正在读取详情…"
+	m.setStatus("正在读取详情…")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		client := huawei.NewClient()
+		catalog := m.catalogSource()
 		r := entityResult{generation: gen}
-		if kind == "artist" {
-			r.detail, r.err = client.ArtistDetail(ctx, id)
-		} else {
-			catalog := library.New(func(ctx context.Context, start, limit int) (huawei.Page, error) {
-				d, err := client.AlbumDetail(ctx, id, start, limit)
-				if start == 0 {
-					r.detail = d
+		src, hasSource := m.primarySource()
+		switch {
+		case catalog == nil || !hasSource:
+			r.err = fmt.Errorf("音源未注册")
+		case kind == "artist":
+			ref := source.EntityRef{Source: src.ID(), Kind: "artist", ID: id}
+			artist, err := catalog.ArtistDetail(ctx, source.EntityRequest{Ref: ref, Limit: 50})
+			r.err = err
+			r.detail = music.Detail{ID: artist.Artist.ID, Title: artist.Artist.Name, CoverURL: artist.Artist.CoverURL, Tracks: artist.Tracks, Albums: artist.Albums, More: artist.HasMoreTracks}
+		default:
+			ref := source.EntityRef{Source: src.ID(), Kind: "album", ID: id}
+			cursor := ""
+			for {
+				page, err := catalog.AlbumDetail(ctx, source.EntityRequest{Ref: ref, Cursor: cursor, Limit: 50})
+				if err != nil {
+					r.err = err
+					break
 				}
-				return huawei.Page{Tracks: d.Tracks, More: d.More, Next: d.Next, RawCount: d.Next - start}, err
-			})
-			r.err = catalog.LoadAll(ctx)
-			r.detail.Tracks, _ = catalog.Snapshot()
+				if r.detail.ID == "" {
+					r.detail = music.Detail{ID: page.Album.ID, Title: page.Album.Title, CoverURL: page.Album.CoverURL}
+				}
+				r.detail.Tracks = append(r.detail.Tracks, page.Tracks...)
+				r.detail.More = page.HasMore
+				if !page.HasMore || page.Next == "" || page.Next == cursor {
+					break
+				}
+				cursor = page.Next
+			}
 		}
 		m.mu.Lock()
 		if !m.closed {
@@ -78,11 +95,19 @@ func (m *model) applyEntities() {
 			if m.expireSession(r.err) {
 				continue
 			}
-			m.status = "详情读取失败，请返回后重试"
+			m.setStatus("详情读取失败，请返回后重试")
 			continue
 		}
-		m.entity = &r.detail
-		m.status = "详情已更新"
+		detail := r.detail
+		// Album responses often omit the title even though the row that opened
+		// them carried one; keep the entry label instead of rendering a blank.
+		if strings.TrimSpace(detail.Title) == "" {
+			detail.Title = m.entity.Title
+		}
+		if detail.CoverURL == "" {
+			detail.CoverURL = m.entity.CoverURL
+		}
+		m.entity = &detail
 	}
 }
 func (m *model) paintEntity(c *ui.Canvas, b ui.Rect) {
@@ -91,16 +116,6 @@ func (m *model) paintEntity(c *ui.Canvas, b ui.Rect) {
 		m.entityGeneration++
 		return
 	}
-	side := float32(150)
-	if b.Width < 800 {
-		side = 112
-	}
-	extra := float32(0)
-	if len(m.entity.Albums) > 0 {
-		extra = 44
-	}
-	b.Height = min(b.Height, side+53+float32(len(m.entity.Tracks))*58+extra)
-
 	kind := "专辑"
 	if m.entityKind == "artist" {
 		kind = "歌手"
@@ -109,7 +124,15 @@ func (m *model) paintEntity(c *ui.Canvas, b ui.Rect) {
 	if m.entityKind == "album" && len(m.entity.Tracks) > 0 {
 		meta = m.entity.Tracks[0].ArtistText() + " · " + meta
 	}
-	listY := m.detailHero(c, b, kind, m.entity.Title, m.entity.CoverURL, meta, m.entity.Tracks)
+	// The whole page scrolls: cover, artist albums and track list move
+	// together. Scrolling only the list left a 4-row window glued under the
+	// cover, which read as "the album page cannot scroll".
+	contentH := entityContentHeight(b.Width, b.Height, len(m.entity.Albums), len(m.entity.Tracks))
+	off := max(0, min(max(0, contentH-b.Height), m.entityScroll))
+	m.entityScroll = off
+	c.Clip(b)
+	hero := rect(b.X, b.Y-off, b.Width, b.Height)
+	listY := m.detailHero(c, hero, kind, "", m.entity.CoverURL, meta, m.entity.Tracks)
 	if len(m.entity.Albums) > 0 {
 		columns := max(1, int((b.Width-86)/180))
 		start := min(m.entityAlbumPage*columns, len(m.entity.Albums)-1)
@@ -117,6 +140,7 @@ func (m *model) paintEntity(c *ui.Canvas, b ui.Rect) {
 			a := m.entity.Albums[i]
 			if m.pill(c, entityAlbums.At(i), rect(b.X+21+float32(i-start)*180, listY, 168, 32), a.Title, false) {
 				m.openEntity("album", a.ID, a.Title)
+				c.Unclip()
 				return
 			}
 		}
@@ -128,14 +152,41 @@ func (m *model) paintEntity(c *ui.Canvas, b ui.Rect) {
 		}
 		listY += 44
 	}
-	m.paintTrackList(c, rect(b.X+21, listY, b.Width-42, max(0, b.Y+b.Height-listY-20)), m.entity.Tracks, true, true)
+	saved := m.entityScroll
+	m.entityScroll = 0
+	m.paintTrackList(c, rect(b.X+21, listY, b.Width-42, contentH), m.entity.Tracks, true, true)
+	m.entityScroll = saved
+	c.Unclip()
 }
 
-func (m *model) detailHero(c *ui.Canvas, b ui.Rect, kind, title, cover, meta string, tracks []huawei.Track) float32 {
+// entityContentHeight matches what paintEntity paints so the scroll limit and
+// the painting agree; otherwise one of them leaves blank space or hides rows.
+func entityContentHeight(w, h float32, albums, tracks int) float32 {
+	side := float32(150)
+	if w < 800 {
+		side = 112
+	}
+	if h < 300 {
+		side = 84
+	}
+	total := 15 + side + 18 + float32(tracks)*58 + 24
+	if albums > 0 {
+		total += 44
+	}
+	return total
+}
+
+func (m *model) detailHero(c *ui.Canvas, b ui.Rect, kind, title, cover, meta string, tracks []music.Track) float32 {
 	side, gap := float32(150), float32(24)
 	if b.Width < 800 {
 		side = 112
 		gap = 18
+	}
+	// A 900×600 window leaves ~320pt of content: the full hero then pushes the
+	// track list to two visible rows, so shrink it instead of hiding the list.
+	short := b.Height < 300
+	if short {
+		side, gap = 84, 14
 	}
 	art := rect(b.X+23, b.Y+15, side, side)
 	c.Shadow(art, 16, ui.ShadowStyle{OffsetY: 16, Blur: 36}, color(0x101216, .14))
@@ -149,14 +200,26 @@ func (m *model) detailHero(c *ui.Canvas, b ui.Rect, kind, title, cover, meta str
 	x := art.X + side + gap
 	w := b.X + b.Width - 23 - x
 	y := art.Y + side - 126
+	titleSize := float32(26)
+	if short {
+		y = art.Y + 4
+		titleSize = 18
+	}
 	m.text(c, kind, rect(x, y, w, 16), 10, 700, m.muted())
-	m.text(c, title, rect(x, y+23, w, 32), 26, 680, m.ink())
-	m.text(c, meta, rect(x, y+62, w, 18), 11, 400, m.muted())
-	play := rect(x, y+90, 98, 32)
+	// The page header already shows the entity name; repeating it in the hero
+	// only pushed the track list down.
+	metaY, playY := float32(62), float32(90)
+	if title != "" {
+		m.text(c, title, rect(x, y+23, w, 32), titleSize, 680, m.ink())
+	} else {
+		metaY, playY = 23, 52
+	}
+	m.text(c, meta, rect(x, y+metaY, w, 18), 11, 400, m.muted())
+	play := rect(x, y+playY, 98, 32)
 	c.Shadow(play, 16, ui.ShadowStyle{OffsetY: 6, Blur: 14}, color(0xc8202e, .2))
 	c.Rounded(play, 16, m.accent())
-	c.DrawIcon(icons.PlayFilled, rect(x+16, y+100, 12, 12), color(0xffffff, 1))
-	m.text(c, "播放全部", rect(x+35, y+90, 58, 32), 12, 600, color(0xffffff, 1))
+	c.DrawIcon(icons.PlayFilled, rect(play.X+16, play.Y+10, 12, 12), color(0xffffff, 1))
+	m.text(c, "播放全部", rect(play.X+35, play.Y, 58, 32), 12, 600, color(0xffffff, 1))
 	if hit(c, allID, play, "播放全部") {
 		m.startTracks(tracks, 0)
 	}

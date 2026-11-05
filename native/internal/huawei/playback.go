@@ -11,11 +11,18 @@ import (
 
 // Playback is transient: it must never be included in queue/profile documents.
 type Playback struct {
-	URL       string `json:"-"`
-	Quality   string
-	Duration  *float64
+	URL      string `json:"-"`
+	Quality  string
+	Duration *float64
+	// Preview marks a trial stream. The provider's auditionTime field appears on
+	// full resources too, so only the stream path is trusted as evidence.
+	Preview   bool
 	LyricURL  string `json:"-"`
 	LyricText string `json:"-"`
+	// WordURL points at the provider's word-by-word lyric (`.hmrc`). It is
+	// provider-internal: only the source adapter reads it before turning the
+	// document into the neutral lyrics.Line form.
+	WordURL string `json:"-"`
 }
 
 func (Playback) String() string   { return "[transient playback]" }
@@ -89,6 +96,7 @@ func (c *Client) ResolvePlayback(ctx context.Context, s *Session, id, quality st
 		URL         string          `json:"fileURL"`
 		Quality     json.RawMessage `json:"playQuality"`
 		QualityType json.RawMessage `json:"qualityType"`
+		AuditionEnd json.RawMessage `json:"auditionEnd"`
 		Type        string          `json:"type"`
 		Song        json.RawMessage `json:"songInfo"`
 		LyricURL    string          `json:"lyricAddress"`
@@ -129,6 +137,22 @@ func (c *Client) ResolvePlayback(ctx context.Context, s *Session, id, quality st
 		}
 	}
 	p.Duration = number(song["duration"])
+	p.Preview = previewStream(response.URL)
+	// The word-by-word address arrives either at the top level or nested in
+	// songInfo, depending on the endpoint version.
+	blocks := []json.RawMessage{response.Lyrics}
+	if song := object(response.Song); len(song) > 0 {
+		blocks = append(blocks, song["lyrics"])
+	}
+	for _, block := range blocks {
+		lrc, hmrc := lyricURLs(block)
+		if hmrc != "" && p.WordURL == "" {
+			p.WordURL = hmrc
+		}
+		if lrc != "" && p.LyricURL == "" {
+			p.LyricURL = lrc
+		}
+	}
 	if SafeResourceURL(response.LyricURL) {
 		p.LyricURL = response.LyricURL
 	} else {
@@ -140,6 +164,32 @@ func (c *Client) ResolvePlayback(ctx context.Context, s *Session, id, quality st
 		}
 	}
 	return p, nil
+}
+
+// lyricURLs reads the provider's lyric block. The block arrives either as an
+// object or as a JSON string holding one; word-by-word lives next to the plain
+// LRC in it.
+func lyricURLs(raw json.RawMessage) (lrc, hmrc string) {
+	obj := object(raw)
+	if len(obj) == 0 {
+		return "", ""
+	}
+	lrc = stringField(obj["lineByLineLyric"])
+	hmrc = stringField(obj["wordByWordLyric"])
+	if !SafeResourceURL(lrc) {
+		lrc = ""
+	}
+	if !SafeResourceURL(hmrc) {
+		hmrc = ""
+	}
+	return lrc, hmrc
+}
+
+// previewStream reports the one stream shape the provider uses for trials.
+// auditionEnd/auditionTime are not evidence: they also appear on full
+// resources, which is how a complete 5:02 track was once flagged as a trial.
+func previewStream(raw string) bool {
+	return strings.Contains(strings.ToLower(raw), "/preview/")
 }
 
 var flacCodec = regexp.MustCompile(`\bflac\b`)

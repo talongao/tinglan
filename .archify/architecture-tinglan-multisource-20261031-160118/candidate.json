@@ -1,0 +1,574 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "听澜 · 多源收藏与播放架构",
+    "locale": "zh-CN",
+    "output": ".archify/architecture-tinglan-multisource-20261031-160118/tinglan-multisource.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/talongao/tinglan",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "44351f399637fc24f3efa64ab73cb32e48271205"
+    }
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "桌面用户",
+      "sublabel": "点歌 · 导入",
+      "tag": "本机",
+      "icon": "person",
+      "pos": [
+        15,
+        376
+      ],
+      "size": [
+        90,
+        64
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 16,
+          "end_line": 20
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "原生界面",
+      "sublabel": "收藏行 · 源徽标",
+      "tag": "改造",
+      "icon": "frontend",
+      "pos": [
+        160,
+        370
+      ],
+      "size": [
+        130,
+        76
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/shell.go",
+          "line": 180,
+          "end_line": 294,
+          "label": "现状：窗口与列表"
+        },
+        {
+          "path": "native/cmd/music/settings.go",
+          "line": 101,
+          "end_line": 112,
+          "label": "现状：设置页签"
+        }
+      ]
+    },
+    {
+      "id": "resolver",
+      "type": "backend",
+      "label": "播放解析",
+      "sublabel": "三态取源 · 导入序",
+      "tag": "改造",
+      "icon": "backend",
+      "pos": [
+        350,
+        366
+      ],
+      "size": [
+        146,
+        84
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/playback.go",
+          "line": 26,
+          "end_line": 99,
+          "label": "现状：单源解析"
+        },
+        {
+          "path": "native/internal/huawei/playback.go",
+          "line": 78,
+          "end_line": 99,
+          "label": "现状：单源取流"
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "音源契约层",
+      "sublabel": "导入 / 取源 / 能力",
+      "tag": "统一接口",
+      "icon": "backend",
+      "pos": [
+        560,
+        366
+      ],
+      "size": [
+        150,
+        84
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/library.go",
+          "line": 211,
+          "end_line": 218,
+          "label": "现状：收藏直连华为"
+        },
+        {
+          "path": "native/cmd/music/playback.go",
+          "line": 50,
+          "end_line": 50,
+          "label": "现状：取流直连华为"
+        }
+      ]
+    },
+    {
+      "id": "huawei",
+      "type": "backend",
+      "label": "华为音乐适配器",
+      "sublabel": "OAuth · 收藏 · 权益",
+      "tag": "改造",
+      "icon": "cloud",
+      "pos": [
+        770,
+        366
+      ],
+      "size": [
+        165,
+        84
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/library.go",
+          "line": 172,
+          "end_line": 197,
+          "label": "现状：收藏分页"
+        },
+        {
+          "path": "native/internal/huawei/playback.go",
+          "line": 78,
+          "end_line": 99,
+          "label": "现状：取流/权益"
+        },
+        {
+          "path": "native/internal/huawei/client.go",
+          "line": 19,
+          "end_line": 26,
+          "label": "现状：TLS/鉴权"
+        }
+      ]
+    },
+    {
+      "id": "netease",
+      "type": "backend",
+      "label": "网易云适配器",
+      "sublabel": "登录态 · 收藏 · 权益",
+      "tag": "新增",
+      "icon": "cloud",
+      "pos": [
+        770,
+        545
+      ],
+      "size": [
+        165,
+        84
+      ]
+    },
+    {
+      "id": "matcher",
+      "type": "backend",
+      "label": "同曲归并",
+      "sublabel": "候选索引 · 灰区",
+      "tag": "新增",
+      "icon": "backend",
+      "pos": [
+        555,
+        190
+      ],
+      "size": [
+        160,
+        76
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/library.go",
+          "line": 22,
+          "end_line": 30,
+          "label": "现状：曲目元数据"
+        }
+      ]
+    },
+    {
+      "id": "local",
+      "type": "database",
+      "label": "本地收藏库",
+      "sublabel": "规范库 · 队列",
+      "tag": "新增",
+      "icon": "database",
+      "pos": [
+        145,
+        190
+      ],
+      "size": [
+        160,
+        76
+      ],
+      "sources": [
+        {
+          "path": "native/internal/storage/store.go",
+          "line": 81,
+          "end_line": 91,
+          "label": "现状：队列快照"
+        },
+        {
+          "path": "native/internal/storage/store.go",
+          "line": 106,
+          "end_line": 121,
+          "label": "现状：原子存储"
+        },
+        {
+          "path": "native/internal/player/queue.go",
+          "line": 8,
+          "end_line": 24,
+          "label": "现状：运行时队列"
+        }
+      ]
+    },
+    {
+      "id": "audio",
+      "type": "backend",
+      "label": "原生音频引擎",
+      "sublabel": "源白名单 · Range",
+      "tag": "保留",
+      "icon": "backend",
+      "pos": [
+        343,
+        545
+      ],
+      "size": [
+        160,
+        80
+      ],
+      "sources": [
+        {
+          "path": "native/internal/audio/player_darwin.go",
+          "line": 31,
+          "end_line": 40,
+          "label": "现状：AVFoundation"
+        },
+        {
+          "path": "native/internal/audio/remote_darwin.go",
+          "line": 31,
+          "end_line": 57,
+          "label": "现状：远端流"
+        },
+        {
+          "path": "native/internal/audio/player_portable.go",
+          "line": 49,
+          "end_line": 57,
+          "label": "现状：跨平台输出"
+        }
+      ]
+    },
+    {
+      "id": "huawei_cloud",
+      "type": "cloud",
+      "label": "华为音乐云",
+      "sublabel": "收藏 API · 媒体 CDN",
+      "tag": "外部",
+      "icon": "cloud",
+      "pos": [
+        1000,
+        368
+      ],
+      "size": [
+        170,
+        80
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/library.go",
+          "line": 172,
+          "end_line": 197,
+          "label": "现状：业务 API"
+        },
+        {
+          "path": "native/internal/huawei/playback.go",
+          "line": 78,
+          "end_line": 99,
+          "label": "现状：音频 CDN 地址"
+        }
+      ]
+    },
+    {
+      "id": "netease_cloud",
+      "type": "cloud",
+      "label": "网易云音乐",
+      "sublabel": "社区 API · 媒体 CDN",
+      "tag": "待接入",
+      "icon": "cloud",
+      "pos": [
+        1000,
+        547
+      ],
+      "size": [
+        170,
+        80
+      ]
+    },
+    {
+      "id": "jev",
+      "type": "external",
+      "label": "TypeSafe Jev",
+      "sublabel": "模型服务 · Noul 0–1",
+      "tag": "可选",
+      "icon": "external",
+      "pos": [
+        560,
+        30
+      ],
+      "size": [
+        150,
+        64
+      ]
+    },
+    {
+      "id": "os",
+      "type": "external",
+      "label": "系统音频输出",
+      "sublabel": "CoreAudio / WASAPI / ALSA",
+      "tag": "本机",
+      "icon": "external",
+      "pos": [
+        335,
+        715
+      ],
+      "size": [
+        176,
+        60
+      ],
+      "sources": [
+        {
+          "path": "native/internal/audio/player_darwin.go",
+          "line": 6,
+          "end_line": 17,
+          "label": "现状：系统输出"
+        },
+        {
+          "path": "native/internal/audio/player_portable.go",
+          "line": 15,
+          "end_line": 19,
+          "label": "现状：跨平台输出"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "本机进程 · 本地数据边界",
+      "wraps": [
+        "ui",
+        "resolver",
+        "gateway",
+        "huawei",
+        "netease",
+        "matcher",
+        "local",
+        "audio"
+      ],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "源侧云服务 · 各自账号域",
+      "wraps": [
+        "huawei_cloud",
+        "netease_cloud"
+      ],
+      "pad": 16
+    },
+    {
+      "kind": "region",
+      "label": "可选外部判定 · 仅元数据",
+      "wraps": [
+        "jev"
+      ],
+      "pad": 16
+    }
+  ],
+  "connections": [
+    {
+      "id": "open",
+      "from": "user",
+      "to": "ui",
+      "label": "点歌",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "play",
+      "from": "ui",
+      "to": "resolver",
+      "label": "播放",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "resolve",
+      "from": "resolver",
+      "to": "gateway",
+      "label": "取源",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "source",
+      "from": "gateway",
+      "to": "huawei",
+      "label": "解析",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "netease-parse",
+      "from": "gateway",
+      "to": "netease",
+      "label": "解析",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "huawei-api",
+      "from": "huawei",
+      "to": "huawei_cloud",
+      "label": "签名",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "netease-api",
+      "from": "netease",
+      "to": "netease_cloud",
+      "label": "签名",
+      "fromSide": "right",
+      "toSide": "left",
+      "route": "straight"
+    },
+    {
+      "id": "open-audio",
+      "from": "resolver",
+      "to": "audio",
+      "label": "打开流",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight"
+    },
+    {
+      "id": "audio-out",
+      "from": "audio",
+      "to": "os",
+      "label": "PCM",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight"
+    },
+    {
+      "id": "import-order",
+      "from": "local",
+      "to": "resolver",
+      "label": "导入序",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "pair",
+      "from": "gateway",
+      "to": "matcher",
+      "label": "候选配对",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "route": "straight"
+    },
+    {
+      "id": "merge",
+      "from": "matcher",
+      "to": "local",
+      "label": "合并写入",
+      "fromSide": "left",
+      "toSide": "right",
+      "route": "straight"
+    },
+    {
+      "id": "jev",
+      "from": "matcher",
+      "to": "jev",
+      "label": "仅元数据",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "route": "straight"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "导入与归并",
+      "items": [
+        "契约：Import 分页拉收藏（显式集合/账号/游标）、Resolve 返回 Access 三态、Capabilities 静态声明音质与登录方式；首期华为 + 网易云。",
+        "导入幂等：源内 ID 去重；重复导入只刷新元数据与来源记录，不重置导入序号；单源失败/限流只影响该源，可续传。",
+        "归并：先源内 ID 精确去重，再用规范化标题 + 艺人集合做候选索引，专辑/时长消歧；live/remix/伴奏不合并；不做全库两两比较。",
+        "落库：CanonicalTrack 挂多个 SourceLink；收藏列表只读本地库；合并写带 schemaVersion、事务提交、迁移前备份；队列只存规范曲目引用。"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Jev 同曲判定（可选）",
+      "items": [
+        "设置项：开关、API Base（仅 HTTPS）、Bearer Key（独立命名空间）、模型（下拉 + 可输入）、Noul 阈值 0.80、超时；默认关闭。",
+        "列表三态：服务端列表缓存（GET /v1/models，失败保留上次）、本地手输列表、当前选择各自持久化；下拉展示去重并集并标“服务端/手动/曾成功”；刷新只替换服务端部分，不删手输、不自动切换；当前未列出标“当前未列出”，不判失效。",
+        "输入规则：Enter 只本地添加、选中并保存，不隐式验证或发送曲目；去首尾空白、拒绝空值/控制字符、限制长度与数量；模型 ID 按不透明字符串处理，不转小写；重复输入选中已有项；IME 组合态 Enter 不提交；删除非当前项不改选择；删除当前项时若服务端仍列出则保留，否则清空并提示；自动回退需显式展示。",
+        "调用/验证：POST /v1/systemone；state 只含两首曲目标题/艺人/专辑/时长/版本标记；type=noul；选择在用户操作时保存，成功回调只更新对应配置/模型的验证记录，不写回旧选择，缓存命中不刷新验证时间；成功不锁定版本；验证需业务成功 + answer 存在 + 有限 [0,1]，非仅 HTTP 200；服务端版本有则记录，无则标“版本未确认”。",
+        "失败/缓存：失败分类提示（模型不存在/认证/限流/网络/协议），不静默换模型、不删手输、不永久标无效；灰区失败保留两行。仅灰区调用；缓存键含元数据摘要 + 规则/模板版本 + 模型/别名 + 端点 + 凭据代次；阈值变更重解释分数；别名 TTL；启用时告知元数据可能透露偏好，Key 只发授权端点；关闭/切配置忽略旧结果；手输项仅本机不同步。"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "取源顺序与完整度",
+      "items": [
+        "取源顺序 = 该曲目 SourceLink 的导入序号（不是全局源优先级）：先导入先探，列表展示顺序不变。",
+        "Access = unknown | full | preview：只有确认可打开且完整的资源才结束选择；先导入的 preview 跳过继续找 full；全部 preview 才播最早一条并标试听。",
+        "探测有总预算、取消与有限重试；全部失败/未知不等于全部只能试听；播放中提前 EOF 提示并重新取源，不静默截断。",
+        "音质遵循用户设置（不是自动最高）；URL 只交给播放器，不落盘、不进日志；音频字节由引擎按源白名单直连该源 CDN。"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "信任边界与迁移",
+      "items": [
+        "本地档案独立于源账号：退出/过期只停用绑定，不删收藏、队列、历史；删除是单独动作。",
+        "凭据按源 + 账号隔离存应用数据目录（0700/0600，AES-GCM），不用钥匙串；Windows 目录 ACL 未验证，不能假设等价隔离。",
+        "资源白名单按源配置（华为/网易各自域名），保留 TLS 校验与重定向拒绝；不为了接新源放开全部域名。",
+        "外部边界：华为云、网易云、各自 CDN、Jev；歌词/封面按源 + 曲目缓存，切源后时间轴以实际录音为准。",
+        "Jev 配置身份：API Base 规范化 scheme/host/port/base path + 凭据引用；换端点必须确认是否发旧 Key；请求禁重定向/跨源认证；切端点/Key 增加配置代次，取消或忽略旧响应；列表/验证按端点 + 凭据代次隔离，缓存键不含原始 Key。"
+      ]
+    }
+  ]
+}

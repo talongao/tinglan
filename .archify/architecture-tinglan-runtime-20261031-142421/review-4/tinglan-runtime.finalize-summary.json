@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-runtime-20261031-142421/candidate.json",
+    "sha256": "f360ce92a407f591e674ab8e1a574d24dd59490e3a99d5fc5ec404e16ee5deb2",
+    "bytes": 12440
+  },
+  "artifact": {
+    "path": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-runtime-20261031-142421/tinglan-runtime.html",
+    "sha256": "0e4eb96e0d373b17c4e60e98d45eb76df8eab0b9a4eb3e30bbd9f107209e58c8",
+    "bytes": 868903
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-runtime-20261031-142421/review-4/tinglan-runtime.finalize.json",
+    "summaryReceipt": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-runtime-20261031-142421/review-4/tinglan-runtime.finalize-summary.json",
+    "browserCheckReceipt": "/Users/talon/Projects/tinglan/.archify/architecture-tinglan-runtime-20261031-142421/review-4/tinglan-runtime.browser-check.json"
+  },
+  "update": {
+    "status": "current",
+    "installedVersion": "3.2.0",
+    "availableVersion": "3.2.0",
+    "releaseNotes": null,
+    "checkedAt": "2026-10-31T06:35:15.914Z",
+    "source": "cache",
+    "noticeRequired": false,
+    "noticeText": null
+  },
+  "visualReview": "not-requested",
+  "durationMs": 5063,
+  "browserCheck": {
+    "requested": true,
+    "ran": true
+  },
+  "visualReviewRecommendation": {
+    "action": "inspect-route-readability",
+    "signals": {
+      "routesOverSuggestedBends": 1
+    },
+    "reason": "Automated gates passed, but crossings or detours still need perceptual review before claiming visual quality.",
+    "affectedRoutes": {
+      "crossings": [],
+      "detours": [
+        {
+          "relationship": {
+            "id": "lyrics-parse",
+            "from": "model",
+            "to": "lyrics",
+            "label": "解析歌词",
+            "collectionIndex": 12,
+            "artifactIndex": 13
+          },
+          "bends": 3,
+          "stretch": 1
+        }
+      ],
+      "truncated": false
+    },
+    "hints": [
+      "model → lyrics needs 3 bends: move node model or lyrics so they share a row or column with matching centers, or sit diagonally with a clear corner."
+    ],
+    "repair": "Trace these relationships at the desktop viewport. For Architecture, use references/architecture-layout-repair.md: reflow a blocked main path or tangled connected scene, and repair an isolated defect locally only when the surrounding composition is accepted. Preserve all semantic content and user-fixed geometry. Rerun finalize once after the edit."
+  }
+}

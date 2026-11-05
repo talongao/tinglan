@@ -19,6 +19,10 @@ on:
         description: Windows x64 installer
         type: boolean
         default: false
+      plugins:
+        description: 'Plugins to package: "all" or comma-separated ids (empty = none)'
+        type: string
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -30,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
+      plugins: ${{ steps.targets.outputs.plugins }}
     steps:
       - uses: actions/checkout@v4
       - id: targets
@@ -39,7 +44,9 @@ jobs:
           MAC_ARM64: ${{ inputs.mac_arm64 }}
           MAC_X64: ${{ inputs.mac_x64 }}
           WINDOWS_X64: ${{ inputs.windows_x64 }}
-        run: node native/scripts/ci-targets.mjs
+          PLUGINS: ${{ inputs.plugins }}
+        working-directory: native
+        run: go run ./cmd/tinglan-tool ci-targets
   build:
     if: github.event_name != 'pull_request'
     needs: plan
@@ -58,9 +65,6 @@ jobs:
         with:
           go-version-file: native/go.mod
           cache-dependency-path: native/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
       - name: Windows C compiler
         id: msys
         if: runner.os == 'Windows'
@@ -88,7 +92,11 @@ jobs:
       - name: Verify architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
-        run: node -e 'if (process.arch !== process.env.EXPECTED_ARCH) process.exit(1)'
+        shell: bash
+        run: |
+          want="$EXPECTED_ARCH"
+          [ "$want" = "x64" ] && want=amd64
+          test "$(go env GOARCH)" = "$want"
       - name: Dependencies and license sources
         working-directory: native
         run: go mod download
@@ -112,9 +120,25 @@ jobs:
         working-directory: native
         run: go vet ./...
       - name: UI checks
-        run: npm run test:native:ui
+        working-directory: native
+        run: go run ./cmd/tinglan-tool ui-check
       - name: Package
-        run: node native/scripts/package.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+        working-directory: native
+        run: go run ./cmd/tinglan-tool package ${{ matrix.platform }} ${{ matrix.arch }}
+      - name: Package plugins
+        if: needs.plan.outputs.plugins != ''
+        working-directory: native
+        shell: bash
+        env:
+          TINGLAN_PLUGINS: ${{ needs.plan.outputs.plugins }}
+        run: |
+          case "${{ matrix.id }}" in
+            macos-arm64) target=darwin-arm64 ;;
+            macos-x64) target=darwin-x64 ;;
+            windows-x64) target=windows-x64 ;;
+            *) echo "unknown matrix target"; exit 1 ;;
+          esac
+          go run ./cmd/tinglan-tool plugins "$target"
       - name: Check Windows installation
         if: runner.os == 'Windows'
         shell: pwsh
@@ -128,6 +152,14 @@ jobs:
         with:
           name: tinglan-${{ matrix.id }}-unsigned
           path: release/native/${{ matrix.directory }}/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload plugin packages
+        if: needs.plan.outputs.plugins != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinglan-${{ matrix.id }}-plugins
+          path: release/plugins/*
           if-no-files-found: error
           retention-days: 14
       - name: Upload failure diagnostics
@@ -183,6 +215,10 @@ jobs:
         with:
           pattern: tinglan-*-unsigned
           path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tinglan-*-plugins
+          path: plugin-artifacts
       - name: Verify all three installers
         run: |
           set -euo pipefail
@@ -193,7 +229,18 @@ jobs:
             find "$dir" -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.exe' \) -exec cp {} release-assets/ \;
             cat "$dir/SHA256SUMS" >> release-assets/SHA256SUMS
           done
-          test "$(find release-assets -type f | wc -l)" -eq 4
+          found=0
+          while IFS= read -r -d '' bundle; do
+            (cd "$(dirname "$bundle")" && sha256sum --check SHA256SUMS)
+            cp "$bundle" release-assets/
+            found=$((found+1))
+          done < <(find plugin-artifacts -name '*.zip' -print0)
+          expected=$(( $(ls -d plugins/*/ | wc -l) * 3 ))
+          test "$found" -eq "$expected"
+          for sums in plugin-artifacts/*/SHA256SUMS; do
+            cat "$sums" >> release-assets/SHA256SUMS
+          done
+          test "$(find release-assets -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.exe' \) | wc -l)" -eq 3
       - name: Publish immutable build as latest
         env:
           GH_TOKEN: ${{ github.token }}
@@ -201,7 +248,7 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          version=$(node -p 'require("./package.json").version')
+          version=$(cd native && go run ./cmd/tinglan-tool version --short)
           tag="v${version}-build.${RUN_NUMBER}"
           gh release create "$tag" release-assets/* --target "$COMMIT" \
             --latest --title "听澜 Tinglan ${version} · Build ${RUN_NUMBER}" \

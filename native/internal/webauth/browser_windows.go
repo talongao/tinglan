@@ -16,13 +16,12 @@ import (
 	"github.com/zzl/go-com/com"
 	"github.com/zzl/go-webview2/wv2"
 	"github.com/zzl/go-win32api/v2/win32"
-	"huawei-music-desktop/native/internal/huawei"
 )
 
 func NeedsManualCallback() bool { return false }
 
-func Authorize(ctx context.Context, attempt *huawei.Attempt) (string, error) {
-	return webViewAuthorize(ctx, attempt.AuthorizeURL(), huawei.AllowedLoginURL)
+func Authorize(ctx context.Context, flow Flow) (string, error) {
+	return webViewAuthorize(ctx, flow)
 }
 
 type authWindow struct {
@@ -30,7 +29,7 @@ type authWindow struct {
 	controller *wv2.ICoreWebView2Controller
 	view       *wv2.ICoreWebView2
 	ctx        context.Context
-	allowed    func(string) bool
+	flow       Flow
 	result     string
 	err        error
 	settled    bool
@@ -88,7 +87,8 @@ func (e *authEnvironment) EnvironmentCompleted(hr webviewloader.HRESULT, env *we
 
 // The STA owns all window/COM objects. Cancellation is polled by its timer so
 // no worker can call COM or destroy the window during a navigation callback.
-func webViewAuthorize(ctx context.Context, address string, allowed func(string) bool) (result string, resultErr error) {
+func webViewAuthorize(ctx context.Context, flow Flow) (result string, resultErr error) {
+	address := flow.AuthorizeURL()
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -101,7 +101,7 @@ func webViewAuthorize(ctx context.Context, address string, allowed func(string) 
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	if _, err := webviewloader.GetAvailableCoreWebView2BrowserVersionString(""); err != nil {
-		return "", errors.New("webview2 runtime unavailable")
+		return "", ErrWebView2Missing
 	}
 	dir, err := os.MkdirTemp("", "tinglan-webview-auth-")
 	if err != nil {
@@ -142,7 +142,14 @@ func webViewAuthorize(ctx context.Context, address string, allowed func(string) 
 	if hwnd == 0 {
 		return "", errors.New("authorization window initialization failed")
 	}
-	w := &authWindow{hwnd: hwnd, ctx: ctx, allowed: allowed, pending: true}
+	// The Huawei page is laid out in DIPs; a window sized in physical pixels
+	// shrinks to a cramped column on 150% displays, so scale the request.
+	if dpi := win32.GetDpiForWindow(hwnd); dpi > 96 {
+		width := int32(900 * dpi / 96)
+		height := int32(780 * dpi / 96)
+		win32.SetWindowPos(hwnd, 0, 0, 0, width, height, win32.SWP_NOMOVE|win32.SWP_NOZORDER)
+	}
+	w := &authWindow{hwnd: hwnd, ctx: ctx, flow: flow, pending: true}
 	authWindows.Store(hwnd, w)
 	defer authWindows.Delete(hwnd)
 	defer win32.DestroyWindow(hwnd)
@@ -238,11 +245,14 @@ func cleanupAuthProfile(dir string) {
 }
 
 func (w *authWindow) inspect(raw string) bool {
-	if huawei.IsCallback(raw) {
+	if w.flow == nil {
+		return false
+	}
+	if w.flow.IsCallback(raw) {
 		w.finish(raw, nil)
 		return false
 	}
-	return !w.settled && w.allowed(raw)
+	return !w.settled && w.flow.AllowedURL(raw)
 }
 
 func (w *authWindow) configure() bool {

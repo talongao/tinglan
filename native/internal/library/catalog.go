@@ -6,10 +6,10 @@ import (
 	"errors"
 	"sync"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
-type Fetch func(context.Context, int, int) (huawei.Page, error)
+type Fetch func(context.Context, int, int) (music.Page, error)
 type request struct {
 	done chan struct{}
 	err  error
@@ -17,7 +17,7 @@ type request struct {
 type Catalog struct {
 	mu         sync.Mutex
 	fetch      Fetch
-	tracks     []huawei.Track
+	tracks     []music.Track
 	seen       map[string]bool
 	next       int
 	done       bool
@@ -26,10 +26,10 @@ type Catalog struct {
 }
 
 func New(fetch Fetch) *Catalog { return &Catalog{fetch: fetch, seen: make(map[string]bool)} }
-func (c *Catalog) Snapshot() ([]huawei.Track, bool) {
+func (c *Catalog) Snapshot() ([]music.Track, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]huawei.Track(nil), c.tracks...), c.done
+	return append([]music.Track(nil), c.tracks...), c.done
 }
 func (c *Catalog) Reset() {
 	c.mu.Lock()
@@ -83,7 +83,7 @@ func (c *Catalog) LoadNext(ctx context.Context) error {
 		return err
 	}
 	added := 0
-	for _, track := range page.Tracks {
+	for _, track := range page.Items {
 		if !c.seen[track.ID] {
 			c.seen[track.ID] = true
 			c.tracks = append(c.tracks, track)

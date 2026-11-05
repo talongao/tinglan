@@ -85,9 +85,13 @@ extern void *hm_audio_from_asset(AVURLAsset *asset, id loader);
 void *hm_audio_remote(uintptr_t handle, long long total, const char *type) {
     HMResourceLoader *loader = [HMResourceLoader new];
     loader.handle = handle; loader.total = total; loader.type = [NSString stringWithUTF8String:type];
-    loader.control = dispatch_queue_create("org.hwmusicdesktop.media-loader", DISPATCH_QUEUE_SERIAL);
+    loader.control = dispatch_queue_create("org.tinglan.media-loader", DISPATCH_QUEUE_SERIAL);
     loader.workers = dispatch_group_create();loader.pending = [NSMutableSet new];
-    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL URLWithString:@"hwmusic-stream://current/audio"] options:@{AVURLAssetPreferPreciseDurationAndTimingKey:@YES}];
+    // Never ask for precise duration/timing on a remote stream: AVFoundation
+    // then scans the whole resource to compute it, so a 27 MB lossless FLAC is
+    // downloaded end to end before the first sample plays. Duration comes from
+    // the catalog, and AVPlayer reports a good estimate once playback starts.
+    AVURLAsset *asset = [AVURLAsset URLAssetWithURL:[NSURL URLWithString:@"hwmusic-stream://current/audio"] options:@{}];
     [asset.resourceLoader setDelegate:loader queue:loader.control];
     return hm_audio_from_asset(asset, loader);
 }

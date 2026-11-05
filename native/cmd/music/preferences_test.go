@@ -2,12 +2,16 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/source"
+	"tinglan/native/internal/source/sourcetest"
 )
 
 func TestSpaceShortcutAndTextEntry(t *testing.T) {
@@ -102,13 +106,68 @@ func TestExpiryClearsAccountButNotOnNetworkFailure(t *testing.T) {
 	m := newModel()
 	m.enableDemo(2)
 	old := m.accountEpoch
-	if m.expireSession(&huawei.ProviderError{Authenticated: true, Status: 503}) {
+	if m.expireSession(source.NewError(music.SourceHuawei, "check", source.KindNetwork, errors.New("outage"))) {
 		t.Fatal("outage logs out")
 	}
-	if !m.expireSession(&huawei.ProviderError{Authenticated: true, Status: 401}) {
+	if !m.expireSession(source.NewError(music.SourceHuawei, "check", source.KindLogin, errors.New("expired"))) {
 		t.Fatal("expiry ignored")
 	}
 	if m.accountEpoch == old || len(m.queue.Tracks) != 0 || m.status != "音乐会话已过期，请重新登录。" {
 		t.Fatal("account not cleared")
+	}
+}
+
+func TestSourceSettingsTab(t *testing.T) {
+	m := newModel()
+	m.enableDemo(2)
+	openProfileForTest(t, m, t.TempDir())
+	m.openLocalLibrary()
+	// Windows keeps the SQLite handle open; close it so TempDir cleanup works.
+	t.Cleanup(func() {
+		if m.local != nil {
+			_ = m.local.Close()
+		}
+	})
+	fake := &sourcetest.Fake{SourceID: music.SourceHuawei}
+	if err := m.registry.RegisterSource(fake); err != nil {
+		t.Fatalf("register source: %v", err)
+	}
+	var canvas ui.Canvas
+	d, err := app.NewDriver(config(m), &canvas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	click(t, d, nav.At(4))
+	click(t, d, tabs.At(3))
+	if m.settingsTab != 3 || m.settingsHeight() != 360 {
+		t.Fatalf("source tab = %d height %.0f", m.settingsTab, m.settingsHeight())
+	}
+	click(t, d, sourceSettings.At(0))
+	if m.sourceEnabled("huawei") {
+		t.Fatal("source toggle did not disable Huawei")
+	}
+	click(t, d, sourceSettings.At(0))
+	click(t, d, importFavoritesID)
+	if m.dialog != "import" {
+		t.Fatalf("import dialog = %q", m.dialog)
+	}
+	m.dialog = ""
+	click(t, d, tabs.At(4))
+	if m.settingsTab != 4 || m.settingsHeight() != 720 {
+		t.Fatalf("advanced tab = %d height %.0f", m.settingsTab, m.settingsHeight())
+	}
+	click(t, d, jevEnableID)
+	if !m.settings.Jev.Enabled {
+		t.Fatal("Jev toggle did not enable")
+	}
+	m.settings.Jev.Model = "test-model"
+	click(t, d, jevTestID)
+	if !strings.Contains(m.jevTestStatus, "缺少 API Key") {
+		t.Fatalf("test status = %q", m.jevTestStatus)
+	}
+	saved, err := m.store.LoadSettings()
+	if err != nil || !saved.Jev.Enabled {
+		t.Fatal("Jev setting not persisted")
 	}
 }

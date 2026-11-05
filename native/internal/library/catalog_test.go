@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"testing"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/music"
 )
 
 func Test965DedupRetryAndTotal(t *testing.T) {
 	calls, fail := 0, true
-	c := New(func(ctx context.Context, start, limit int) (huawei.Page, error) {
+	c := New(func(ctx context.Context, start, limit int) (music.Page, error) {
 		calls++
 		if start == 100 && fail {
 			fail = false
-			return huawei.Page{}, errors.New("synthetic network failure")
+			return music.Page{}, errors.New("synthetic network failure")
 		}
 		end := min(965, start+limit)
-		p := huawei.Page{Next: end, More: end < 965, RawCount: end - start}
+		p := music.Page{Next: end, More: end < 965}
 		for i := start; i < end; i++ {
-			p.Tracks = append(p.Tracks, huawei.Track{ID: fmt.Sprint(i), Title: "synthetic"})
+			p.Items = append(p.Items, music.Track{ID: fmt.Sprint(i), Title: "synthetic"})
 		}
 		return p, nil
 	})
@@ -45,10 +45,10 @@ func Test965DedupRetryAndTotal(t *testing.T) {
 
 func TestResetDiscardsInFlightAndNoProgressStops(t *testing.T) {
 	started, release := make(chan struct{}), make(chan struct{})
-	c := New(func(context.Context, int, int) (huawei.Page, error) {
+	c := New(func(context.Context, int, int) (music.Page, error) {
 		close(started)
 		<-release
-		return huawei.Page{Tracks: []huawei.Track{{ID: "old", Title: "old"}}}, nil
+		return music.Page{Items: []music.Track{{ID: "old", Title: "old"}}}, nil
 	})
 	result := make(chan error, 1)
 	go func() { result <- c.LoadNext(context.Background()) }()
@@ -62,8 +62,8 @@ func TestResetDiscardsInFlightAndNoProgressStops(t *testing.T) {
 	if len(tracks) != 0 || done {
 		t.Fatal("old account entered catalog")
 	}
-	c = New(func(context.Context, int, int) (huawei.Page, error) {
-		return huawei.Page{Next: 50, More: true, Tracks: []huawei.Track{{ID: "same", Title: "same"}}}, nil
+	c = New(func(context.Context, int, int) (music.Page, error) {
+		return music.Page{Next: 50, More: true, Items: []music.Track{{ID: "same", Title: "same"}}}, nil
 	})
 	if err := c.LoadNext(context.Background()); err != nil {
 		t.Fatal(err)

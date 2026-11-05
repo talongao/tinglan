@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -27,6 +29,13 @@ type Track struct {
 	CoverURL  string   `json:"coverUrl,omitempty"`
 	CoverURLs []string `json:"coverUrls,omitempty"`
 	Duration  *float64 `json:"durationSeconds,omitempty"`
+	// OnlySource restricts playback to one source binding. Imported playlists
+	// set it so a mirrored list never falls back to another platform's stream.
+	// It is queue state, not source metadata, so it stays out of API payloads.
+	OnlySource string `json:"-"`
+	// Collected marks a row that exists in 收录音乐, so its ID is a stable local
+	// id. Transient search results keep the platform id instead.
+	Collected bool `json:"-"`
 }
 
 func (t Track) ArtistText() string {
@@ -229,4 +238,30 @@ func (c *Client) Search(ctx context.Context, query string, start, limit int) (Pa
 	}
 	p.More = p.More && p.RawCount > 0
 	return p, nil
+}
+
+// fetchText downloads a small text resource such as a lyric document. The URL
+// must pass the same allowlist as audio so a provider response cannot point the
+// client at an arbitrary host.
+func (c *Client) fetchText(ctx context.Context, raw string, limit int64) (string, error) {
+	if !SafeResourceURL(raw) {
+		return "", errors.New("resource rejected")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, raw, nil)
+	if err != nil {
+		return "", errors.New("invalid resource request")
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		return "", errors.New("resource request failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", errors.New("resource request failed")
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, limit))
+	if err != nil {
+		return "", errors.New("resource read failed")
+	}
+	return string(body), nil
 }

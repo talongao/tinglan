@@ -144,6 +144,10 @@ func (c *Client) Exchange(ctx context.Context, attempt *Attempt) (*Session, erro
 	return &Session{token: result.Token, snsUserID: result.UserID, expireTime: result.Expiry}, nil
 }
 
+// ValidateSession confirms the token can read this account's favourites. An
+// expired token answers 200 with an empty list when a target user is named, so
+// this check alone cannot prove freshness; callers that need certainty compare
+// the returned list against local data.
 func (c *Client) ValidateSession(ctx context.Context, session *Session) error {
 	if session == nil || session.token == "" || session.snsUserID == "" {
 		return errors.New("music session missing")

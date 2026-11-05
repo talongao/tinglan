@@ -3,16 +3,17 @@ package main
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/components"
 	"github.com/vivaui/viva/flex"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/huawei"
-	"huawei-music-desktop/native/internal/icons"
-	"huawei-music-desktop/native/internal/lyrics"
-	"huawei-music-desktop/native/internal/visual"
+	"tinglan/native/internal/icons"
+	"tinglan/native/internal/lyrics"
+	"tinglan/native/internal/music"
+	"tinglan/native/internal/visual"
 )
 
 var (
@@ -31,6 +32,7 @@ var (
 	lyricsID          = tree.ID(shell, "lyrics-toggle")
 	closePanelID      = tree.ID(shell, "close-panel")
 	toggleID          = tree.ID(shell, "play-toggle")
+	retryPlaybackID   = tree.ID(shell, "playback-retry")
 	nextID            = tree.ID(shell, "next")
 	previousID        = tree.ID(shell, "previous")
 	shuffleID         = tree.ID(shell, "shuffle")
@@ -47,6 +49,8 @@ var (
 	resetID           = tree.ID(shell, "reset-appearance")
 	searchID          = tree.ID(shell, "search")
 	submitID          = tree.ID(shell, "submit-search")
+	searchClearID     = tree.ID(shell, "search-clear")
+	volumeMuteID      = tree.ID(shell, "volume-mute")
 	playlistRows      = tree.Sub(shell, tree.Name("playlists"))
 	backID            = tree.ID(shell, "back-playlists")
 	historySourceID   = tree.ID(shell, "history-source")
@@ -54,6 +58,7 @@ var (
 	offsetMinusID     = tree.ID(shell, "lyrics-earlier")
 	offsetPlusID      = tree.ID(shell, "lyrics-later")
 	lyricRows         = tree.Sub(shell, tree.Name("lyric-lines"))
+	collectRows       = tree.Sub(shell, tree.Name("track-collect"))
 )
 var navLabels = []string{"我的收藏", "我的歌单", "搜索", "播放历史", "设置"}
 var eyebrows = []string{"LIBRARY", "COLLECTIONS", "SEARCH", "HISTORY", "PREFERENCES"}
@@ -119,6 +124,19 @@ func (m *model) pill(c *ui.Canvas, id ui.ID, b ui.Rect, label string, primary bo
 	m.centerText(c, label, b, 12, 500, tint)
 	return hit(c, id, b, label)
 }
+
+// rowDim is the muted tint used for rows whose sources are all disabled.
+func (m *model) rowDim() ui.Color { return color(0x777d87, 1) }
+
+func (m *model) iconButtonDim(c *ui.Canvas, id ui.ID, b ui.Rect, icon ui.Icon, label string, active bool, dim bool) bool {
+	if !dim {
+		return m.iconButton(c, id, b, icon, label, active)
+	}
+	size := float32(19)
+	c.DrawIcon(icons.RoundedStroke(icon), rect(b.X+(b.Width-size)/2, b.Y+(b.Height-size)/2, size, size), m.rowDim())
+	return hit(c, id, b, label)
+}
+
 func (m *model) iconButton(c *ui.Canvas, id ui.ID, b ui.Rect, icon ui.Icon, label string, active bool) bool {
 	tint := m.muted()
 	if active {
@@ -318,6 +336,12 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 	}
 	left, right := x+pad+1, size.Width-10-pad-9
 	headerHeight := float32(123.8)
+	compact := size.Height <= 700
+	if compact {
+		// Short windows need the rows more than the masthead: shrink the
+		// fixed header instead of pushing the list under the player bar.
+		headerHeight = 92
+	}
 	eyebrow, title := eyebrows[m.view], navLabels[m.view]
 	if m.entity != nil {
 		headerHeight -= 18
@@ -325,12 +349,30 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 		if m.entityKind == "artist" {
 			eyebrow, title = "ARTIST", "歌手"
 		}
+		if name := strings.TrimSpace(m.entity.Title); name != "" {
+			title = name
+		}
 	}
-	m.text(c, eyebrow, rect(left, 37, 280, 14), 10, 700, m.muted())
-	m.text(c, title, rect(left, 59, 330, 34.8), 30, 680, m.ink())
+	if m.view == 1 && m.browseRemote {
+		title = "从" + m.accountSourceName() + "选择歌单"
+	}
+	if m.view == 1 && m.localDetail != nil {
+		title = m.localDetail.Name
+	}
+	eyebrowY, titleY, subtitleY := float32(37), float32(59), float32(100)
+	titleSize := float32(30)
+	if compact {
+		eyebrowY, titleY, subtitleY = 24, 42, 80
+		titleSize = 24
+	}
+	m.text(c, eyebrow, rect(left, eyebrowY, 280, 14), 10, 700, m.muted())
+	m.text(c, title, rect(left, titleY, 330, 34.8), titleSize, 680, m.ink())
 	subtitle := "收藏的全部歌曲，向下滚动自动加载"
 	if m.view == 1 {
 		subtitle = "收藏与自建歌单"
+		if m.browseRemote {
+			subtitle = "从" + m.accountSourceName() + "选择要导入的歌单"
+		}
 	}
 	if m.view == 4 {
 		subtitle = "播放、界面与隐私偏好"
@@ -338,28 +380,19 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 	if m.view == 2 {
 		subtitle = "搜索歌曲与艺人"
 	}
+	if m.view == 3 {
+		subtitle = "本机最近播放记录"
+	}
 	if m.entity == nil {
-		m.text(c, subtitle, rect(left, 100, 350, 18), 12, 400, m.muted())
+		m.text(c, subtitle, rect(left, subtitleY, 350, 18), 12, 400, m.muted())
 	}
 	if m.demo {
-		m.text(c, "离线合成数据", rect(right-150, 96, 150, 20), 12, 400, m.muted())
-	} else {
-		label := "扫码登录"
-		if m.session != nil {
-			label = "重新登录"
+		demoY := float32(96)
+		if compact {
+			demoY = subtitleY - 2
 		}
-		if m.busy {
-			label = "取消登录"
-		}
-		if m.pill(c, loginID, rect(right-110, 78, 110, 36), label, false) {
-			if m.busy {
-				m.cancelLogin()
-			} else {
-				m.startLogin()
-			}
-		}
+		m.text(c, "离线合成数据", rect(right-150, demoY, 150, 20), 12, 400, m.muted())
 	}
-	m.text(c, m.status, rect(left, 16.2+headerHeight, right-left, 22), 12, 400, m.muted())
 	content := rect(left, 55+headerHeight, right-left, size.Height-181-headerHeight)
 	if m.entity != nil {
 		m.paintEntity(c, content)
@@ -382,8 +415,23 @@ func (m *model) paint(c *ui.Canvas, size ui.Size) {
 		m.paintDrawer(c, size)
 	}
 	if m.dialog != "" {
-		m.paintWriteDialog(c, size)
+		switch m.dialog {
+		case "import":
+			m.paintImportDialog(c, size)
+		case "new-playlist":
+			m.paintNewPlaylistDialog(c, size)
+
+		case "add-playlist":
+			m.paintAddToPlaylistDialog(c, size)
+		case "account-switch":
+			m.paintAccountSwitchDialog(c, size)
+		case "webview-guide":
+			m.paintWebViewGuide(c, size)
+		default:
+			m.paintWriteDialog(c, size)
+		}
 	}
+	m.paintToast(c, size)
 	if m.fontListOpen {
 		m.paintFontList(c, size)
 	}
@@ -436,12 +484,24 @@ func (m *model) paintSidebar(c *ui.Canvas, size ui.Size, rail float32) {
 			}
 			m.text(c, label, rect(72, b.Y+10, rail-81, 18), 13, weight, tint)
 		}
+		if rail <= 76 && c.Hovered() == nav.At(i) {
+			// Icon-only rail: show the label on hover so the nav stays legible.
+			tip := rect(rail+10, b.Y+7, 84, 24)
+			c.PushLayer(6)
+			c.Shadow(tip, 8, ui.ShadowStyle{OffsetY: 3, Blur: 10}, color(0x101216, .16))
+			c.Rounded(tip, 7, m.surface(.98))
+			m.text(c, label, rect(tip.X+9, tip.Y+3, 70, 18), 11, 550, m.ink())
+			c.PopLayer()
+		}
 		if hit(c, nav.At(i), b, label) {
 			m.entity = nil
 			m.entityGeneration++
 			m.view = i
 			m.settingsSelect = ""
 			m.transportMenu = ""
+			// Leaving and re-entering 我的歌单 must always land on the local
+			// list, not on a stale remote-playlist browser.
+			m.browseRemote = false
 			if i == 4 && m.store != nil {
 				m.lyricStats = m.store.LyricsInfo()
 			}
@@ -460,26 +520,36 @@ func durationText(duration *float64) string {
 	return fmt.Sprintf("%d:%02d", int(*duration)/60, int(*duration)%60)
 }
 
-func (m *model) paintLibrary(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, search bool) {
+func (m *model) paintLibrary(c *ui.Canvas, b ui.Rect, tracks []music.Track, search bool) {
 	m.paintTrackList(c, b, tracks, search, false)
 }
-func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, search, detail bool) {
+func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []music.Track, search, detail bool) {
 	boxHeight := min(b.Height, float32(len(tracks))*58+155)
 	if detail {
 		boxHeight = b.Height
 	}
-	searchResults := search && m.view == 2 && m.entity == nil
-	if !detail && !searchResults {
+	searchResults := search && m.view == 2 && m.entity == nil && strings.TrimSpace(m.searchQuery) != ""
+	if !detail && !search && m.view != 3 {
+		// 搜索页有自己的标题行（结果数/空态/错误），绝不显示收藏页的
+		// “已加载 N 首”计数，也不显示播放全部/导入收藏。
 		count := fmt.Sprintf("已加载 %d 首", len(tracks))
 		if m.complete && !search {
 			count = fmt.Sprintf("共 %d 首收藏", len(tracks))
 		}
 		m.text(c, count, rect(b.X+21, b.Y+19, 240, 21), 15, 650, m.ink())
-		detailLabel := fmt.Sprintf("已加载 %d 首", len(tracks))
+		detailLabel := ""
 		if !search && m.libraryRefreshing {
 			detailLabel = "正在更新，保留上次完整列表"
+		} else if !m.complete || len(tracks) != len(m.tracks) {
+			// Only show a second count when it differs from the headline;
+			// "共 942 首收藏 / 已加载 942 首" is noise.
+			detailLabel = fmt.Sprintf("已加载 %d 首", len(tracks))
 		}
-		m.text(c, detailLabel, rect(b.X+21, b.Y+42, 260, 16), 11, 400, m.muted())
+		if detailLabel != "" {
+			m.text(c, detailLabel, rect(b.X+21, b.Y+42, 260, 16), 11, 400, m.muted())
+		}
+		// Keyed on the window, not the list box: a short box (few tracks) or a
+		// tall one (942 tracks) must not change whether the guide is shown.
 		playAllBounds := rect(b.X+b.Width-171, b.Y+22, 64, 34)
 		m.text(c, "播放全部", playAllBounds, 12, 600, m.accent())
 		if hit(c, allID, playAllBounds, "播放全部") {
@@ -490,18 +560,52 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, s
 				m.loadLibrary(true)
 			}
 		}
-		if !search && m.pill(c, refreshID, rect(b.X+b.Width-101, b.Y+21, 80, 34), "刷新收藏", false) {
-			if m.catalog != nil && !m.loading {
-				m.refreshLibrary()
+		importLabel := "导入收藏"
+		if m.importing {
+			importLabel = "取消导入"
+		}
+		if !search && m.pill(c, refreshID, rect(b.X+b.Width-101, b.Y+21, 80, 34), importLabel, m.importing) {
+			if m.importing && m.importCancel != nil {
+				m.importCancel()
+				m.importing = false
+				m.importStatus = "已取消导入"
+			} else {
+				m.openImportDialog("favorites")
 			}
 		}
 	}
-	viewport := rect(b.X+21, b.Y+70, b.Width-42, max(0, boxHeight-90))
+	viewport := rect(b.X+21, b.Y+62, b.Width-42, max(0, boxHeight-82))
+	if m.background.Height > 0 && m.background.Height < 640 {
+		// Short windows drop the hint row; start the list just under the
+		// 播放全部 / 导入收藏 buttons so nothing overlaps.
+		viewport = rect(b.X+21, b.Y+60, b.Width-42, max(0, boxHeight-80))
+	}
+	if m.view == 3 && !detail {
+		viewport = rect(b.X+21, b.Y+2, b.Width-42, max(0, b.Height-8))
+	}
 	if detail {
 		viewport = b
 	}
 	if searchResults {
-		viewport = rect(b.X+21, b.Y, b.Width-42, max(0, b.Height-20))
+		// Do not present the loaded page size as a total: the result set is
+		// paginated, so a number here would grow while the user scrolls.
+		count := "搜索结果"
+		if m.searchLoading {
+			count = "正在搜索…"
+		} else if m.searchError {
+			count = "搜索失败，可点下方重试"
+		} else if len(tracks) == 0 {
+			count = fmt.Sprintf("没有找到“%s”", m.searchQuery)
+		}
+		m.text(c, count, rect(b.X+21, b.Y, 320, 20), 12, 600, m.muted())
+		// With a single source the tab row is hidden, so name the scope here.
+		// Multiple sources show their own tab row under the field instead.
+		if len(m.dialogSources()) <= 1 {
+			scope := "搜索范围：" + m.searchScopeLabel()
+			scopeWidth := m.textWidth(c, scope, 11, 400)
+			m.text(c, scope, rect(b.X+b.Width-21-scopeWidth, b.Y+1, scopeWidth, 18), 11, 400, m.muted())
+		}
+		viewport = rect(b.X+21, b.Y+26, b.Width-42, max(0, b.Height-46))
 	}
 	c.Clip(viewport)
 	offset := *m.trackScroll()
@@ -512,8 +616,9 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, s
 		}
 		r := rect(viewport.X, y, viewport.Width, 58)
 
+		available := m.trackAvailable(t)
 		current := m.queue.Current() != nil && m.queue.Current().ID == t.ID
-		if current {
+		if current && available {
 			tint := m.accent()
 			tint.Alpha = .09
 			c.Rounded(r, 11, tint)
@@ -545,12 +650,20 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, s
 				}
 			}
 		} else {
-			m.text(c, fmt.Sprintf("%02d", i+1), rect(r.X+17, y+20, 26, 18), 11, 400, color(0xb6bac1, 1))
+			indexTint := color(0xb6bac1, 1)
+			if !available {
+				indexTint = m.rowDim()
+			}
+			m.text(c, fmt.Sprintf("%02d", i+1), rect(r.X+17, y+20, 26, 18), 11, 400, indexTint)
 		}
 		titleX := r.X + 42
 		if b.Width > 740 {
 			c.Rounded(rect(titleX+10, y+9, 40, 40), 11, color(0xb6bac1, .25))
-			c.DrawIcon(icons.Music2, rect(titleX+20, y+19, 20, 20), color(0xb6bac1, 1))
+			placeholder := color(0xb6bac1, 1)
+			if !available {
+				placeholder = m.rowDim()
+			}
+			c.DrawIcon(icons.Music2, rect(titleX+20, y+19, 20, 20), placeholder)
 			m.trackCover(c, t, rect(titleX+10, y+9, 40, 40))
 			titleX += 62
 		}
@@ -558,26 +671,48 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, s
 		if current {
 			nameTint = m.accent()
 		}
+		subTint := m.muted()
+		if !available {
+			nameTint = m.rowDim()
+			subTint = m.rowDim()
+		}
 		m.text(c, t.Title, rect(titleX, y+10, r.Width*.4-30, 22), 13, 550, nameTint)
-		m.text(c, t.ArtistText(), rect(titleX, y+32, r.Width*.4-30, 18), 11, 400, m.muted())
+		m.text(c, t.ArtistText(), rect(titleX, y+32, r.Width*.4-30, 18), 11, 400, subTint)
 		if len(t.Artists) > 0 && t.Artists[0].ID != "" && hit(c, artistRows.At(i), rect(titleX, y+32, r.Width*.4-30, 18), "艺人 "+t.ArtistText()) {
 			m.openEntity("artist", t.Artists[0].ID, t.Artists[0].Name)
 		}
-		album := "—"
+		album := ""
 		if t.Album != nil {
 			album = t.Album.Title
 		}
-		m.text(c, album, rect(r.X+104+(r.Width-236)*.6+12, y+20, (r.Width-236)*.4, 18), 11, 400, m.muted())
-		if t.Album != nil && t.Album.ID != "" && hit(c, albumRows.At(i), rect(r.X+104+(r.Width-236)*.6+12, y+20, (r.Width-236)*.4, 18), "专辑 "+album) {
+		albumRect := rect(r.X+104+(r.Width-236)*.6+12, y+20, 0, 18)
+		// Stop the album column where the source badges begin: a long album name
+		// used to run under the badge in a 900×600 window.
+		albumRect.Width = max(0, (r.X+r.Width-198)-albumRect.X)
+		if album != "" {
+			albumTint := m.muted()
+			if !available {
+				albumTint = m.rowDim()
+			}
+			m.text(c, album, albumRect, 11, 400, albumTint)
+		}
+		if t.Album != nil && t.Album.ID != "" && hit(c, albumRows.At(i), albumRect, "专辑 "+album) {
 			m.openEntity("album", t.Album.ID, t.Album.Title)
 		}
-		m.text(c, durationText(t.Duration), rect(r.X+r.Width-66, y+20, 42, 18), 11, 400, m.muted())
+		m.paintSourceBadges(c, t, rect(r.X+r.Width-192, y+19, 76, 20), !available)
+		if m.iconButtonDim(c, collectRows.At(i), rect(r.X+r.Width-83, y+14, 30, 30), icons.Plus, "加入歌单 "+t.Title, false, !available) {
+			m.openAddToPlaylist(t)
+		}
 		favorite := (!search || m.favoriteKnown[t.ID] || m.demo) && !m.favoriteOff[t.ID]
 		heart := icons.Heart
 		if favorite {
 			heart = icons.HeartFilled
 		}
-		if m.iconButton(c, hearts.At(i), rect(r.X+r.Width-43, y+14, 30, 30), heart, "切换收藏 "+t.Title, favorite) {
+		heartHint := "加入本机收藏 " + t.Title
+		if favorite {
+			heartHint = "从本机收藏移除 " + t.Title + "（不影响平台收藏）"
+		}
+		if m.iconButtonDim(c, hearts.At(i), rect(r.X+r.Width-43, y+14, 30, 30), heart, heartHint, favorite, !available) {
 			m.toggleFavorite(t)
 		}
 	}
@@ -599,6 +734,11 @@ func (m *model) paintTrackList(c *ui.Canvas, b ui.Rect, tracks []huawei.Track, s
 				}
 			}
 		} else if m.complete || search {
+			if search && !searchResults {
+				// 还没执行搜索时，列表区没有内容也没有语义可提示。
+				c.Unclip()
+				return
+			}
 			label := "已加载全部内容"
 			if !search {
 				label = "已加载全部收藏"
@@ -637,7 +777,29 @@ func (m *model) paintSearch(c *ui.Canvas, b ui.Rect) {
 	if m.pill(c, submitID, rect(b.X+b.Width-90, b.Y, 90, 36), "搜索", true) {
 		m.search()
 	}
-	m.paintLibrary(c, rect(b.X, b.Y+58, b.Width, b.Height-58), m.filtered, true)
+	if strings.TrimSpace(m.query.Text()) != "" {
+		if m.iconButton(c, searchClearID, rect(b.X+b.Width-146, b.Y+3, 30, 30), icons.X, "清空搜索", false) {
+			m.query.SetText("")
+			m.searchQuery = ""
+			m.filtered = nil
+			m.searchNext = 0
+			m.searchMore = false
+			m.searchError = false
+		}
+	}
+	tabsVisible := len(m.dialogSources()) > 1
+	if tabsVisible {
+		m.paintSearchTabs(c, rect(b.X, b.Y+46, b.Width, 32))
+	}
+	if strings.TrimSpace(m.query.Text()) == "" && !m.searchLoading && m.searchQuery == "" {
+		m.centerText(c, "输入歌曲或艺人名称开始搜索", rect(b.X, b.Y+140, b.Width, 24), 13, 400, m.muted())
+		return
+	}
+	listY := float32(100)
+	if tabsVisible {
+		listY = 88
+	}
+	m.paintLibrary(c, rect(b.X, b.Y+listY, b.Width, b.Height-listY), m.filtered, true)
 }
 
 func (m *model) scrollEvent(e ui.ScrollEvent) ui.EventResult {
@@ -668,7 +830,7 @@ func (m *model) scrollEvent(e ui.ScrollEvent) ui.EventResult {
 	if e.X < sidebarWidth(e.Viewport.Width)+20 || e.Y < 177 || e.Y > e.Viewport.Height-118 {
 		return ui.EventResult{Handled: true}
 	}
-	if m.view == 1 && m.detail == nil && m.entity == nil {
+	if m.view == 1 && m.detail == nil && m.localDetail == nil && m.entity == nil {
 		_, rowHeight := collectionCardSize(e.Viewport.Width - sidebarWidth(e.Viewport.Width) - 64)
 		m.scroll[1] = max(0, min(max(0, float32((len(m.playlists)+2)/3)*rowHeight-(e.Viewport.Height-351)), m.scroll[1]+e.DeltaY))
 		return ui.EventResult{Handled: true, Repaint: true}
@@ -679,12 +841,12 @@ func (m *model) scrollEvent(e ui.ScrollEvent) ui.EventResult {
 	}
 	if m.view == 1 {
 		tracks = m.detailTracks
+		if m.localDetail != nil {
+			tracks = m.localTracks
+		}
 	}
 	if m.view == 3 {
 		tracks = m.localHistory
-		if m.remoteHistoryOpen {
-			tracks = m.remoteHistory
-		}
 	}
 	if m.entity != nil {
 		tracks = m.entity.Tracks
@@ -698,21 +860,30 @@ func (m *model) scrollEvent(e ui.ScrollEvent) ui.EventResult {
 	if m.view == 2 && m.entity == nil {
 		maxOffset = max(0, float32(len(tracks))*58+60-(e.Viewport.Height-303-58-20))
 	}
-	if m.entity != nil || (m.view == 1 && m.detail != nil) {
-		extra := float32(183)
-		if e.Viewport.Width <= 1100 {
-			extra = 145
+	pad := float32(30)
+	if e.Viewport.Width <= 1100 {
+		pad = 22
+	}
+	contentW := e.Viewport.Width - sidebarWidth(e.Viewport.Width) - 20 - pad - 1 - 10 - pad - 9
+	headerHeight := float32(123.8)
+	if e.Viewport.Height <= 700 {
+		headerHeight = 92
+	}
+	contentH := e.Viewport.Height - 181 - (headerHeight - 18)
+	if m.entity != nil {
+		maxOffset = max(0, entityContentHeight(contentW, contentH, len(m.entity.Albums), len(tracks))-contentH)
+	} else if m.view == 1 && m.detail != nil {
+		extraRows := 0
+		if m.detail.Kind == "owned" {
+			extraRows = 1
 		}
-		if m.detail != nil && m.detail.Kind == "owned" {
-			extra += 44
-		}
-		if m.entity != nil && len(m.entity.Albums) > 0 {
-			extra += 44
-		}
-		maxOffset = max(0, float32(len(tracks))*58+64-(e.Viewport.Height-304.8-extra-20))
+		maxOffset = max(0, entityContentHeight(contentW, contentH, extraRows, len(tracks))-contentH)
+	} else if m.view == 1 && m.localDetail != nil {
+		maxOffset = max(0, entityContentHeight(contentW, contentH, 1, len(tracks))-contentH)
 	}
 	offset := m.trackScroll()
 	*offset = max(0, min(maxOffset, *offset+e.DeltaY))
+
 	if m.entity == nil && m.view == 0 && maxOffset-m.scroll[0] < 180 && !m.complete && !m.loading && !m.loadError {
 		m.loadLibrary(false)
 	}
@@ -738,6 +909,9 @@ func (m *model) pointerEvent(e ui.PointerEvent) ui.EventResult {
 			b := volumePopoverBounds(e.Viewport)
 			if m.transportMenu != "volume" || e.X < b.X || e.X > b.X+b.Width || e.Y < b.Y || e.Y > b.Y+b.Height {
 				m.transportMenu = ""
+				// Consume the dismissal click: it used to fall through to the
+				// row underneath and navigate away from the current list.
+				return ui.EventResult{Handled: true, Repaint: true}
 			}
 		}
 	}
@@ -842,4 +1016,68 @@ func (m *model) paintTitlebar(c *ui.Canvas, size ui.Size) {
 	c.PushLayer(10)
 	defer c.PopLayer()
 	c.MoveRegion(rect(leading, 0, max(0, size.Width-leading-trailing), 28))
+}
+
+// sourceBadgeLabel is the one-character badge for a source row: the plugin's
+// short name when it declares one, otherwise the built-in labels.
+func (m *model) sourceBadgeLabel(id music.SourceID) string {
+	if m.registry != nil {
+		if src, ok := m.registry.Source(id); ok {
+			if name := strings.TrimSpace(src.Describe().ShortName); name != "" {
+				runes := []rune(name)
+				if len(runes) > 2 {
+					runes = runes[:2]
+				}
+				return string(runes)
+			}
+		}
+	}
+	switch id {
+	case music.SourceHuawei:
+		return "华"
+	case music.SourceNetEase:
+		return "网"
+	}
+	if name := m.sourceDisplayName(id); name != "" {
+		runes := []rune(name)
+		return string(runes[:min(2, len(runes))])
+	}
+	return "?"
+}
+
+func (m *model) paintSourceBadges(c *ui.Canvas, track music.Track, b ui.Rect, dim bool) {
+	sources := m.rowSources[track.ID]
+	if len(sources) == 0 {
+		// Transient rows (search results, remote playlist entries, one-off
+		// history items) are not in 收录音乐 yet, so they have no canonical ID
+		// lookup. Show the source the row was returned by instead.
+		source := track.Source
+		if source == "" {
+			source = music.SourceHuawei
+		}
+		sources = []music.SourceID{source}
+	}
+	for i, source := range sources {
+		if i >= 3 {
+			break
+		}
+		label := m.sourceBadgeLabel(source)
+		width := float32(22)
+		if label != "" {
+			width = max(22, 10+float32(len([]rune(label)))*7)
+		}
+		r := rect(b.X+float32(i)*32, b.Y, width, 18)
+		tint := m.accent()
+		tint.Alpha = .10
+		ink := m.accent()
+		if dim {
+			tint = color(0x777d87, .10)
+			ink = m.rowDim()
+		}
+		c.Rounded(r, 5, tint)
+		m.text(c, label, rect(r.X+6, r.Y+1, 14, 16), 10, 600, ink)
+		// The badge is a one-character legend; give it an accessible label so
+		// hovering/AT explains which platform it stands for.
+		c.HitWithOptions(tree.ID(shell, "source-badge-"+track.ID+"-"+source.String()), r, "来源："+m.sourceDisplayName(source), ui.HitOptions{})
+	}
 }

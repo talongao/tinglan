@@ -1,5 +1,11 @@
 package webauth
 
+import "errors"
+
+// ErrWebView2Missing reports that the Windows machine has no WebView2 runtime.
+// The UI turns it into an install guide instead of a generic login failure.
+var ErrWebView2Missing = errors.New("webview2 runtime unavailable")
+
 // Only static local failure categories reach the UI, never remote error bodies.
 func LoginErrorMessage(err error) string {
 	if err != nil {

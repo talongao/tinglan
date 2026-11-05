@@ -1,0 +1,586 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "听澜 · 原生运行时架构",
+    "locale": "zh-CN",
+    "output": ".archify/architecture-tinglan-runtime-20261031-142421/tinglan-runtime.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/talongao/tinglan",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "44351f399637fc24f3efa64ab73cb32e48271205"
+    }
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "桌面用户",
+      "sublabel": "点歌 / 切歌",
+      "pos": [
+        30,
+        300
+      ],
+      "size": [
+        100,
+        58
+      ],
+      "sources": [
+        {
+          "path": "README.md",
+          "line": 16,
+          "end_line": 20
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "type": "frontend",
+      "label": "原生窗口与界面",
+      "sublabel": "Viva 窗口 · 歌词页",
+      "pos": [
+        230,
+        300
+      ],
+      "size": [
+        140,
+        74
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/shell.go",
+          "line": 180,
+          "end_line": 188
+        },
+        {
+          "path": "native/cmd/music/application.go",
+          "line": 94,
+          "end_line": 130
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "type": "backend",
+      "label": "桌面模型与命令循环",
+      "sublabel": "状态 · 队列 · 后台任务",
+      "pos": [
+        470,
+        300
+      ],
+      "size": [
+        150,
+        76
+      ],
+      "sources": [
+        {
+          "path": "native/cmd/music/main.go",
+          "line": 37,
+          "end_line": 80
+        },
+        {
+          "path": "native/cmd/music/main.go",
+          "line": 129,
+          "end_line": 178
+        }
+      ]
+    },
+    {
+      "id": "provider",
+      "type": "backend",
+      "label": "华为音乐协议客户端",
+      "sublabel": "PKCE · Digest · 读写接口",
+      "tag": "唯一凭据持有者",
+      "pos": [
+        720,
+        300
+      ],
+      "size": [
+        170,
+        76
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/auth.go",
+          "line": 16,
+          "end_line": 23
+        },
+        {
+          "path": "native/internal/huawei/client.go",
+          "line": 19,
+          "end_line": 26
+        },
+        {
+          "path": "native/internal/huawei/playback.go",
+          "line": 78,
+          "end_line": 99
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "cloud",
+      "label": "华为音乐业务 API",
+      "sublabel": "api-drcn.music.dbankcloud.cn",
+      "pos": [
+        990,
+        300
+      ],
+      "size": [
+        190,
+        76
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/library.go",
+          "line": 172,
+          "end_line": 197
+        }
+      ]
+    },
+    {
+      "id": "catalog",
+      "type": "backend",
+      "label": "音乐库目录",
+      "sublabel": "分页 · 去重 · 隔离",
+      "pos": [
+        230,
+        110
+      ],
+      "size": [
+        140,
+        66
+      ],
+      "sources": [
+        {
+          "path": "native/internal/library/catalog.go",
+          "line": 17,
+          "end_line": 27
+        },
+        {
+          "path": "native/internal/library/catalog.go",
+          "line": 44,
+          "end_line": 100
+        },
+        {
+          "path": "native/cmd/music/library.go",
+          "line": 211,
+          "end_line": 218
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "本地档案与凭据保险库",
+      "sublabel": "设置 · 队列 · 会话",
+      "tag": "0700 / 0600",
+      "pos": [
+        470,
+        110
+      ],
+      "size": [
+        150,
+        72
+      ],
+      "sources": [
+        {
+          "path": "native/internal/storage/store.go",
+          "line": 106,
+          "end_line": 154
+        },
+        {
+          "path": "native/internal/storage/vault.go",
+          "line": 15,
+          "end_line": 53
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "系统授权桥",
+      "sublabel": "OS 授权窗口 · 仅回传 code",
+      "pos": [
+        720,
+        110
+      ],
+      "size": [
+        170,
+        72
+      ],
+      "sources": [
+        {
+          "path": "native/internal/webauth/browser_darwin.go",
+          "line": 30,
+          "end_line": 50
+        },
+        {
+          "path": "native/internal/webauth/browser_windows.go",
+          "line": 22,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "lyrics",
+      "type": "backend",
+      "label": "歌词流水线",
+      "sublabel": "解析 · 偏移 · 导入",
+      "pos": [
+        230,
+        490
+      ],
+      "size": [
+        140,
+        66
+      ],
+      "sources": [
+        {
+          "path": "native/internal/lyrics/lyrics.go",
+          "line": 36,
+          "end_line": 85
+        },
+        {
+          "path": "native/internal/lyrics/fallback.go",
+          "line": 86,
+          "end_line": 118
+        },
+        {
+          "path": "native/cmd/music/playback.go",
+          "line": 67,
+          "end_line": 88
+        }
+      ]
+    },
+    {
+      "id": "playback",
+      "type": "backend",
+      "label": "原生播放引擎",
+      "sublabel": "AVFoundation / miniaudio",
+      "pos": [
+        470,
+        490
+      ],
+      "size": [
+        160,
+        76
+      ],
+      "sources": [
+        {
+          "path": "native/internal/audio/player_darwin.go",
+          "line": 31,
+          "end_line": 40
+        },
+        {
+          "path": "native/internal/audio/remote_darwin.go",
+          "line": 31,
+          "end_line": 57
+        },
+        {
+          "path": "native/cmd/music/playback.go",
+          "line": 26,
+          "end_line": 53
+        }
+      ]
+    },
+    {
+      "id": "stream",
+      "type": "backend",
+      "label": "音源流式读取",
+      "sublabel": "1 MiB Range · 只读",
+      "tag": "主机白名单",
+      "pos": [
+        720,
+        490
+      ],
+      "size": [
+        170,
+        72
+      ],
+      "sources": [
+        {
+          "path": "native/internal/resource/resource.go",
+          "line": 1,
+          "end_line": 37
+        },
+        {
+          "path": "native/internal/resource/resource.go",
+          "line": 61,
+          "end_line": 91
+        }
+      ]
+    },
+    {
+      "id": "cdn",
+      "type": "cloud",
+      "label": "华为音乐 CDN",
+      "sublabel": "*.dbankcdn.cn",
+      "pos": [
+        990,
+        490
+      ],
+      "size": [
+        190,
+        68
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/library.go",
+          "line": 50,
+          "end_line": 62
+        }
+      ]
+    },
+    {
+      "id": "oauth",
+      "type": "cloud",
+      "label": "华为账号 OAuth",
+      "sublabel": "oauth-login.cloud.huawei.com",
+      "pos": [
+        990,
+        110
+      ],
+      "size": [
+        190,
+        68
+      ],
+      "sources": [
+        {
+          "path": "native/internal/huawei/auth.go",
+          "line": 16,
+          "end_line": 23
+        }
+      ]
+    },
+    {
+      "id": "lyricprov",
+      "type": "external",
+      "label": "第三方歌词源",
+      "sublabel": "酷狗 · LRCLIB",
+      "pos": [
+        230,
+        680
+      ],
+      "size": [
+        140,
+        60
+      ],
+      "sources": [
+        {
+          "path": "native/internal/lyrics/fallback.go",
+          "line": 93,
+          "end_line": 97
+        },
+        {
+          "path": "native/internal/lyrics/fallback.go",
+          "line": 134,
+          "end_line": 178
+        }
+      ]
+    },
+    {
+      "id": "audioout",
+      "type": "external",
+      "label": "系统音频输出",
+      "sublabel": "CoreAudio / WASAPI",
+      "pos": [
+        470,
+        680
+      ],
+      "size": [
+        150,
+        60
+      ],
+      "sources": [
+        {
+          "path": "native/internal/audio/player_darwin.go",
+          "line": 6,
+          "end_line": 17
+        },
+        {
+          "path": "native/internal/audio/player_portable.go",
+          "line": 15,
+          "end_line": 19
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "本机用户会话 · 单进程运行时",
+      "wraps": [
+        "ui",
+        "model",
+        "auth",
+        "provider",
+        "catalog",
+        "playback",
+        "stream",
+        "lyrics",
+        "store"
+      ],
+      "pad": 14
+    },
+    {
+      "kind": "region",
+      "label": "华为云 · 第三方服务",
+      "wraps": [
+        "oauth",
+        "api",
+        "cdn"
+      ],
+      "pad": 14
+    },
+    {
+      "kind": "region",
+      "label": "第三方歌词源（可选）",
+      "wraps": [
+        "lyricprov"
+      ],
+      "pad": 14
+    }
+  ],
+  "connections": [
+    {
+      "id": "play-click",
+      "from": "user",
+      "to": "ui",
+      "label": "点歌",
+      "variant": "emphasis"
+    },
+    {
+      "id": "play-ui",
+      "from": "ui",
+      "to": "model",
+      "label": "界面事件",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "play-resolve",
+      "from": "model",
+      "to": "provider",
+      "label": "解析音源",
+      "variant": "emphasis"
+    },
+    {
+      "id": "play-api",
+      "from": "provider",
+      "to": "api",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "play-open",
+      "from": "model",
+      "to": "playback",
+      "label": "创建播放器",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top"
+    },
+    {
+      "id": "play-stream",
+      "from": "playback",
+      "to": "stream",
+      "label": "按需读取",
+      "variant": "emphasis"
+    },
+    {
+      "id": "play-cdn",
+      "from": "stream",
+      "to": "cdn",
+      "label": "Range",
+      "variant": "emphasis"
+    },
+    {
+      "id": "play-out",
+      "from": "playback",
+      "to": "audioout",
+      "label": "PCM 输出",
+      "variant": "emphasis"
+    },
+    {
+      "id": "login-start",
+      "from": "model",
+      "to": "auth",
+      "label": "登录 / 回调",
+      "variant": "security",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "login-oauth",
+      "from": "auth",
+      "to": "oauth",
+      "label": "OAuth",
+      "variant": "security"
+    },
+    {
+      "id": "library-page",
+      "from": "model",
+      "to": "catalog",
+      "label": "滚动分页",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "profile-io",
+      "from": "model",
+      "to": "store",
+      "label": "档案读写",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "lyrics-parse",
+      "from": "model",
+      "to": "lyrics",
+      "label": "解析歌词",
+      "fromSide": "bottom",
+      "toSide": "right"
+    },
+    {
+      "id": "lyrics-fallback",
+      "from": "lyrics",
+      "to": "lyricprov",
+      "label": "歌名 / 艺人"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "点播到出声",
+      "items": [
+        "点击歌曲只改队列；模型按代次取消旧解析，切歌不覆盖新请求",
+        "播放地址由协议客户端解析，只接受白名单 CDN 与曲目身份一致的响应",
+        "音频按 1 MiB Range 分块读入解码器；macOS 只把合成 URL 交给 AVFoundation"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "凭据与信任边界",
+      "items": [
+        "系统授权窗口只回传 hms:// 回调；密码与 Cookie 不进入应用",
+        "音乐会话只存在于协议层与保险库；AES-GCM 密文与密钥同文件",
+        "应用数据目录 0700、文件 0600，拒绝符号链接；文件权限即边界",
+        "第三方歌词只发送歌名、艺人、时长，可在设置关闭"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "支撑细节",
+      "items": [
+        "单个 Go 二进制 + Viva 渲染；无 Electron、无本地 HTTP 服务、无辅助进程",
+        "收藏分页到短页后按 contentID 去重；账号缓存以 snsUserID 哈希隔离",
+        "系统媒体集成：Now Playing / SMTC / MPRIS 与主线程派发",
+        "macOS 实机；Windows 包已构建但未实机验收；Linux 仅交叉编译"
+      ]
+    }
+  ]
+}

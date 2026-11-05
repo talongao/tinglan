@@ -94,7 +94,12 @@ func TestCompositionDoesNotConfirmOrDismiss(t *testing.T) {
 	click(t, d, nav.At(4))
 	click(t, d, tabs.At(1))
 	click(t, d, nav.At(1))
+	// Demo has no source registry, so enter the browser directly; the entry
+	// dialog itself is covered by the import-dialog tests.
+	m.browseRemote = true
+	m.loadCollections("playlists", true)
 	click(t, d, playlistRows.At(0))
+	click(t, d, confirmWriteID)
 	click(t, d, editPlaylistID)
 	input := m.textInput(app.TextInputContext{ID: writeFieldID})
 	input.Editor.SetMarkedText("候选", text.Range{Start: 0, End: 2})

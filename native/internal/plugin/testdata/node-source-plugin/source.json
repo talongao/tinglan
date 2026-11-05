@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "node-demo",
+  "version": "1.0.0",
+  "entry": {
+    "any": {
+      "command": "node",
+      "args": [
+        "main.mjs"
+      ]
+    }
+  }
+}

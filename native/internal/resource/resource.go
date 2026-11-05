@@ -8,11 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
-	"huawei-music-desktop/native/internal/huawei"
+	"tinglan/native/internal/huawei"
 )
 
 const MaxChunk = 1024 * 1024
@@ -23,6 +24,33 @@ type Client struct {
 }
 
 func New() *Client { return newClient(http.DefaultTransport, huawei.SafeResourceURL) }
+
+// NewFor builds a client that accepts only the given CDN suffixes. Sources
+// declare their domains through SourceDescriptor.ResourceDomains so the shell
+// no longer hard-codes a provider allowlist.
+func NewFor(domains []string) *Client {
+	allowed := func(raw string) bool {
+		u, err := url.Parse(raw)
+		if err != nil || u.Scheme != "https" || u.User != nil || (u.Port() != "" && u.Port() != "443") {
+			return false
+		}
+		host := strings.ToLower(u.Hostname())
+		for _, domain := range domains {
+			domain = strings.ToLower(strings.TrimSpace(domain))
+			if domain == "" {
+				continue
+			}
+			if !strings.HasPrefix(domain, ".") {
+				domain = "." + domain
+			}
+			if strings.HasSuffix(host, domain) && len(host) > len(domain) {
+				return true
+			}
+		}
+		return false
+	}
+	return newClient(http.DefaultTransport, allowed)
+}
 func newClient(t http.RoundTripper, allowed func(string) bool) *Client {
 	c := &Client{allowed: allowed}
 	c.http = &http.Client{Transport: t, Timeout: 25 * time.Second, CheckRedirect: func(r *http.Request, via []*http.Request) error {
@@ -41,6 +69,9 @@ type Chunk struct {
 	Total int64
 	MIME  string
 }
+
+// Allows reports whether raw may be fetched through this client.
+func (c *Client) Allows(raw string) bool { return c.allowed(raw) }
 
 func (c *Client) do(ctx context.Context, raw string, headers http.Header) (*http.Response, error) {
 	if !c.allowed(raw) {

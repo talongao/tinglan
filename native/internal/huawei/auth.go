@@ -138,3 +138,9 @@ func (a *Attempt) exchangeForm(now time.Time) (url.Values, error) {
 	a.code, a.verifier = "", ""
 	return form, nil
 }
+
+// IsCallback reports whether raw is the redirect this attempt expects.
+func (a *Attempt) IsCallback(raw string) bool { return IsCallback(raw) }
+
+// AllowedURL reports whether a navigation stays inside the login flow.
+func (a *Attempt) AllowedURL(raw string) bool { return AllowedLoginURL(raw) }

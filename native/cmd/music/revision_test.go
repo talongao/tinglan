@@ -4,12 +4,12 @@ import (
 	"errors"
 	"github.com/vivaui/viva/app"
 	"github.com/vivaui/viva/ui"
-	"huawei-music-desktop/native/internal/lyrics"
 	"math"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+	"tinglan/native/internal/lyrics"
 )
 
 func TestCoverBothPresentationsAndTransportMenus(t *testing.T) {
